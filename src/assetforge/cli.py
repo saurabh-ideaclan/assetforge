@@ -23,6 +23,7 @@ from assetforge.cli_export import register as register_export_command
 from assetforge.cli_jobs import jobs_app
 from assetforge.cli_ops import register as register_ops_commands
 from assetforge.cli_report import register as register_report_commands
+from assetforge.cli_ui import register as register_ui_commands
 from assetforge.cli_process import register as register_process_commands
 from assetforge.cli_common import JsonOpt, parse_pairs, session
 from assetforge.cli_common import dump as _dump
@@ -379,6 +380,7 @@ register_process_commands(app)
 register_export_command(app)
 register_ops_commands(app)
 register_report_commands(app)
+register_ui_commands(app)
 
 
 # ---------------------------------------------------------------------- entry point

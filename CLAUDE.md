@@ -15,7 +15,7 @@ it to **search for an existing asset before generating a new one**, then receive
 
 ```bash
 uv sync                       # install deps (Python 3.12+, uses .venv)
-uv run pytest                 # full suite (~21s, 442 tests, multi-process concurrency tests, no network)
+uv run pytest                 # full suite (~22s, 450 tests, multi-process concurrency tests, no network)
 uv run assetforge --help      # CLI entry point (also: uv run python -m assetforge)
 ```
 
@@ -169,6 +169,25 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   light/dark), and `to_csv` exports raw records.
 - CLI: `report` and `pricing show|update|set|unset` (`cli_report.py`). Schema v3 adds `usage_records`,
   `pricing_snapshots` and `price_overrides`.
+### Desktop app
+
+- `app/server.py`: stdlib `ThreadingHTTPServer` on 127.0.0.1 with a random port and session token (query, then
+  HttpOnly cookie, or `X-AssetForge-Token`), Host-header check, a pool of `Library(pooled=True)` connections,
+  static files with CSP, `FileResponse` with HTTP Range (audio seeking), and a `--parent-pid` watchdog.
+- `app/api.py`: `router` endpoints (`/api/overview|assets|assets/{id}|facets|jobs|report|audio/recipes|
+  image/options|generate/*|reveal`, `/media/variant/{id}`, `/media/thumb/{id}`) wrapping core modules. Image
+  generation runs in a background thread and returns `job_id` via `on_job`; the UI polls `/api/jobs/{id}`.
+- `core/browse.py`: exact filters + sort + offset/limit + total (shows all statuses), plus `facets()`.
+  Text queries use `search()` ranking.
+- `app/static/`: vanilla ES-module SPA (`app.js` hash router, `lib.js` helpers and column chart, `views/*.js`).
+  No build step. `tokens.css` is shared with `core/report_html.py`.
+- `macos/AssetForgeApp.swift`: Cocoa + WKWebView shell. It runs `python -m assetforge [--home LIB] ui --json
+  --port 0 --parent-pid PID`, reads the first stdout line `{"url", "port", "token", "home"}`, and loads the URL.
+  The library path is in UserDefaults `com.ideaclan.assetforge LibraryPath`. `app/installer.py` (`assetforge
+  app install`) compiles it with swiftc and writes Info.plist, `Resources/launch.json` (venv python + repo),
+  the icon (Pillow → iconutil) and an ad-hoc signature.
+- Dev loop: `.claude/launch.json` → `assetforge-ui` serves `.dev/live` on :8767 with token `dev`
+  (open `http://localhost:8767/?token=dev`).
 - **Tests never call real APIs**: the autouse `no_real_providers` fixture in `tests/conftest.py` chdirs away from the
   repo `.env`, clears key variables, and makes `openai.OpenAI`/`genai.Client` raise. Keep it that way.
   Live checks go in `.dev/` with `ASSETFORGE_HOME=$PWD/.dev/live` and cost real money, so keep them minimal.

@@ -176,6 +176,9 @@ def test_backfill_from_saved_responses(lib, monkeypatch):
     assert metering.backfill(lib) == 1 and metering.backfill(lib) == 0
     [record] = reporting.records(lib, reporting.resolve_range("all"))
     assert record["job_id"] == result.job_id and record["output_image_tokens"] == 1120
+    from assetforge.core import jobs
+
+    assert jobs.get_job(lib, result.job_id).cost_usd == pytest.approx(record["cost_usd"])
 
 
 # ---------------------------------------------------------------------- reports

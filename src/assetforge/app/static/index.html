@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AssetForge</title>
+  <link rel="stylesheet" href="/static/tokens.css">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand"><span class="logo" aria-hidden="true"></span>AssetForge</div>
+    <nav>
+      <a href="#/overview" data-nav="overview"><span class="ico">◎</span>Overview</a>
+      <a href="#/assets" data-nav="assets"><span class="ico">▦</span>Assets</a>
+      <a href="#/generate" data-nav="generate"><span class="ico">✦</span>Generate</a>
+      <a href="#/usage" data-nav="usage"><span class="ico">$</span>Usage &amp; cost</a>
+      <a href="#/jobs" data-nav="jobs"><span class="ico">≡</span>Jobs</a>
+    </nav>
+    <div class="library" id="library-path" title="Library folder"></div>
+  </aside>
+  <main id="view" tabindex="-1"></main>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <audio id="player" preload="none"></audio>
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>

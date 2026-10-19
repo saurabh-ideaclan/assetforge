@@ -89,6 +89,8 @@ class ProviderResponse:
 class ImageProvider(ABC):
     name: str = ""
     key_env: str = ""
+    # Whether `quality` changes the price beyond what `size_key()` already captures (cost-history matching).
+    quality_affects_cost: bool = True
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings

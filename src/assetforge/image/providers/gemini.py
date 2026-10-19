@@ -63,6 +63,7 @@ def _add_usage(usage: dict[str, int], meta: Any) -> None:
 class GeminiProvider(ImageProvider):
     name = "gemini"
     key_env = "GEMINI_API_KEY"
+    quality_affects_cost = False  # quality only picks the image size, which size_key() includes
 
     def __init__(self, settings: Any, client: Any = None) -> None:
         super().__init__(settings)

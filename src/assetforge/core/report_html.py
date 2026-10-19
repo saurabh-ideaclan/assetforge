@@ -4,17 +4,13 @@ from __future__ import annotations
 
 import html
 import math
+from pathlib import Path
 from typing import Any
 
+# Colour tokens are shared with the desktop app so reports and the app look the same.
+TOKENS = (Path(__file__).resolve().parent.parent / "app" / "static" / "tokens.css").read_text()
+
 STYLE = """
-.viz-root{color-scheme:light;--surface-0:#f4f4f2;--surface-1:#fcfcfb;--text-primary:#0b0b0b;--text-secondary:#52514e;
---text-muted:#7b7a75;--grid:#e6e5e1;--axis:#c9c8c2;--series-1:#2a78d6;--hover:#1c5cab;--border:#e2e1dc}
-@media (prefers-color-scheme: dark){:root:where(:not([data-theme="light"])) .viz-root{color-scheme:dark;
---surface-0:#121211;--surface-1:#1a1a19;--text-primary:#f0efec;--text-secondary:#c3c2b7;--text-muted:#8f8e86;
---grid:#2b2b29;--axis:#45443f;--series-1:#3987e5;--hover:#86b6ef;--border:#2e2e2c}}
-:root[data-theme="dark"] .viz-root{color-scheme:dark;--surface-0:#121211;--surface-1:#1a1a19;--text-primary:#f0efec;
---text-secondary:#c3c2b7;--text-muted:#8f8e86;--grid:#2b2b29;--axis:#45443f;--series-1:#3987e5;--hover:#86b6ef;
---border:#2e2e2c}
 body{margin:0;background:var(--surface-0)}
 .viz-root{font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;color:var(--text-primary);background:var(--surface-0);
 padding:24px 16px;max-width:1080px;margin:0 auto}
@@ -170,7 +166,7 @@ def render(report: dict[str, Any], *, title: str = "AssetForge usage & cost repo
     activity = ", ".join(f"{k}: {sum(v.values())}" for k, v in report["activity"].items()) or "none"
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(title)}</title>
-<style>{STYLE}</style></head><body><div class="viz-root">
+<style>{TOKENS}{STYLE}</style></head><body><div class="viz-root">
 <h1>{html.escape(title)}</h1>
 <p class="sub">{html.escape(rng['label'])} · {html.escape(rng['from'] or 'beginning')} → {html.escape(rng['to'])}
 ({html.escape(rng['tz'])}) · prices: {fetched}</p>

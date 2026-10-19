@@ -263,9 +263,12 @@ MIGRATIONS: list[tuple[int, list[str]]] = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, S
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 
 
-def connect(path: Path) -> sqlite3.Connection:
+def connect(path: Path, *, check_same_thread: bool = True) -> sqlite3.Connection:
+    """`check_same_thread=False` lets a pool hand one connection to different threads (never concurrently)."""
     try:
-        conn = sqlite3.connect(path, timeout=BUSY_TIMEOUT_MS / 1000, isolation_level=None)
+        conn = sqlite3.connect(
+            path, timeout=BUSY_TIMEOUT_MS / 1000, isolation_level=None, check_same_thread=check_same_thread
+        )
         conn.row_factory = sqlite3.Row
         conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
         _enable_wal(conn)

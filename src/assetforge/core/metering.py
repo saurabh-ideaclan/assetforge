@@ -129,11 +129,14 @@ def record_call(
 def estimate_call(lib: Library, provider: ImageProvider, call: ProviderCall) -> tuple[float, str]:
     """USD estimate for a call before making it, plus how it was estimated."""
     size = provider.size_key(call)
-    quality = call.quality
+    quality_clause, params = "", [provider.name, call.model, size or ""]
+    if provider.quality_affects_cost:
+        quality_clause = "AND ifnull(quality, '') = ? "
+        params.append(call.quality or "")
     rows = lib.conn.execute(
-        "SELECT cost_usd, images FROM usage_records WHERE provider = ? AND model = ? AND ifnull(quality, '') = ? "
-        "AND ifnull(size, '') = ? AND images > 0 AND cost_usd IS NOT NULL ORDER BY id DESC LIMIT ?",
-        (provider.name, call.model, quality or "", size or "", HISTORY_WINDOW),
+        "SELECT cost_usd, images FROM usage_records WHERE provider = ? AND model = ? AND ifnull(size, '') = ? "
+        f"{quality_clause}AND images > 0 AND cost_usd IS NOT NULL ORDER BY id DESC LIMIT ?",
+        [*params, HISTORY_WINDOW],
     ).fetchall()
     rates, _ = pricing.rates_for(lib, provider.name, call.model)
     input_cost = len(call.images) * (
@@ -167,13 +170,25 @@ def backfill(lib: Library) -> int:
         response = json.loads(path.read_text())
         request = json.loads(row["request"] or "{}")
         provider_request = response.get("provider_request") or {}
-        record_call(
+        record = record_call(
             lib, job_id=row["id"], operation="edit" if row["kind"] == "image_edit" else "generate",
             provider=response["provider"], model=response["model"], raw_usage=response.get("usage") or {},
             images=len(response.get("outputs", [])), input_images=provider_request.get("reference_images", 0) or 0,
             quality=(request.get("request") or {}).get("quality"),
-            size=provider_request.get("size") or provider_request.get("image_size"),
+            size=_size_key(provider_request),
             fallback_cost=response.get("cost_usd"), project=request.get("project"), created_at=row["created_at"],
         )  # fmt: skip
+        if record["cost_usd"] is not None:  # budgets sum job costs: keep them equal to the metered cost
+            with db.transaction(lib.conn):
+                lib.conn.execute("UPDATE generation_jobs SET cost_usd = ? WHERE id = ?", (record["cost_usd"], row["id"]))
         created += 1
     return created
+
+
+def _size_key(provider_request: dict[str, Any]) -> str | None:
+    """Same format as the providers' `size_key()`: OpenAI "1536x864", Gemini "16:9@2K"."""
+    if provider_request.get("size"):
+        return str(provider_request["size"])
+    if provider_request.get("aspect_ratio"):
+        return f"{provider_request['aspect_ratio']}@{provider_request.get('image_size') or '1K'}"
+    return provider_request.get("image_size")

@@ -6,6 +6,29 @@ generating anything new, and get stable IDs and file paths back as JSON.
 > Status: all six v1 phases are implemented: foundation, procedural audio, AI images, processing & QC, PixiJS
 > export, and multi-agent reliability (`request`, job queue, recovery, rate and spend limits).
 
+## Mac app (for people)
+
+Agents use the CLI. People can use **AssetForge.app**, a native macOS window with an overview dashboard, a browser
+for every asset (thumbnails, audio playback, variants, prompts, cost, QC, lineage), sound and image generation
+(with the cost shown before any paid call), usage and cost reports, and job history.
+
+```bash
+uv run assetforge app install            # builds ~/Applications/AssetForge.app (needs Xcode command line tools)
+```
+
+Then open AssetForge from Spotlight, Launchpad or the Dock. **File ▸ Open Library…** switches libraries (the
+default is `~/.assetforge`). The app runs this checkout's Python, so code changes apply on the next launch;
+re-run `app install` if you move the repo. API keys come from the same places as the CLI (environment,
+`.env` in the repo, `.env` in the library).
+
+No Mac app? Run the same UI in any browser:
+
+```bash
+uv run assetforge ui --browser
+```
+
+The UI server listens on 127.0.0.1 only, on a random port, and every request needs a per-session token.
+
 ## For agents: one command
 
 ```bash
@@ -91,6 +114,7 @@ assetforge review approve ast_00042 --note "matches style"
 | `config list\|get\|set\|unset` | Library-wide settings shared by all agents (budgets, provider limits, queue) |
 | `budget` | Provider spend vs daily/monthly limits (`--daily 5 --monthly 50 --per-request 0.5` to set) |
 | `errors` | The error-code catalog: exit code, meaning, what to do |
+| `ui` / `app install` | Desktop UI server (`--browser` to open it) / build the native AssetForge.app |
 | `report` | Token usage & cost overview for OpenAI/Gemini over a preset or custom date range (+ `--html`, `--csv`) |
 | `pricing show\|update\|set\|unset` | Model prices used for costing: fetched from the internet, overridable |
 

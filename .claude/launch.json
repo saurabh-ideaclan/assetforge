@@ -28,6 +28,23 @@
         ".dev/report"
       ],
       "port": 8766
+    },
+    {
+      "name": "assetforge-ui",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": [
+        "-m",
+        "assetforge",
+        "--home",
+        ".dev/live",
+        "ui",
+        "--port",
+        "8767",
+        "--token",
+        "dev"
+      ],
+      "port": 8767,
+      "url": "http://localhost:8767"
     }
   ]
 }

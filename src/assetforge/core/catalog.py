@@ -85,14 +85,14 @@ def normalize_tags(tags: list[str]) -> list[str]:
 class Library:
     """Opens (and if needed creates) the library at `home`, or $ASSETFORGE_HOME, or ~/.assetforge."""
 
-    def __init__(self, home: str | os.PathLike[str] | None = None) -> None:
+    def __init__(self, home: str | os.PathLike[str] | None = None, *, pooled: bool = False) -> None:
         self.paths = LibraryPaths(resolve_home(home))
         try:
             self.paths.ensure()
         except OSError as exc:
             raise StorageError(f"Cannot create library at {self.paths.home}: {exc}", home=str(self.paths.home)) from exc
         self.store = ObjectStore(self.paths)
-        self.conn = db.connect(self.paths.catalog)
+        self.conn = db.connect(self.paths.catalog, check_same_thread=not pooled)
         self.schema_version = db.migrate(self.conn)
 
     def close(self) -> None:

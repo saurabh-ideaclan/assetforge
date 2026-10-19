@@ -1,0 +1,56 @@
+/* Shared design tokens for the AssetForge app and HTML reports (light + dark, validated dataviz palette). */
+.viz-root, :root {
+  color-scheme: light;
+  --surface-0: #f4f4f2;
+  --surface-1: #fcfcfb;
+  --surface-2: #efeeea;
+  --sidebar: #ecebe7;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #7b7a75;
+  --grid: #e6e5e1;
+  --axis: #c9c8c2;
+  --border: #e2e1dc;
+  --series-1: #2a78d6;
+  --hover: #1c5cab;
+  --accent: #2a78d6;
+  --accent-ink: #ffffff;
+  --checker: #d9d8d3;
+  --good: #1f7a3a;   --good-bg: #e3f3e7;
+  --warn: #8a5a00;   --warn-bg: #fff1d6;
+  --bad: #a3221f;    --bad-bg: #fde2e2;
+  --muted-bg: #ebeae6;
+  --shadow: 0 6px 24px rgba(0, 0, 0, .12);
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])), :root:where(:not([data-theme="light"])) .viz-root {
+    color-scheme: dark;
+    --surface-0: #121211;
+    --surface-1: #1a1a19;
+    --surface-2: #232321;
+    --sidebar: #171716;
+    --text-primary: #f0efec;
+    --text-secondary: #c3c2b7;
+    --text-muted: #8f8e86;
+    --grid: #2b2b29;
+    --axis: #45443f;
+    --border: #2e2e2c;
+    --series-1: #3987e5;
+    --hover: #86b6ef;
+    --accent: #3987e5;
+    --checker: #2c2c2a;
+    --good: #6fcf8a;   --good-bg: #173521;
+    --warn: #f0b84a;   --warn-bg: #3a2c0f;
+    --bad: #f08a87;    --bad-bg: #3d1716;
+    --muted-bg: #2a2a28;
+    --shadow: 0 6px 24px rgba(0, 0, 0, .5);
+  }
+}
+:root[data-theme="dark"], :root[data-theme="dark"] .viz-root {
+  color-scheme: dark;
+  --surface-0: #121211; --surface-1: #1a1a19; --surface-2: #232321; --sidebar: #171716;
+  --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
+  --grid: #2b2b29; --axis: #45443f; --border: #2e2e2c; --series-1: #3987e5; --hover: #86b6ef; --accent: #3987e5;
+  --checker: #2c2c2a; --good: #6fcf8a; --good-bg: #173521; --warn: #f0b84a; --warn-bg: #3a2c0f;
+  --bad: #f08a87; --bad-bg: #3d1716; --muted-bg: #2a2a28; --shadow: 0 6px 24px rgba(0, 0, 0, .5);
+}
