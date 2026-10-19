@@ -135,7 +135,8 @@ dl.facts dd { margin: 0; word-break: break-word; }
 svg text { fill: var(--text-muted); font-size: 11px; }
 .chart .gridline { stroke: var(--grid); }
 .chart .axis { stroke: var(--axis); }
-.chart .bar { fill: var(--series-1); }
+.chart .bar { fill: var(--series-1); pointer-events: none; } /* the hover target sits under the bar */
+.chart .hit { cursor: default; }
 .chart .hit:hover + .bar, .chart .bar.active { fill: var(--hover); }
 .tip { position: absolute; pointer-events: none; background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
   padding: 6px 9px; font-size: 12px; box-shadow: var(--shadow); display: none; white-space: nowrap; z-index: 5; }

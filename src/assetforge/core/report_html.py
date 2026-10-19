@@ -21,7 +21,7 @@ h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:28px 0 10px}.sub{color
 .tile .note{color:var(--text-muted);font-size:12px}
 .card{background:var(--surface-1);border:1px solid var(--border);border-radius:10px;padding:14px;position:relative}
 svg text{fill:var(--text-muted);font-size:11px}.grid line{stroke:var(--grid)}.axis{stroke:var(--axis)}
-.bar{fill:var(--series-1)}.hit:hover+.bar,.bar.active{fill:var(--hover)}
+.bar{fill:var(--series-1);pointer-events:none}.hit:hover+.bar,.bar.active{fill:var(--hover)}
 .tip{position:absolute;pointer-events:none;background:var(--surface-1);border:1px solid var(--border);border-radius:8px;
 padding:6px 9px;font-size:12px;box-shadow:0 4px 14px rgba(0,0,0,.12);display:none;white-space:nowrap}
 table{width:100%;border-collapse:collapse;background:var(--surface-1);border:1px solid var(--border);border-radius:10px;
@@ -89,8 +89,9 @@ def chart(series: list[dict[str, Any]]) -> str:
         h = plot_h * point["cost_usd"] / peak if peak else 0
         tip = (f"<b>{html.escape(point['period'])}</b><br>{_money(point['cost_usd'])} · {point['images']} image(s)"
                f" · {point['calls']} call(s)<br>{_int(point['total_tokens'])} tokens")  # fmt: skip
-        parts.append(f'<rect class="hit" x="{left + band * i:.1f}" y="{top}" width="{band:.1f}" height="{plot_h}" '
-                     f'fill="transparent" data-tip="{html.escape(tip)}"/>')  # fmt: skip
+        hit_h = max(h + 3, 8)  # hover only on the bar (plus slack); zero days keep a thin baseline strip
+        parts.append(f'<rect class="hit" x="{x - 3:.1f}" y="{top + plot_h - hit_h:.1f}" width="{bar_w + 6:.1f}" '
+                     f'height="{hit_h:.1f}" fill="transparent" data-tip="{html.escape(tip)}"/>')  # fmt: skip
         if h > 0:
             parts.append(f'<path class="bar" d="{_bar_path(x, top + plot_h - h, bar_w, h)}"/>')
         else:

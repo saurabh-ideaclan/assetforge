@@ -167,7 +167,11 @@ export function columnChart(points, { value, label, tooltip, format = fmt.money 
     const v = value(p);
     const x = L + band * i + (band - bw) / 2;
     const bh = nice ? (ph * v) / nice : 0;
-    const hit = add("rect", { x: L + band * i, y: T, width: band, height: ph, fill: "transparent", class: "hit" });
+    // Hover only on the bar itself (a few px of slack so thin bars are easy to hit);
+    // zero days keep a thin strip on the baseline so they can still be inspected.
+    const pad = 3;
+    const hitH = Math.max(bh + pad, 8);
+    const hit = add("rect", { x: x - pad, y: T + ph - hitH, width: bw + 2 * pad, height: hitH, fill: "transparent", class: "hit" });
     const bar = add("path", { class: "bar", d: bh > 0 ? barPath(x, T + ph - bh, bw, bh) : `M${x},${T + ph} h0` });
     hit.addEventListener("mousemove", (e) => {
       const r = wrap.getBoundingClientRect();
