@@ -26,6 +26,7 @@ async function route() {
   }
   if (current.cleanup) current.cleanup();
   main.innerHTML = "";
+  main.scrollTop = 0; // each page starts at the top (main is the scroll container)
   try {
     const mounted = (await views[name](main, { rest, params })) || {};
     current = { name, ...mounted };
