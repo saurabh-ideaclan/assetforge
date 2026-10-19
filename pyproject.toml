@@ -1,0 +1,36 @@
+[project]
+name = "assetforge"
+version = "0.1.0"
+description = "Local-first game asset catalog, generator and exporter, driven by a CLI built for AI agents"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.7",
+    "pydantic>=2.7",
+    "pillow>=10.3",
+    "soundfile>=0.12",
+    "numpy>=1.26",
+    "scipy>=1.13",
+    "pedalboard>=0.9",
+    "openai>=3.35.1",
+    "google-genai>=2.31.0",
+]
+
+[project.scripts]
+assetforge = "assetforge.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/assetforge"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning:google.genai.*"]
