@@ -232,7 +232,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         guard let url = navigationAction.request.url else { return decisionHandler(.allow) }
         if url.scheme == "assetforge-action" {
             decisionHandler(.cancel)
-            if url.host == "retry" { startServer() } else if url.host == "open-library" { openLibrary(nil) }
+            switch url.host {
+            case "retry": startServer()
+            case "open-library": openLibrary(nil)
+            case "default-library": useDefaultLibrary(nil)
+            default: break
+            }
             return
         }
         let local = url.host == "127.0.0.1" || url.host == "localhost"

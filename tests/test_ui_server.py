@@ -108,10 +108,14 @@ def test_auth_host_and_static(server):
     assert jcall(server, "/api/nope")[0] == 404
 
 
-def test_overview_assets_detail_and_facets(server, stocked):
+def test_overview_assets_detail_and_facets(server, stocked, monkeypatch, tmp_path):
     status, d = jcall(server, "/api/overview?tz=Asia/Kolkata")
     assert status == 200 and d["counts"]["assets"] == 3 and d["by_status"] == {"approved": 2, "rejected": 1}
     assert len(d["newest"]) == 3 and d["spend"]["totals"]["calls"] == 0 and "monthly" in d["budget"]
+    assert d["library"]["is_default"] is True  # the library agents get from $ASSETFORGE_HOME
+    monkeypatch.setenv("ASSETFORGE_HOME", str(tmp_path / "agents-library"))
+    lib_info = jcall(server, "/api/overview")[1]["library"]
+    assert lib_info["is_default"] is False and lib_info["default_home"] == str((tmp_path / "agents-library").resolve())
     status, d = jcall(server, "/api/assets?type=character,sprite&sort=name&limit=1")
     assert d["total"] == 2 and [a["name"] for a in d["items"]] == ["hero"]
     status, d = jcall(server, f"/api/assets/{stocked['hero']}")

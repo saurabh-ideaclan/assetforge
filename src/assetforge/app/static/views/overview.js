@@ -23,6 +23,10 @@ export async function overview(root) {
 
   const spendTile = { value: null, note: null, label: null };
   root.append(
+    d.library.is_default ? null : h("div.notice",
+      h("div", h("b", "This isn't the default library."), " Agents write to ", h("span.mono", d.library.default_home),
+        " unless they pass --home, so their new assets and spend won't show here."),
+      h("a.btn", { href: "assetforge-action://default-library", title: "Same as File ▸ Use Default Library" }, "Switch to default library")),
     h("div.page-head",
       h("div", h("h1", "Overview"), h("div.sub", d.library.home)),
       h("div.actions", h("a.btn", { href: "#/assets" }, "Browse assets"), h("a.btn.primary", { href: "#/generate" }, "Generate"))),

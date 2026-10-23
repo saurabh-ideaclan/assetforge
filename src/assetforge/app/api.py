@@ -12,6 +12,7 @@ from assetforge.app.server import FileResponse, Request, Router
 from assetforge.audio.effects import EFFECTS
 from assetforge.audio.generate import AudioRequest, generate_audio
 from assetforge.audio.recipes import PRESETS, RECIPES
+from assetforge.config import resolve_home
 from assetforge.core import budget, jobs, lineage, pricing, previews, queue, reporting, styles
 from assetforge.core import collections as coll
 from assetforge.core.browse import SORTS, BrowseFilters, browse, facets
@@ -65,8 +66,10 @@ def overview(req: Request, lib: Library) -> dict[str, Any]:
     job_counts = {r[0]: r[1] for r in lib.conn.execute("SELECT status, count(*) FROM generation_jobs GROUP BY status")}
     total, newest = browse(lib, BrowseFilters(), sort="newest", limit=12)
     price = pricing.table(lib)
+    default_home = resolve_home(None)  # where agents write unless they pass --home or set ASSETFORGE_HOME
     return {
-        "library": {"home": info["home"], "schema_version": info["schema_version"], "stored_bytes": info["stored_bytes"]},
+        "library": {"home": info["home"], "schema_version": info["schema_version"], "stored_bytes": info["stored_bytes"],
+                    "default_home": str(default_home), "is_default": Path(info["home"]).resolve() == default_home},
         "counts": info["counts"],
         "by_type": info["by_type"],
         "by_status": info["by_status"],
