@@ -12,9 +12,20 @@ generating anything new, and get stable IDs and file paths back as JSON.
 
 ## Mac app (for people)
 
-Agents use the CLI. People can use **AssetForge.app**, a native macOS window with an overview dashboard, a browser
-for every asset (thumbnails, audio playback, variants, prompts, cost, QC, lineage), sound and image generation
-(with the cost shown before any paid call), usage and cost reports, and job history.
+Agents use the CLI. People can use **AssetForge.app**, a native macOS window with:
+
+- **Overview**: counts, spend, what's waiting for review (tiles link to the filtered views).
+- **Assets**: search plus filters by type, project, style, category, genre, theme, **colour, shape, tone and
+  transparency**, and "find similar". The detail panel has **review** (approve, reject, pick one of a batch),
+  editing of name/category/genre/theme/tags, **regenerate with feedback**, **slice a sheet into frames**, an
+  **animation player** for sliced sheets, similar-looking assets, QC, lineage and usage. Keyboard: ← → move,
+  A approve, X reject, F find similar, / search, Esc close.
+- **Generate**: images with a game, a style preset and art direction (mood, lighting, palette, avoid…), sprite
+  sheets with per-cell poses and automatic slicing, and the exact prompt and cost before anything is spent.
+  Sound effects too.
+- **Art direction**: edit each game's art profile (with a live prompt preview and YAML import/export) and browse
+  the presets.
+- **Usage & cost** and **Jobs**.
 
 ```bash
 uv run assetforge app install            # builds ~/Applications/AssetForge.app (needs Xcode command line tools)

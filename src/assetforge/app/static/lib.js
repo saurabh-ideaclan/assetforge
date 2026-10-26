@@ -267,3 +267,100 @@ export function rangePicker({ range = "last-30-days", from = "", to = "", onChan
   toInput.addEventListener("keydown", (e) => e.key === "Enter" && emit());
   return h("div.range-picker", h("span.range-title", "Date range"), select, custom);
 }
+
+/** Editable list of short strings shown as removable chips (tags, "avoid" items). */
+export function chipsInput(values = [], { placeholder = "add and press Enter", onchange } = {}) {
+  const items = [...values];
+  const list = h("span.chips-list");
+  const input = h("input", { type: "text", placeholder });
+  const wrap = h("div.chips", list, input);
+  const render = () => {
+    list.innerHTML = "";
+    items.forEach((v, i) => list.append(h("span.chip", v, h("button", { type: "button", title: "Remove",
+      onclick: () => { items.splice(i, 1); render(); onchange?.(items); } }, "×"))));
+  };
+  const add = () => {
+    for (const part of input.value.split(",").map((s) => s.trim()).filter(Boolean)) if (!items.includes(part)) items.push(part);
+    input.value = "";
+    render();
+    onchange?.(items);
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === ",") { e.preventDefault(); add(); }
+    else if (e.key === "Backspace" && !input.value && items.length) { items.pop(); render(); onchange?.(items); }
+  });
+  input.addEventListener("blur", () => input.value.trim() && add());
+  wrap.addEventListener("click", (e) => e.target === wrap && input.focus());
+  render();
+  wrap.values = () => { if (input.value.trim()) add(); return [...items]; };
+  wrap.set = (next) => { items.splice(0, items.length, ...(next || [])); render(); };
+  return wrap;
+}
+
+/** Palette editor: colour swatches with a picker, removable, max 12. */
+export function paletteInput(values = [], { onchange } = {}) {
+  const items = [...values];
+  const list = h("span.palette");
+  const picker = h("input", { type: "color", value: "#888888", title: "Pick a colour, then Add" });
+  const addBtn = h("button.btn.small", { type: "button", title: "Add the picked colour", onclick: () => {
+    const v = picker.value.toUpperCase();
+    if (!items.includes(v) && items.length < 12) { items.push(v); render(); onchange?.(items); }
+  } }, "+ Add");
+  const wrap = h("div.palette-input", list, h("span.palette-add", picker, addBtn));
+  const render = () => {
+    list.innerHTML = "";
+    if (!items.length) list.append(h("span.muted", "no palette"));
+    items.forEach((v, i) => list.append(h("button.swatch", { type: "button", title: `${v} — click to remove`, style: `background:${v}`,
+      onclick: () => { items.splice(i, 1); render(); onchange?.(items); } })));
+  };
+  render();
+  wrap.values = () => [...items];
+  wrap.set = (next) => { items.splice(0, items.length, ...(next || [])); render(); };
+  return wrap;
+}
+
+export function swatches(colors, size = 14) {
+  if (!colors?.length) return null;
+  return h("span.swatches", colors.map((c) => h("span.sw", {
+    title: typeof c === "string" ? c : `${c.name} ${c.hex} · ${Math.round(c.share * 100)}%`,
+    style: `width:${size}px;height:${size}px;background:${typeof c === "string" ? c : c.hex}` })));
+}
+
+/** Segmented control. options: [[value, label]]; returns the element with .value */
+export function segmented(options, value, onchange) {
+  const el = h("div.seg");
+  const render = () => {
+    el.innerHTML = "";
+    for (const [v, label] of options) {
+      el.append(h("button", { type: "button", class: v === el.value ? "on" : "", onclick: () => { el.value = v; render(); onchange(v); } }, label));
+    }
+  };
+  el.value = value;
+  render();
+  return el;
+}
+
+/** Collapsible section with a title and optional summary text. */
+export function section(title, body, { open = false, note = "" } = {}) {
+  return h("details.section", { open }, h("summary", h("span", title), note ? h("span.muted", note) : null), body);
+}
+
+export function field(label, control, help) {
+  return h("label", h("span.lbl", label), control, help ? h("span.help", help) : null);
+}
+
+/** Poll a background image job until it ends. Resolves with the job detail payload. */
+export function pollJob(jobId, onTick) {
+  return new Promise((resolve, reject) => {
+    const started = Date.now();
+    const timer = setInterval(async () => {
+      try {
+        const j = await api(`/api/jobs/${jobId}`);
+        if (j.job.status === "succeeded" || j.job.status === "failed" || j.job.status === "cancelled") {
+          clearInterval(timer);
+          j.job.status === "succeeded" ? resolve(j) : reject(new ApiError(j.job.error || { message: `Job ${j.job.status}` }));
+        } else onTick?.(Math.round((Date.now() - started) / 1000));
+      } catch (err) { clearInterval(timer); reject(err); }
+    }, 2000);
+  });
+}

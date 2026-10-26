@@ -293,6 +293,12 @@ def set_profile(lib: Library, project: str, direction: ArtDirection, *, replace:
     return get_profile(lib, project)
 
 
+def resolve_for_display(profile: ArtProfile) -> dict[str, Any]:
+    """Extra profile facts for UIs: the preset its style names, if any."""
+    preset = builtin_presets().get(style_slug(profile.direction.style) or "")
+    return {"preset": preset.name if preset else None}
+
+
 def delete_profile(lib: Library, project: str) -> None:
     get_profile(lib, project)
     with db.transaction(lib.conn):

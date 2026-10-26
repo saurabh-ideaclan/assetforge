@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from assetforge.core.catalog import Library
 from assetforge.core.models import AssetSummary, AssetType, FileKind, Origin, Status
 from assetforge.core.search import SearchQuery, search
+from assetforge.core.search import _filters as search_filters
 from assetforge.core.util import normalize_optional_slug, normalize_slug, qmarks
 from assetforge.errors import InvalidInputError
 
@@ -40,6 +41,11 @@ class BrowseFilters(BaseModel):
     category: str | None = None
     genre: str | None = None
     theme: str | None = None
+    color: str | None = None
+    orientation: str | None = None
+    tone: str | None = None
+    transparent: bool | None = None
+    similar: str | None = None  # rank by visual similarity to this asset
 
 
 def _where(lib: Library, f: BrowseFilters) -> tuple[list[str], list[Any]]:
@@ -67,7 +73,28 @@ def _where(lib: Library, f: BrowseFilters) -> tuple[list[str], list[Any]]:
         where.append("EXISTS (SELECT 1 FROM asset_tags at JOIN tags t ON t.id = at.tag_id "
                      "WHERE at.asset_id = a.id AND t.name = ?)")  # fmt: skip
         params.append(normalize_slug(f.tag, "tag"))
+    if f.transparent is not None:
+        where.append("pf.has_alpha = ?")
+        params.append(int(f.transparent))
+    # colour/orientation/tone use the same SQL as search
+    visual_q = SearchQuery(colors=[f.color] if f.color else [], orientation=f.orientation or None, tone=f.tone or None,
+                           statuses=list(Status), include_restricted=True)  # fmt: skip
+    extra_where, extra_params = search_filters(lib, visual_q)
+    keep = [i for i, w in enumerate(extra_where) if "pf.colors" in w or "pf.aspect" in w or "pf.mean_luma" in w]
+    where += [extra_where[i] for i in keep]
+    params += [p for p in _params_for(extra_where, extra_params, keep)]
     return where, params
+
+
+def _params_for(where: list[str], params: list[Any], keep: list[int]) -> list[Any]:
+    """The parameters belonging to the kept WHERE clauses (each clause owns as many params as it has `?`)."""
+    out, cursor = [], 0
+    for i, clause in enumerate(where):
+        n = clause.count("?")
+        if i in keep:
+            out += params[cursor : cursor + n]
+        cursor += n
+    return out
 
 
 _FROM = ("FROM assets a LEFT JOIN asset_variants pv ON pv.id = a.primary_variant_id "
@@ -81,6 +108,12 @@ def browse(lib: Library, f: BrowseFilters, *, sort: str = "newest", offset: int 
     if not 1 <= limit <= 500 or offset < 0:
         raise InvalidInputError("limit must be 1-500 and offset >= 0")
     where, params = _where(lib, f)
+    if f.similar:
+        from assetforge.core import visual
+
+        ranked = visual.similar(lib, f.similar, limit=SEARCH_POOL, where=" AND ".join(where) or "1", params=params)
+        ids = [asset_id for asset_id, _, _ in ranked]
+        return len(ids), lib.summaries(ids[offset : offset + limit])
     if f.q.strip():
         # Text: rank with the search engine, then apply browse's exact filters to the ranked ids.
         hits = search(lib, SearchQuery(text=f.q, statuses=list(Status), include_restricted=True,

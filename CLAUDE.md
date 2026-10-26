@@ -15,7 +15,7 @@ it to **search for an existing asset before generating a new one**, then receive
 
 ```bash
 uv sync                       # install deps (Python 3.12+, uses .venv)
-uv run pytest                 # full suite (~30s, 489 tests, multi-process concurrency tests, no network)
+uv run pytest                 # full suite (~30s, 492 tests, multi-process concurrency tests, no network)
 uv run assetforge --help      # CLI entry point (also: uv run python -m assetforge)
 ```
 
@@ -179,8 +179,13 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   generation runs in a background thread and returns `job_id` via `on_job`; the UI polls `/api/jobs/{id}`.
 - `core/browse.py`: exact filters + sort + offset/limit + total (shows all statuses), plus `facets()`.
   Text queries use `search()` ranking.
-- `app/static/`: vanilla ES-module SPA (`app.js` hash router, `lib.js` helpers and column chart, `views/*.js`).
-  No build step. `tokens.css` is shared with `core/report_html.py`.
+- `app/static/`: vanilla ES-module SPA (`app.js` hash router, `lib.js` helpers: column chart, chips/palette inputs,
+  segmented control, collapsible sections, job polling; `views/*.js`: overview, assets, generate, art, usage, jobs).
+  No build step. `tokens.css` is shared with `core/report_html.py`. The server only does GET/POST, so actions are
+  `POST /api/assets/{id}/update|review|regenerate|slice`, `POST /api/art/profiles/{project}[/delete]`,
+  `POST /api/art/preview`; reads are `GET /api/art`, `/api/assets/{id}/similar`, and `/api/assets` accepts
+  `color/orientation/tone/transparent/similar` (handled in `core/browse.py`). Static files are served `no-cache`,
+  but Python changes need a server restart (relaunch the app).
 - `macos/AssetForgeApp.swift`: Cocoa + WKWebView shell. It runs `python -m assetforge [--home LIB] ui --json
   --port 0 --parent-pid PID`, reads the first stdout line `{"url", "port", "token", "home"}`, and loads the URL.
   The library path is in UserDefaults `com.ideaclan.assetforge LibraryPath`. `app/installer.py` (`assetforge

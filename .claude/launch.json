@@ -45,6 +45,23 @@
       ],
       "port": 8767,
       "url": "http://localhost:8767"
+    },
+    {
+      "name": "assetforge-ui-demo",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": [
+        "-m",
+        "assetforge",
+        "--home",
+        ".dev/demo",
+        "ui",
+        "--port",
+        "8768",
+        "--token",
+        "dev"
+      ],
+      "port": 8768,
+      "url": "http://localhost:8768"
     }
   ]
 }

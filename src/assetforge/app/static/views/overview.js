@@ -23,15 +23,18 @@ export async function overview(root) {
 
   const spendTile = { value: null, note: null, label: null };
   root.append(
-    d.library.is_default ? null : h("div.notice",
+    d.library.is_default ? "" : h("div.notice",
       h("div", h("b", "This isn't the default library."), " Agents write to ", h("span.mono", d.library.default_home),
         " unless they pass --home, so their new assets and spend won't show here."),
       h("a.btn", { href: "assetforge-action://default-library", title: "Same as File ▸ Use Default Library" }, "Switch to default library")),
     h("div.page-head",
       h("div", h("h1", "Overview"), h("div.sub", d.library.home)),
-      h("div.actions", h("a.btn", { href: "#/assets" }, "Browse assets"), h("a.btn.primary", { href: "#/generate" }, "Generate"))),
+      h("div.actions", h("a.btn", { href: "#/art" }, "Art direction"), h("a.btn", { href: "#/assets" }, "Browse assets"),
+        candidates ? h("a.btn", { href: "#/assets?status=candidate" }, `Review ${candidates}`) : "",
+        h("a.btn.primary", { href: "#/generate" }, "Generate"))),
     h("div.tiles", tiles.map(([label, value, note], i) => {
-      const tile = h("div.tile", h("div.label", label), h("div.value", value), h("div.note", note));
+      const href = ["#/assets", "#/assets?status=candidate", "#/usage", "#/usage?range=this-month", failed ? "#/jobs?status=failed" : "#/jobs"][i];
+      const tile = h("a.tile.link", { href }, h("div.label", label), h("div.value", value), h("div.note", note));
       if (i === 2) [spendTile.label, spendTile.value, spendTile.note] = tile.children;
       return tile;
     })),

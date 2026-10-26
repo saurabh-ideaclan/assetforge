@@ -205,3 +205,56 @@ def test_ui_command_prints_contract_and_exits_with_parent(home, tmp_path):
     finally:
         parent.kill()
         proc.kill()
+
+
+def test_art_profiles_and_preview_endpoints(server):
+    status, d = jcall(server, "/api/art")
+    assert status == 200 and len(d["presets"]) >= 18 and d["profiles"] == [] and "panda-bamboo" in d["projects"]
+    body = {"art": {"style": "horror", "mood": "dread", "palette": ["#112233"], "avoid": ["cute faces"]}}
+    status, d = jcall(server, "/api/art/profiles/crypt-run", method="POST", body=body)
+    assert status == 200 and d["profile"]["art"]["mood"] == "dread" and d["profile"]["preset"] == "horror"
+    assert "game: crypt-run" in d["profile"]["yaml"]
+    status, d = jcall(server, "/api/art/profiles/_", method="POST", body={"yaml": "game: sky-run\nstyle: paper-cut\n"})
+    assert status == 200 and d["profile"]["project"] == "sky-run"
+    assert jcall(server, "/api/art/profiles/_", method="POST", body={"yaml": "style: x"})[0] == 400  # no game name
+    status, d = jcall(server, "/api/art/preview", method="POST", body={"prompt": "ghoul", "type": "enemy", "project": "crypt-run"})
+    assert status == 200 and d["preview"]["layers"] == ["preset:horror", "profile:crypt-run"] and "dread" in d["preview"]["prompt"]
+    assert jcall(server, "/api/art/profiles/sky-run/delete", method="POST")[0] == 200
+    assert len(jcall(server, "/api/art")[1]["profiles"]) == 1
+
+
+def test_asset_actions_and_visual_filters(server, stocked):
+    hero, tree = stocked["hero"], stocked["tree"]
+    status, d = jcall(server, f"/api/assets/{hero}/update", method="POST",
+                      body={"category": "Creature", "genre": "platformer", "tags": ["player", "hero"]})  # fmt: skip
+    assert status == 200 and d["asset"]["category"] == "creature" and d["asset"]["tags"] == ["hero", "player"]
+    status, d = jcall(server, f"/api/assets/{tree}/review", method="POST", body={"action": "approve"})
+    assert status == 200 and d["review"]["status"] == "approved"
+    status, d = jcall(server, f"/api/assets/{tree}/review", method="POST", body={"action": "reject", "note": "meh"})
+    assert d["review"]["status"] == "rejected"
+    assert jcall(server, f"/api/assets/{tree}/review", method="POST", body={"action": "burn"})[0] == 400
+    status, d = jcall(server, f"/api/assets/{hero}/similar?limit=2")
+    assert status == 200 and len(d["items"]) <= 2
+    assert jcall(server, f"/api/assets/{hero}/regenerate", method="POST", body={"feedback": "redder"})[0] == 400
+    status, d = jcall(server, "/api/assets?color=green")
+    assert status == 200 and [a["id"] for a in d["items"]] == [tree]
+    assert jcall(server, "/api/assets?orientation=portrait")[1]["total"] == 1  # the 32x48 tree
+    assert jcall(server, f"/api/assets?similar={hero}")[1]["items"][0]["id"] != hero
+    status, d = jcall(server, f"/api/assets/{hero}")
+    assert d["frames"] == [] and d["can_regenerate"] is False
+
+
+def test_slice_endpoint(server, lib, tmp_path):
+    from PIL import Image, ImageDraw
+
+    sheet = Image.new("RGBA", (200, 100), (0, 0, 0, 0))
+    for i in range(4):
+        ImageDraw.Draw(sheet).rectangle((i * 50 + 15, 20, i * 50 + 35, 80), fill=(200, 40, 40, 255))
+    sheet.save(tmp_path / "walk_sheet.png")
+    asset_id = lib.import_paths([tmp_path / "walk_sheet.png"], ImportOptions(type="spritesheet")).items[0].asset_id
+    status, d = jcall(server, f"/api/assets/{asset_id}/slice", method="POST",
+                      body={"columns": 4, "rows": 1, "animations": ["walk=0-3@8"]})  # fmt: skip
+    assert status == 200 and d["slice"]["report"]["found"] == 4 and d["slice"]["animations"]["walk"]["fps"] == 8
+    status, d = jcall(server, f"/api/assets/{asset_id}")
+    assert [f["name"] for f in d["frames"]] == [f"walk_walk_0{i}" for i in range(1, 5)] and d["frames"][0]["variant_id"]
+    assert jcall(server, f"/api/assets/{asset_id}/slice", method="POST", body={"columns": 4, "animations": ["walk 0..3"]})[0] == 400

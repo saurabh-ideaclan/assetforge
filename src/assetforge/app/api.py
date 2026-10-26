@@ -14,12 +14,12 @@ from assetforge.audio.effects import EFFECTS
 from assetforge.audio.generate import AudioRequest, generate_audio
 from assetforge.audio.recipes import PRESETS, RECIPES
 from assetforge.config import resolve_home
-from assetforge.core import budget, jobs, lineage, pricing, previews, queue, reporting, styles
+from assetforge.core import budget, jobs, lineage, pricing, previews, queue, reporting, review, styles, visual
 from assetforge.core import collections as coll
 from assetforge.core.browse import SORTS, BrowseFilters, browse, facets
 from assetforge.core.catalog import Library
 from assetforge.core.models import IMAGE_TYPES as VISUAL_TYPES
-from assetforge.core.models import AssetType, FileKind, JobStatus, Variant
+from assetforge.core.models import AssetPatch, AssetType, FileKind, JobStatus, Status, Variant
 from assetforge.errors import AssetForgeError, InvalidInputError, NotFoundError
 from assetforge.image.engine import result_from_job as image_result_from_job
 from assetforge.image.engine import settings_for
@@ -95,7 +95,8 @@ def _filters(req: Request) -> BrowseFilters:
         q=req.arg("q", "") or "", types=req.args("type"), statuses=req.args("status"), kind=req.arg("kind"),
         origins=req.args("origin"), project=req.arg("project"), style=req.arg("style"),
         collection=req.arg("collection"), tag=req.arg("tag"), category=req.arg("category"), genre=req.arg("genre"),
-        theme=req.arg("theme"),
+        theme=req.arg("theme"), color=req.arg("color"), orientation=req.arg("orientation"), tone=req.arg("tone"),
+        transparent={"true": True, "false": False}.get(req.arg("transparent") or ""), similar=req.arg("similar"),
     )  # fmt: skip
 
 
@@ -128,7 +129,135 @@ def asset_detail(req: Request, lib: Library) -> dict[str, Any]:
             usage = {k: row[k] for k in ("provider", "model", "images", "input_text_tokens", "input_image_tokens",
                                          "output_image_tokens", "output_text_tokens", "total_tokens", "cost_usd",
                                          "estimated_cost_usd", "price_source")}  # fmt: skip
-    return {"asset": _dump(asset), "lineage": lineage.lineage(lib, asset.id), "job": job, "usage": usage}
+    animation = asset.metadata.get("animation")
+    frames = []
+    if animation:
+        summaries = {s.id: s for s in lib.summaries([f["asset_id"] for f in animation.get("frames", [])])}
+        frames = [{"name": f["name"], "asset_id": f["asset_id"], "cell": f.get("cell"),
+                   "variant_id": summaries[f["asset_id"]].primary_variant.id}
+                  for f in animation.get("frames", []) if f["asset_id"] in summaries
+                  and summaries[f["asset_id"]].primary_variant]  # fmt: skip
+    return {"asset": _dump(asset), "lineage": lineage.lineage(lib, asset.id), "job": job, "usage": usage,
+            "frames": frames, "can_regenerate": generator.get("engine") == "ai-image" and bool(generator.get("job_id")),
+            "siblings": review.siblings(lib, asset.id)}  # fmt: skip
+
+
+# ---------------------------------------------------------------------- asset actions
+
+
+@router.route("POST", r"/api/assets/(?P<ref>[^/]+)/update")
+def update_asset(req: Request, lib: Library) -> dict[str, Any]:
+    body = dict(req.body or {})
+    tags = body.pop("tags", None)
+    patch = AssetPatch(**body)
+    if tags is not None:
+        current = set(lib.get_asset(req.match["ref"]).tags)
+        wanted = {t.strip() for t in tags if t.strip()}
+        patch = patch.model_copy(update={"add_tags": sorted(wanted - current), "remove_tags": sorted(current - wanted)})
+    return {"asset": _dump(lib.update_asset(req.match["ref"], patch))}
+
+
+@router.route("POST", r"/api/assets/(?P<ref>[^/]+)/review")
+def review_asset(req: Request, lib: Library) -> dict[str, Any]:
+    body = req.body or {}
+    action = body.get("action")
+    note = body.get("note") or None
+    if action == "approve":
+        return {"review": review.approve(lib, [req.match["ref"]], note=note, force=bool(body.get("force")))}
+    if action == "pick":
+        return {"review": review.pick(lib, req.match["ref"], note=note, force=bool(body.get("force")))}
+    statuses = {"reject": Status.REJECTED, "archive": Status.ARCHIVED, "candidate": Status.CANDIDATE}
+    if action not in statuses:
+        raise InvalidInputError("action must be approve, pick, reject, archive or candidate")
+    return {"review": {"status": statuses[action].value, "asset_ids": lib.set_status([req.match["ref"]],
+                                                                                     statuses[action], note=note)}}  # fmt: skip
+
+
+@router.route("GET", r"/api/assets/(?P<ref>[^/]+)/similar")
+def similar_assets(req: Request, lib: Library) -> dict[str, Any]:
+    ranked = visual.similar(lib, req.match["ref"], limit=req.int_arg("limit", 8),
+                            where="a.status IN ('approved', 'candidate')")  # fmt: skip
+    summaries = {s.id: s for s in lib.summaries([i for i, _, _ in ranked])}
+    return {"items": [{**_dump(summaries[i]), "score": score, "distance": d} for i, score, d in ranked if i in summaries]}
+
+
+@router.route("POST", r"/api/assets/(?P<ref>[^/]+)/regenerate")
+def regenerate_asset(req: Request, lib: Library) -> dict[str, Any]:
+    from assetforge.regenerate import regenerate
+
+    body = req.body or {}
+    return {"regenerate": regenerate(lib, req.match["ref"], feedback=str(body.get("feedback") or ""),
+                                     n=int(body.get("n") or 1), art=body.get("art") or None,
+                                     style=body.get("style") or None, max_cost=body.get("max_cost"),
+                                     reject_previous=bool(body.get("reject_previous")),
+                                     dry_run=bool(body.get("dry_run")), settings=settings_for(lib))}  # fmt: skip
+
+
+@router.route("POST", r"/api/assets/(?P<ref>[^/]+)/slice")
+def slice_sheet(req: Request, lib: Library) -> dict[str, Any]:
+    from assetforge.image.sprites import parse_animation, slice_asset
+
+    body = req.body or {}
+    animations = dict(parse_animation(a) for a in body.get("animations") or [] if str(a).strip())
+    names = [n.strip() for n in body.get("names") or [] if n.strip()] or None
+    outcome = slice_asset(lib, req.match["ref"], columns=int(body.get("columns") or 1), rows=int(body.get("rows") or 1),
+                          names=names, animations=animations, cell=int(body["cell"]) if body.get("cell") else None,
+                          anchor=body.get("anchor") or "bottom", margin=int(body.get("margin") or 4),
+                          base=body.get("base") or None)  # fmt: skip
+    return {"slice": _dump(outcome)}
+
+
+# ---------------------------------------------------------------------- art direction
+
+
+def _profile_dict(p: art.ArtProfile) -> dict[str, Any]:
+    resolved = art.resolve_for_display(p)
+    return {"project": p.project, "art": p.direction.model_dump(mode="json", exclude_defaults=True),
+            "reference_asset_ids": p.reference_asset_ids, "updated_at": p.updated_at, "yaml": art.profile_yaml(p),
+            **resolved}  # fmt: skip
+
+
+@router.route("GET", "/api/art")
+def art_overview(req: Request, lib: Library) -> dict[str, Any]:
+    presets = [p.model_dump(mode="json", exclude_defaults=True) | {"name": p.name, "source": p.source,
+               "prompt_text": art.render(p.direction(), preset=p)} for p in art.presets(lib).values()]  # fmt: skip
+    projects = sorted({r[0] for r in lib.conn.execute("SELECT DISTINCT project FROM assets WHERE project IS NOT NULL")})
+    profiles = [_profile_dict(p) | {"prompt_text": art.resolve(lib, project=p.project, style=None, art=None).text(),
+                                     "layers": art.resolve(lib, project=p.project, style=None, art=None).layers}
+                for p in art.list_profiles(lib)]  # fmt: skip
+    return {"presets": presets, "profiles": profiles, "projects": projects,
+            "fields": {k: f.description or "" for k, f in art.ArtDirection.model_fields.items()},
+            "custom_presets_dir": str(lib.paths.home / "presets")}  # fmt: skip
+
+
+@router.route("POST", r"/api/art/profiles/(?P<project>[^/]+)")
+def save_profile(req: Request, lib: Library) -> dict[str, Any]:
+    body = req.body or {}
+    if body.get("yaml"):
+        file_project, direction = art.parse_profile_yaml(str(body["yaml"]))
+        project = req.match["project"] if req.match["project"] != "_" else file_project
+    else:
+        project, direction = req.match["project"], art.ArtDirection(**(body.get("art") or {}))
+    if not project:
+        raise InvalidInputError("Name the game (or add `game:` to the YAML)")
+    profile = art.set_profile(lib, project, direction, replace=bool(body.get("replace", True)))
+    return {"profile": _profile_dict(profile)}
+
+
+@router.route("POST", r"/api/art/profiles/(?P<project>[^/]+)/delete")
+def delete_profile(req: Request, lib: Library) -> dict[str, Any]:
+    art.delete_profile(lib, req.match["project"])
+    return {"deleted": req.match["project"]}
+
+
+@router.route("POST", "/api/art/preview")
+def art_preview(req: Request, lib: Library) -> dict[str, Any]:
+    body = {**(req.body or {}), "dry_run": True}
+    body.setdefault("prompt", "the subject")
+    result = generate_image(lib, ImageRequest(**body), settings_for(lib))
+    return {"preview": {"prompt": result.prompt, "art": result.art, "layers": result.art_layers,
+                        "provider": result.provider, "model": result.model,
+                        "estimated_cost_usd": result.estimated_cost_usd}}  # fmt: skip
 
 
 def _variant(lib: Library, variant_id: str) -> Variant:
