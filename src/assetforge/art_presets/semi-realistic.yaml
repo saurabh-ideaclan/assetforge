@@ -1,0 +1,12 @@
+summary: Semi-realistic painted style with slightly stylized proportions
+best_for: [character, enemy, background, object]
+description: Stylized realism like modern action-RPG key art; realistic materials, slightly heroic proportions
+mood: adventurous
+lighting: dramatic directional light with warm key and cool fill
+shapes: mostly realistic proportions with gently exaggerated silhouettes for readability
+outline: no hard outlines; subtle darker edge accents
+shading: painterly cel-to-soft blend, strong form shadows, rim light to separate from background
+texture: brushy painted texture, readable material differences
+detail: high
+avoid: [chibi proportions, toy-like plastic look, flat vector fills]
+quality: high

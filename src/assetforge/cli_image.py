@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
+from assetforge.cli_art import collect_art
 from assetforge.cli_common import JsonOpt, dump, session
 from assetforge.core import styles
 from assetforge.core.models import AssetType, Scope, Status
@@ -49,6 +50,8 @@ def _merge(data: dict[str, Any], flags: dict[str, Any], lists: dict[str, list[st
 def render_image_result(c: Console, result: ImageResult) -> None:
     if result.dry_run:
         c.print(f"[bold]Dry run[/bold]: {result.provider} / {result.model}, transparency: {result.transparency}")
+        if result.art_layers:
+            c.print(f"[dim]art layers:[/dim] {', '.join(result.art_layers)}")
         c.print(f"[dim]prompt:[/dim] {escape(result.prompt)}")
         if result.estimated_cost_usd is not None:
             c.print(f"[dim]estimated cost:[/dim] ~${result.estimated_cost_usd:.3f}")
@@ -98,8 +101,26 @@ def providers(ctx: typer.Context, json_: JsonOpt = False) -> None:
 def generate(
     ctx: typer.Context,
     prompt: Annotated[str | None, typer.Option("--prompt", "-p", help="What to draw.")] = None,
-    type_: Annotated[AssetType | None, typer.Option("--type", help="character, sprite, background, icon, tile, ui, effect, image…")] = None,
-    style: Annotated[str | None, typer.Option(help="Art direction / style profile name, e.g. cute-jungle.")] = None,
+    type_: Annotated[AssetType | None, typer.Option("--type", help="character, enemy, object, sprite, background, icon, tile, texture, ui, effect, spritesheet…")] = None,
+    style: Annotated[str | None, typer.Option(help="Preset (see `art presets`, e.g. dark-fantasy) or any style label.")] = None,
+    art_file: Annotated[Path | None, typer.Option("--art-file", help="YAML/JSON art direction (mood, lighting, palette, shapes, avoid…).")] = None,
+    mood: Annotated[str | None, typer.Option(help="Art direction: mood.")] = None,
+    lighting: Annotated[str | None, typer.Option(help="Art direction: lighting.")] = None,
+    perspective: Annotated[str | None, typer.Option(help="Art direction: camera/view, e.g. side view, top-down.")] = None,
+    composition: Annotated[str | None, typer.Option(help="Art direction: composition.")] = None,
+    detail: Annotated[str | None, typer.Option(help="Art direction: low, medium or high (high = larger images).")] = None,
+    palette: Annotated[list[str] | None, typer.Option("--palette", help="Art direction: hex colour (repeatable).")] = None,
+    avoid: Annotated[list[str] | None, typer.Option("--avoid", help="Art direction: thing to keep out (repeatable).")] = None,
+    purpose: Annotated[str | None, typer.Option(help="What the asset is for in the game.")] = None,
+    grid: Annotated[str | None, typer.Option(help="Sprite sheet grid, e.g. 4x2 (columns x rows).")] = None,
+    pose: Annotated[list[str] | None, typer.Option("--pose", help="What one cell shows, row by row (repeatable).")] = None,
+    props: Annotated[bool, typer.Option("--props", help="The sheet holds different items, not one character's poses.")] = False,
+    slice_: Annotated[bool, typer.Option("--slice", help="Cut the generated sheet into aligned frame assets (needs --grid).")] = False,
+    no_profile: Annotated[bool, typer.Option("--no-profile", help="Ignore the project's art profile.")] = False,
+    category: Annotated[str | None, typer.Option(help="Catalog category, e.g. creature, weapon, environment.")] = None,
+    subcategory: Annotated[str | None, typer.Option(help="Catalog subcategory.")] = None,
+    theme: Annotated[str | None, typer.Option(help="Catalog theme (default from the art profile).")] = None,
+    genre: Annotated[str | None, typer.Option(help="Catalog game genre (default from the art profile).")] = None,
     provider: Annotated[str | None, typer.Option(help="openai, gemini or auto.")] = None,
     model: Annotated[str | None, typer.Option(help="Provider model override.")] = None,
     n: Annotated[int | None, typer.Option("-n", help="Number of candidates (each its own asset).")] = None,
@@ -128,7 +149,11 @@ def generate(
     file: Annotated[Path | None, typer.Option("--file", help="JSON request; flags override its fields.")] = None,
     json_: JsonOpt = False,
 ) -> None:
-    """Generate new images. Each candidate is stored as its own asset with full provenance."""
+    """Generate new images. Each candidate is stored as its own asset with full provenance.
+
+    Look comes from layers: the project's art profile < the --style preset < --art-file/--mood/--lighting… flags.
+    Run with --dry-run to see the merged direction and the exact prompt before paying for it.
+    """
     with session(ctx, json_) as s:
         flags = {
             "prompt": prompt, "type": type_, "style": style, "provider": provider, "model": model, "n": n,
@@ -136,13 +161,36 @@ def generate(
             "negative": negative, "seed": seed, "retries": retries, "name": name, "key": key,
             "description": description, "scope": scope, "project": project, "status": status, "collection": collection,
             "raw_prompt": raw_prompt or None, "new_variant": new_variant or None, "dry_run": dry_run or None,
-            "fallback": False if no_fallback else None, "max_cost": max_cost,
+            "fallback": False if no_fallback else None, "max_cost": max_cost, "purpose": purpose,
+            "use_profile": False if no_profile else None, "category": category, "subcategory": subcategory,
+            "theme": theme, "genre": genre,
         }  # fmt: skip
         data = _merge(_load_request_file(file), flags, {"references": reference, "tags": tag})
         if "prompt" not in data:
             raise InvalidInputError("A prompt is required (--prompt or the request file)")
-        result = generate_image(s.lib, ImageRequest(**data))
-        s.out.emit(result.model_dump(mode="json"), lambda c: render_image_result(c, result))
+        if direction := collect_art(art_file, mood=mood, lighting=lighting, perspective=perspective,
+                                    composition=composition, detail=detail, palette=palette, avoid=avoid,
+                                    base=data.get("art")):  # fmt: skip
+            data["art"] = direction
+        if grid:
+            from assetforge.cli_sprite import parse_grid
+
+            columns, rows = parse_grid(grid)
+            data["sheet"] = {**data.get("sheet", {}), "columns": columns, "rows": rows,
+                             **({"poses": pose} if pose else {}), **({"one_character": False} if props else {})}  # fmt: skip
+        if slice_ and not data.get("sheet"):
+            raise InvalidInputError("--slice needs --grid")
+        request = ImageRequest(**data)
+        result = generate_image(s.lib, request)
+        payload = result.model_dump(mode="json")
+        if slice_ and not result.dry_run and request.sheet:
+            from assetforge.image.sprites import slice_asset
+
+            frame_type = AssetType.ANIMATION if request.sheet.one_character else AssetType.OBJECT
+            payload["sliced"] = [slice_asset(s.lib, a.asset_id, columns=request.sheet.columns, rows=request.sheet.rows,
+                                             names=request.sheet.poses or None, frame_type=frame_type
+                                             ).model_dump(mode="json") for a in result.assets]  # fmt: skip
+        s.out.emit(payload, lambda c: render_image_result(c, result))
 
 
 @image_app.command("edit")
@@ -210,7 +258,7 @@ def _render_style(c: Console, style: Any) -> None:
 def style_create(
     ctx: typer.Context,
     name: Annotated[str, typer.Argument()],
-    description: Annotated[str, typer.Option(help="One-line art direction, e.g. 'cute chunky cartoon, thick outlines'.")] = "",
+    description: Annotated[str, typer.Option(help="One-line art direction, e.g. 'grim ink-wash fantasy, heavy shadows'. Prefer `art profile set`.")] = "",
     instructions: Annotated[str, typer.Option(help="Extra rules added to every prompt.")] = "",
     palette: Annotated[list[str] | None, typer.Option("--palette", help="Hex colours (repeatable or comma-separated).")] = None,
     reference: Annotated[list[str] | None, typer.Option("--reference", "-r", help="Reference asset (repeatable).")] = None,

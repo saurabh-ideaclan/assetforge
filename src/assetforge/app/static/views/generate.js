@@ -83,9 +83,9 @@ function soundForm(root, { recipes, presets }) {
 
 function imageForm(root, opts) {
   const configured = opts.providers.filter((p) => p.configured && p.name !== "fake");
-  const prompt = h("textarea", { placeholder: "e.g. Cute cartoon beetle enemy, front view, big eyes" });
+  const prompt = h("textarea", { placeholder: "e.g. Hunched graveyard ghoul with lantern eyes, side view, lit by moonlight" });
   const type = h("select", opts.types.map((t) => h("option", { value: t, selected: t === "character" }, t)));
-  const style = h("input", { type: "text", list: "styles", placeholder: "e.g. cute-jungle" });
+  const style = h("input", { type: "text", list: "styles", placeholder: "a preset (dark-fantasy, pixel-art…) or your own words" });
   const styleList = h("datalist", { id: "styles" }, opts.styles.map((s) => h("option", { value: s.name }, s.description)));
   const provider = h("select", h("option", { value: "auto" }, "auto (best configured)"),
     opts.providers.map((p) => h("option", { value: p.name, disabled: !p.configured },

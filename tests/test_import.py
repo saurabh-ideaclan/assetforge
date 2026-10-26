@@ -40,7 +40,7 @@ def test_import_infers_types_tags_and_file_metadata(lib, pack):
         "blue_button_00.png": AssetType.UI,
         "panda_idle_00.png": AssetType.CHARACTER,
         "jungle_bg_00.png": AssetType.BACKGROUND,
-        "bamboo_00.png": AssetType.SPRITE,
+        "bamboo_00.png": AssetType.OBJECT,  # it sits in an Objects folder
         "coin_pickup_00.wav": AssetType.SFX,
         "jungle_theme.wav": AssetType.MUSIC,
         "long_ambient_bed.wav": AssetType.AMBIENCE,

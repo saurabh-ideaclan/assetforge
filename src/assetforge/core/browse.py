@@ -37,6 +37,9 @@ class BrowseFilters(BaseModel):
     style: str | None = None
     collection: str | None = None
     tag: str | None = None
+    category: str | None = None
+    genre: str | None = None
+    theme: str | None = None
 
 
 def _where(lib: Library, f: BrowseFilters) -> tuple[list[str], list[Any]]:
@@ -52,9 +55,10 @@ def _where(lib: Library, f: BrowseFilters) -> tuple[list[str], list[Any]]:
     if project := normalize_optional_slug(f.project, "project"):
         where.append("a.project = ?")
         params.append(project)
-    if style := normalize_optional_slug(f.style, "style"):
-        where.append("a.style = ?")
-        params.append(style)
+    for field in ("style", "category", "genre", "theme"):
+        if value := normalize_optional_slug(getattr(f, field), field):
+            where.append(f"a.{field} = ?")
+            params.append(value)
     if f.collection:
         where.append("a.id IN (SELECT ca.asset_id FROM collection_assets ca JOIN collections c ON c.id = ca.collection_id "
                      "WHERE c.name = ? OR c.id = ?)")  # fmt: skip
@@ -125,6 +129,9 @@ def facets(lib: Library) -> dict[str, list[dict[str, Any]]]:
         "kinds": grouped("pf.kind"),
         "projects": grouped("a.project"),
         "styles": grouped("a.style"),
+        "categories": grouped("a.category"),
+        "genres": grouped("a.genre"),
+        "themes": grouped("a.theme"),
         "collections": collections,
         "tags": tags,
     }

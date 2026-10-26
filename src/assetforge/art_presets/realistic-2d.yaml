@@ -1,0 +1,13 @@
+summary: Realistic 2D digital painting with true-to-life proportions and materials
+best_for: [background, character, enemy, object]
+description: Painted like concept art for a mature game; believable anatomy, materials and scale
+mood: grounded and cinematic
+lighting: physically plausible key light with soft bounce light and cast shadows
+shapes: true-to-life proportions, natural irregular silhouettes, no exaggeration
+outline: no outlines; edges defined by value and colour contrast
+shading: smooth tonal gradation, ambient occlusion in crevices, specular highlights on wet or metal surfaces
+texture: visible material detail (skin pores, fabric weave, worn metal, bark)
+detail: high
+composition: clear focal point, depth through atmospheric perspective
+avoid: [cartoon proportions, thick outlines, toy-like objects, flat colour fills, chibi]
+quality: high

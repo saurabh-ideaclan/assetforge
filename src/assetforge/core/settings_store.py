@@ -36,6 +36,7 @@ SETTINGS: dict[str, SettingSpec] = {
     "queue.max_attempts": SettingSpec(int, 3, "Attempts before a queued request job fails", 1),
     "request.reuse_threshold": SettingSpec(float, 0.7, "Min search coverage (0-1) for `request` to reuse", 0),
     "request.wait_seconds": SettingSpec(int, 900, "How long `request` waits for an identical in-flight job", 1),
+    "generation.max_regenerations": SettingSpec(int, 3, "`regenerate` attempts allowed per original asset", 0),
     "pricing.auto_update": SettingSpec(bool, True, "Refresh model prices from the internet when they get stale"),
     "pricing.max_age_days": SettingSpec(float, 7.0, "Refresh prices older than this many days", 0),
     "pricing.source_url": SettingSpec(str, "https://raw.githubusercontent.com/BerriAI/litellm/main/"

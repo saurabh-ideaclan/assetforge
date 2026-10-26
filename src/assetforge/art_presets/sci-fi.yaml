@@ -1,0 +1,13 @@
+summary: Hard-surface science fiction
+best_for: [background, object, enemy, character, ui, icon]
+description: Industrial near-future sci-fi; functional machinery, panels, believable tech
+mood: vast and technological
+lighting: cool ambient with emissive accents (screens, thrusters, status lights), rim light
+shapes: hard-surface panels, chamfered edges, greebles, functional mechanical joints
+outline: no outlines
+shading: metallic reflections, subtle gradients, emissive glow
+texture: brushed metal, panel seams, decals, scuffs
+palette: ["#0B1320", "#1F3448", "#4F6D7A", "#C0D6DF", "#FF7A32", "#3FD0FF"]
+detail: high
+avoid: [fantasy medieval elements, toy-like rounded plastic, cute faces]
+quality: high

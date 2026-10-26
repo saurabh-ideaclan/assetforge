@@ -57,12 +57,12 @@ def test_character_sprite_with_native_transparency(lib, openai_fake, gemini_fake
     assert not result.reused and result.provider == "openai" and result.transparency == "native"
     [candidate] = result.assets
     assert candidate.has_alpha and candidate.qc["ok"] and candidate.width == 160 and candidate.height == 256
-    assert "Art style: cute jungle." in result.prompt
+    assert "Art direction: cute jungle." in result.prompt
 
     asset = lib.get_asset(candidate.asset_id)
     assert asset.type == "character" and asset.origin == Origin.AI and asset.status == Status.CANDIDATE
     assert asset.style == "cute-jungle" and asset.key == "enemy/beetle" and asset.project == "panda-bamboo"
-    assert asset.name == "cute_cartoon_beetle_front_view"
+    assert asset.name == "beetle"  # style and framing words are left out of names
     assert {"character", "cute-jungle", "ai-generated", "openai"} <= set(asset.tags)
     gen_meta = asset.metadata["generator"]
     assert gen_meta["prompt"] == "Cute cartoon beetle, front view" and gen_meta["final_prompt"] == result.prompt

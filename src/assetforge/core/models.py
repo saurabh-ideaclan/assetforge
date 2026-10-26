@@ -10,10 +10,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class AssetType(StrEnum):
     CHARACTER = "character"
+    ENEMY = "enemy"
     SPRITE = "sprite"
+    OBJECT = "object"
     SPRITESHEET = "spritesheet"
+    ANIMATION = "animation"
     BACKGROUND = "background"
     TILE = "tile"
+    TEXTURE = "texture"
     ICON = "icon"
     UI = "ui"
     EFFECT = "effect"
@@ -27,6 +31,18 @@ class AssetType(StrEnum):
     SOURCE = "source"
     DATA = "data"
     OTHER = "other"
+
+
+# Visual types, and the subset that is a single isolated subject (transparent by default, packable in atlases).
+IMAGE_TYPES = frozenset({
+    AssetType.CHARACTER, AssetType.ENEMY, AssetType.SPRITE, AssetType.OBJECT, AssetType.SPRITESHEET,
+    AssetType.ANIMATION, AssetType.BACKGROUND, AssetType.TILE, AssetType.TEXTURE, AssetType.ICON, AssetType.UI,
+    AssetType.EFFECT, AssetType.IMAGE,
+})  # fmt: skip
+ISOLATED_TYPES = frozenset({
+    AssetType.CHARACTER, AssetType.ENEMY, AssetType.SPRITE, AssetType.OBJECT, AssetType.ICON, AssetType.UI,
+    AssetType.EFFECT,
+})  # fmt: skip
 
 
 class Scope(StrEnum):
@@ -86,6 +102,11 @@ class FileInfo(BaseModel):
     duration_ms: int | None = None
     sample_rate: int | None = None
     channels: int | None = None
+    aspect: float | None = None
+    alpha_fraction: float | None = None
+    mean_luma: float | None = None
+    colors: list[dict[str, Any]] | None = None
+    dhash: str | None = None
 
 
 class Variant(BaseModel):
@@ -130,6 +151,10 @@ class AssetSummary(BaseModel):
     scope: Scope
     project: str | None = None
     style: str | None = None
+    category: str | None = None
+    subcategory: str | None = None
+    theme: str | None = None
+    genre: str | None = None
     status: Status
     origin: Origin
     license: str | None = None
@@ -181,6 +206,10 @@ class NewAsset(BaseModel):
     scope: Scope = Scope.GLOBAL
     project: str | None = None
     style: str | None = None
+    category: str | None = None
+    subcategory: str | None = None
+    theme: str | None = None
+    genre: str | None = None
     status: Status = Status.APPROVED
     origin: Origin = Origin.IMPORT
     license: str | None = None
@@ -206,6 +235,10 @@ class AssetPatch(BaseModel):
     scope: Scope | None = None
     project: str | None = None
     style: str | None = None
+    category: str | None = None
+    subcategory: str | None = None
+    theme: str | None = None
+    genre: str | None = None
     license: str | None = None
     commercial_use: CommercialUse | None = None
     attribution: str | None = None
@@ -224,6 +257,10 @@ class ImportOptions(BaseModel):
     scope: Scope = Scope.GLOBAL
     project: str | None = None
     style: str | None = None
+    category: str | None = None
+    subcategory: str | None = None
+    theme: str | None = None
+    genre: str | None = None
     status: Status = Status.APPROVED
     license: str | None = None
     commercial_use: CommercialUse = CommercialUse.UNKNOWN

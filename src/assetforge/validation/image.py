@@ -7,9 +7,10 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
+from assetforge.core.models import ISOLATED_TYPES as MODEL_ISOLATED_TYPES
 from assetforge.core.models import AssetType
 
-ISOLATED_TYPES = {AssetType.CHARACTER, AssetType.SPRITE, AssetType.ICON, AssetType.UI, AssetType.EFFECT}
+ISOLATED_TYPES = MODEL_ISOLATED_TYPES
 ERROR_ISSUES = {"blank", "empty"}
 
 
@@ -34,8 +35,8 @@ def analyze_image(image: Image.Image, *, asset_type: AssetType | None = None,
     issues: list[str] = []
     if not opaque.any() or transparent_fraction > 0.995:
         issues.append("empty")
-    elif colour_std < 2.0:
-        issues.append("blank")
+    elif colour_std < 2.0 and not (has_alpha and transparent_fraction > 0.01):
+        issues.append("blank")  # one flat colour; a flat silhouette on transparency (vector icon) is fine
     if expect_transparency and not has_alpha:
         issues.append("no_transparency")
     if expect_transparency and has_alpha and touches_edge and asset_type in ISOLATED_TYPES:

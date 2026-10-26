@@ -28,6 +28,7 @@ class Frame:
     image: Image.Image  # trimmed RGBA
     source_size: tuple[int, int]
     offset: tuple[int, int]  # trimmed box position inside the source image
+    anchor: tuple[float, float] | None = None  # pivot in the untrimmed frame, 0-1 (e.g. feet at 0.5, 0.95)
 
     @property
     def size(self) -> tuple[int, int]:
@@ -45,15 +46,15 @@ class Sheet:
     placements: list[tuple[Frame, int, int]] = field(default_factory=list)
 
 
-def make_frame(name: str, image: Image.Image, *, trim: bool = True) -> Frame:
+def make_frame(name: str, image: Image.Image, *, trim: bool = True, anchor: tuple[float, float] | None = None) -> Frame:
     rgba = image.convert("RGBA")
     if trim:
         alpha = np.asarray(rgba.getchannel("A"))
         if alpha.any():
             ys, xs = np.nonzero(alpha)
             box = (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1)
-            return Frame(name, rgba.crop(box), rgba.size, (box[0], box[1]))
-    return Frame(name, rgba, rgba.size, (0, 0))
+            return Frame(name, rgba.crop(box), rgba.size, (box[0], box[1]), anchor)
+    return Frame(name, rgba, rgba.size, (0, 0), anchor)
 
 
 def _shelf(frames: list[Frame], width: int, padding: int, max_height: int | None) -> tuple[Sheet, list[Frame]]:
@@ -147,6 +148,8 @@ def sheet_json(sheet: Sheet, image_name: str, *, related: list[str] | None = Non
             "spriteSourceSize": {"x": frame.offset[0], "y": frame.offset[1], "w": w, "h": h},
             "sourceSize": {"w": frame.source_size[0], "h": frame.source_size[1]},
         }
+        if frame.anchor is not None:  # PixiJS uses it as the sprite's default anchor
+            frames[frame.name]["anchor"] = {"x": frame.anchor[0], "y": frame.anchor[1]}
     data: dict[str, Any] = {"frames": frames}
     own = {f.name for f, _, _ in sheet.placements}
     sheet_anims = {k: v for k, v in (anims or {}).items() if all(n in own for n in v)}

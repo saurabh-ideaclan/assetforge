@@ -258,8 +258,40 @@ SCHEMA_V3 = [
     """,
 ]
 
+# Discovery metadata, visual features for similarity search, and per-project art direction.
+# The FTS table gains columns, so it is recreated; Library refills it when it finds it out of step.
+SCHEMA_V4 = [
+    "ALTER TABLE assets ADD COLUMN category TEXT",
+    "ALTER TABLE assets ADD COLUMN subcategory TEXT",
+    "ALTER TABLE assets ADD COLUMN theme TEXT",
+    "ALTER TABLE assets ADD COLUMN genre TEXT",
+    "CREATE INDEX idx_assets_category ON assets (category)",
+    "CREATE INDEX idx_assets_genre ON assets (genre)",
+    "ALTER TABLE asset_files ADD COLUMN aspect REAL",
+    "ALTER TABLE asset_files ADD COLUMN alpha_fraction REAL",
+    "ALTER TABLE asset_files ADD COLUMN mean_luma REAL",
+    "ALTER TABLE asset_files ADD COLUMN colors TEXT",
+    "ALTER TABLE asset_files ADD COLUMN dhash TEXT",
+    "DROP TABLE assets_fts",
+    """
+    CREATE VIRTUAL TABLE assets_fts USING fts5 (
+        asset_id UNINDEXED, name, key, tags, description, type, style, category, theme, genre, colors, tech,
+        tokenize = 'porter unicode61 remove_diacritics 2'
+    )
+    """,
+    """
+    CREATE TABLE art_profiles (
+        project             TEXT PRIMARY KEY,
+        direction           TEXT NOT NULL DEFAULT '{}',
+        reference_asset_ids TEXT NOT NULL DEFAULT '[]',
+        created_at          TEXT NOT NULL,
+        updated_at          TEXT NOT NULL
+    )
+    """,
+]
+
 # Append (version, statements) pairs; never edit a migration that has shipped.
-MIGRATIONS: list[tuple[int, list[str]]] = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3)]
+MIGRATIONS: list[tuple[int, list[str]]] = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4)]
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 
 

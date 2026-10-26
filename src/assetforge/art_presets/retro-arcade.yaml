@@ -1,0 +1,12 @@
+summary: 1980s arcade look with bold primaries
+best_for: [character, enemy, ui, icon, background]
+description: Classic arcade cabinet art and sprites; bold readable shapes on black
+mood: energetic and punchy
+lighting: flat, high contrast
+shapes: bold simple silhouettes readable at small sizes
+outline: thick black outline
+shading: flat fills with occasional scanline or halftone shading
+texture: CRT scanlines or halftone dots optional
+palette: ["#000000", "#FFFFFF", "#FF0040", "#FFD700", "#00E436", "#29ADFF", "#FF77A8"]
+detail: low
+avoid: [painterly realism, soft gradients]

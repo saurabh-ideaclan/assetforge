@@ -25,7 +25,7 @@ from assetforge import __version__
 from assetforge.audio import process as audio_proc
 from assetforge.core import collections as coll
 from assetforge.core.catalog import Library
-from assetforge.core.models import Asset, AssetType, CommercialUse, FileKind, Status, Variant
+from assetforge.core.models import ISOLATED_TYPES, Asset, AssetType, CommercialUse, FileKind, Status, Variant
 from assetforge.core.search import SearchQuery, search
 from assetforge.core.util import normalize_optional_slug, slugify
 from assetforge.errors import ConflictError, InvalidInputError, NotFoundError
@@ -36,17 +36,20 @@ from assetforge.image import process as image_proc
 EXPORT_MANIFEST = "assetforge-export.json"
 PIXI_MANIFEST = "manifest.json"
 SOUNDS_FILE = "sounds.json"
+ANIMATIONS_FILE = "animations.json"
 CREDITS_FILE = "ASSET_CREDITS.md"
 
 TYPE_DIRS = {
-    AssetType.CHARACTER: "characters", AssetType.SPRITE: "sprites", AssetType.SPRITESHEET: "spritesheets",
-    AssetType.BACKGROUND: "backgrounds", AssetType.TILE: "tiles", AssetType.ICON: "icons", AssetType.UI: "ui",
+    AssetType.CHARACTER: "characters", AssetType.ENEMY: "enemies", AssetType.SPRITE: "sprites",
+    AssetType.OBJECT: "objects", AssetType.SPRITESHEET: "spritesheets", AssetType.ANIMATION: "animations",
+    AssetType.BACKGROUND: "backgrounds", AssetType.TILE: "tiles", AssetType.TEXTURE: "textures",
+    AssetType.ICON: "icons", AssetType.UI: "ui",
     AssetType.EFFECT: "effects", AssetType.IMAGE: "images", AssetType.SFX: "sfx", AssetType.MUSIC: "music",
     AssetType.AMBIENCE: "ambience", AssetType.VOICE: "voice", AssetType.AUDIO: "audio", AssetType.FONT: "fonts",
     AssetType.SOURCE: "source", AssetType.DATA: "data", AssetType.OTHER: "misc",
 }  # fmt: skip
-ATLAS_TYPES = {AssetType.CHARACTER, AssetType.SPRITE, AssetType.ICON, AssetType.UI, AssetType.EFFECT}
-OPAQUE_TYPES = {AssetType.BACKGROUND, AssetType.TILE, AssetType.IMAGE}
+ATLAS_TYPES = ISOLATED_TYPES | {AssetType.ANIMATION}
+OPAQUE_TYPES = {AssetType.BACKGROUND, AssetType.TILE, AssetType.TEXTURE, AssetType.IMAGE}
 IMAGE_FORMATS = ("webp", "png")
 AUDIO_FORMATS = ("ogg", "mp3", "wav")
 OWN_PROVENANCE = ("AssetForge procedural", "AI-generated")
@@ -256,6 +259,29 @@ def _json_bytes(data: Any) -> bytes:
     return (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode()
 
 
+def _animations(assets: list[Asset], aliases: dict[str, str]) -> dict[str, Any] | None:
+    """Playback data for frames made by `sprite slice/assemble`: frame aliases in order, fps, loop, anchor.
+
+    Keys match the atlas `animations` names (`<base>_<anim>_01…` → `<base>_<anim>`), so a game can do
+    `new AnimatedSprite(sheet.animations[name])` and set `animationSpeed = fps / 60`.
+    """
+    groups: dict[tuple[str, str], list[tuple[int, Asset]]] = {}
+    for asset in assets:
+        frame = asset.metadata.get("frame") or {}
+        if frame.get("animation") is not None and asset.id in aliases:
+            groups.setdefault((frame["sheet"], frame["animation"]), []).append((frame.get("index", 0), asset))
+    result: dict[str, Any] = {}
+    for _, members in sorted(groups.items()):
+        members.sort(key=lambda item: item[0])
+        names = [aliases[a.id] for _, a in members]
+        key = atlas_mod._FRAME_NUMBER.match(names[0])
+        name = key.group("base") if key else names[0]
+        first = members[0][1].metadata["frame"]
+        result[name] = {"frames": names, "fps": first.get("fps", 10), "loop": first.get("loop", True),
+                        "anchor": first.get("pivot"), "cell": first.get("cell_size")}  # fmt: skip
+    return result or None
+
+
 def _credits(assets: list[Asset], aliases: dict[str, str]) -> str | None:
     rows = []
     for a in sorted(assets, key=lambda a: aliases[a.id]):
@@ -325,8 +351,9 @@ def export(lib: Library, req: ExportRequest) -> ExportResult:
         assert primary is not None
         kind = primary.file.kind
         if kind == FileKind.IMAGE and req.atlas and asset.type in ATLAS_TYPES:
+            pivot = (asset.metadata.get("frame") or {}).get("pivot")
             with Image.open(primary.file.path) as image:
-                frames.append(atlas_mod.make_frame(alias, image))
+                frames.append(atlas_mod.make_frame(alias, image, anchor=tuple(pivot) if pivot else None))
             frame_assets[alias] = asset
             usage.setdefault(asset.id, primary.id)
         elif kind == FileKind.IMAGE:
@@ -362,7 +389,7 @@ def export(lib: Library, req: ExportRequest) -> ExportResult:
         atlases.append(summary)
 
     outputs: dict[str, str | None] = {"export_manifest": EXPORT_MANIFEST, "pixi_manifest": None, "sounds": None,
-                                      "typescript": None, "credits": None}  # fmt: skip
+                                      "animations": None, "typescript": None, "credits": None}  # fmt: skip
     if req.pixi:
         writer.write(PIXI_MANIFEST, _json_bytes(pixijs.manifest(bundle, textures=textures, atlases=atlases, files=plain)))
         generated.append(PIXI_MANIFEST)
@@ -371,6 +398,10 @@ def export(lib: Library, req: ExportRequest) -> ExportResult:
         writer.write(SOUNDS_FILE, _json_bytes(pixijs.sounds(sound_entries)))
         generated.append(SOUNDS_FILE)
         outputs["sounds"] = SOUNDS_FILE
+    if anims := _animations(assets, aliases):
+        writer.write(ANIMATIONS_FILE, _json_bytes(anims))
+        generated.append(ANIMATIONS_FILE)
+        outputs["animations"] = ANIMATIONS_FILE
     if credits := _credits(assets, aliases):
         writer.write(CREDITS_FILE, credits.encode())
         generated.append(CREDITS_FILE)

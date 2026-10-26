@@ -15,7 +15,7 @@ from typing import Any
 
 from assetforge.config import LibraryPaths, resolve_home
 from assetforge.core import collections as collections_mod
-from assetforge.core import db
+from assetforge.core import db, visual
 from assetforge.core.classify import infer_type, path_tags
 from assetforge.core.metadata import FileMeta, extract_metadata, is_importable
 from assetforge.core.models import (
@@ -51,11 +51,13 @@ from assetforge.core.util import (
 from assetforge.errors import AssetForgeError, ConflictError, InvalidInputError, NotFoundError, StorageError
 
 HISTORY_LIMIT = 50
+DISCOVERY_FIELDS = ("category", "subcategory", "theme", "genre")  # kebab-case slugs, all searchable
 
 _VARIANT_COLUMNS = """
     v.id, v.asset_id, v.label, v.parent_variant_id, v.params, v.original_filename, v.created_at,
     f.sha256, f.rel_path, f.ext, f.mime_type, f.kind, f.size_bytes, f.width, f.height,
-    f.has_alpha, f.frames, f.duration_ms, f.sample_rate, f.channels
+    f.has_alpha, f.frames, f.duration_ms, f.sample_rate, f.channels,
+    f.aspect, f.alpha_fraction, f.mean_luma, f.colors, f.dhash
 """
 
 
@@ -94,6 +96,12 @@ class Library:
         self.store = ObjectStore(self.paths)
         self.conn = db.connect(self.paths.catalog, check_same_thread=not pooled)
         self.schema_version = db.migrate(self.conn)
+        if self._fts_out_of_step():
+            self.rebuild_fts()
+
+    def _fts_out_of_step(self) -> bool:
+        assets = self.conn.execute("SELECT count(*) FROM assets").fetchone()[0]
+        return assets != self.conn.execute("SELECT count(*) FROM assets_fts").fetchone()[0]
 
     def close(self) -> None:
         self.conn.close()
@@ -222,6 +230,10 @@ class Library:
             scope=opts.scope,
             project=opts.project,
             style=opts.style,
+            category=opts.category,
+            subcategory=opts.subcategory,
+            theme=opts.theme,
+            genre=opts.genre,
             status=opts.status,
             origin=Origin.IMPORT,
             license=opts.license,
@@ -287,13 +299,14 @@ class Library:
                 """
                 INSERT INTO assets (id, key, name, type, description, scope, project, style, status, origin,
                                     license, commercial_use, attribution, source_uri, primary_variant_id,
-                                    metadata, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    metadata, created_at, updated_at, category, subcategory, theme, genre)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     asset_id, key, name, spec.type.value, spec.description, spec.scope.value, project, style,
                     spec.status.value, spec.origin.value, spec.license, spec.commercial_use.value,
                     spec.attribution, spec.source_uri, variant_id, dumps(spec.metadata), now, now,
+                    *(normalize_optional_slug(getattr(spec, f), f) for f in DISCOVERY_FIELDS),
                 ),
             )  # fmt: skip
             self.conn.execute(
@@ -348,6 +361,7 @@ class Library:
             )
             if make_primary:
                 self.conn.execute("UPDATE assets SET primary_variant_id = ? WHERE id = ?", (variant_id, asset_id))
+                self._refresh_fts(asset_id)
             self.conn.execute("UPDATE assets SET updated_at = ? WHERE id = ?", (now, asset_id))
             self._event(asset_id, "variant_added", {"variant_id": variant_id, "label": label})
         return self._variants("v.id IN (?)", [variant_id])[0]
@@ -361,17 +375,26 @@ class Library:
         return self.store.rel_path(stored.path), stored.sha256, stored.size_bytes
 
     def _upsert_file(self, sha256: str, rel_path: str, ext: str, size: int, meta: FileMeta, now: str) -> None:
+        vis = meta.visual or {}
         self.conn.execute(
             """
             INSERT INTO asset_files (sha256, rel_path, ext, mime_type, kind, size_bytes, width, height, has_alpha,
-                                     frames, duration_ms, sample_rate, channels, extra, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (sha256) DO UPDATE SET rel_path = excluded.rel_path
+                                     frames, duration_ms, sample_rate, channels, extra, created_at,
+                                     aspect, alpha_fraction, mean_luma, colors, dhash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (sha256) DO UPDATE SET rel_path = excluded.rel_path,
+                aspect = ifnull(asset_files.aspect, excluded.aspect),
+                alpha_fraction = ifnull(asset_files.alpha_fraction, excluded.alpha_fraction),
+                mean_luma = ifnull(asset_files.mean_luma, excluded.mean_luma),
+                colors = ifnull(asset_files.colors, excluded.colors),
+                dhash = ifnull(asset_files.dhash, excluded.dhash)
             """,
             (
                 sha256, rel_path, ext, meta.mime_type, meta.kind.value, size, meta.width, meta.height,
                 None if meta.has_alpha is None else int(meta.has_alpha), meta.frames, meta.duration_ms,
                 meta.sample_rate, meta.channels, dumps(meta.extra), now,
+                vis.get("aspect"), vis.get("alpha_fraction"), vis.get("mean_luma"),
+                dumps(vis["colors"]) if "colors" in vis else None, vis.get("dhash"),
             ),
         )  # fmt: skip
 
@@ -488,6 +511,10 @@ class Library:
             scope=row["scope"],
             project=row["project"],
             style=row["style"],
+            category=row["category"],
+            subcategory=row["subcategory"],
+            theme=row["theme"],
+            genre=row["genre"],
             status=row["status"],
             origin=row["origin"],
             license=row["license"],
@@ -540,6 +567,11 @@ class Library:
             duration_ms=row["duration_ms"],
             sample_rate=row["sample_rate"],
             channels=row["channels"],
+            aspect=row["aspect"],
+            alpha_fraction=row["alpha_fraction"],
+            mean_luma=row["mean_luma"],
+            colors=loads(row["colors"], None) if row["colors"] else None,
+            dhash=row["dhash"],
         )
         return Variant(
             id=row["id"],
@@ -580,7 +612,7 @@ class Library:
             changes["name"] = normalize_name(changes["name"] or "")
         if "key" in changes:
             changes["key"] = normalize_key(changes["key"])
-        for field in ("project", "style"):
+        for field in ("project", "style", *DISCOVERY_FIELDS):
             if field in changes:
                 changes[field] = normalize_optional_slug(changes[field], field)
         for field in ("license", "attribution"):
@@ -630,6 +662,7 @@ class Library:
             self.conn.execute(
                 "UPDATE assets SET primary_variant_id = ?, updated_at = ? WHERE id = ?", (variant_id, utcnow(), asset_id)
             )
+            self._refresh_fts(asset_id)
             self._event(asset_id, "primary_changed", {"variant_id": variant_id})
 
     def merge_metadata(self, ref: str, values: dict[str, Any], *, event: str | None = None) -> None:
@@ -766,12 +799,21 @@ class Library:
 
     def _refresh_fts(self, asset_id: str) -> None:
         row = self.conn.execute(
-            "SELECT name, key, description, type, style FROM assets WHERE id = ?", (asset_id,)
+            "SELECT a.name, a.key, a.description, a.type, a.style, a.category, a.subcategory, a.theme, a.genre, "
+            "f.kind, f.ext, f.has_alpha, f.aspect, f.mean_luma, f.colors FROM assets a "
+            "LEFT JOIN asset_variants v ON v.id = a.primary_variant_id "
+            "LEFT JOIN asset_files f ON f.sha256 = v.file_sha256 WHERE a.id = ?",
+            (asset_id,),
         ).fetchone()
         tags = self._tags_for([asset_id]).get(asset_id, [])
+
+        def words(value: str | None) -> str:
+            return (value or "").replace("-", " ").replace("_", " ")
+
         self.conn.execute("DELETE FROM assets_fts WHERE asset_id = ?", (asset_id,))
         self.conn.execute(
-            "INSERT INTO assets_fts (asset_id, name, key, tags, description, type, style) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO assets_fts (asset_id, name, key, tags, description, type, style, category, theme, genre, "
+            "colors, tech) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 asset_id,
                 row["name"].replace("_", " "),
@@ -779,9 +821,23 @@ class Library:
                 " ".join(t.replace("-", " ") for t in tags),
                 row["description"],
                 row["type"],
-                (row["style"] or "").replace("-", " "),
+                words(row["style"]),
+                f"{words(row['category'])} {words(row['subcategory'])}".strip(),
+                words(row["theme"]),
+                words(row["genre"]),
+                visual.color_terms(row["colors"]),
+                visual.tech_terms(row),
             ),
         )
+
+    def rebuild_fts(self) -> int:
+        """Re-index every asset's text (after a schema change or `reindex`)."""
+        with db.transaction(self.conn):
+            self.conn.execute("DELETE FROM assets_fts")
+            ids = [r[0] for r in self.conn.execute("SELECT id FROM assets ORDER BY id")]
+            for asset_id in ids:
+                self._refresh_fts(asset_id)
+        return len(ids)
 
     def _event(self, asset_id: str, event: str, data: dict[str, Any]) -> None:
         self.conn.execute(

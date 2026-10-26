@@ -47,6 +47,7 @@ class FileMeta:
     sample_rate: int | None = None
     channels: int | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+    visual: dict[str, Any] | None = None  # core.visual features (colours, dhash, ...) for images
 
 
 def kind_for_ext(ext: str) -> FileKind:
@@ -97,8 +98,19 @@ def _read_image(path: Path, meta: FileMeta) -> None:
             meta.extra["format"] = image.format
             meta.extra["mode"] = image.mode
             meta.has_alpha = _has_transparency(image)
+            meta.visual = _visual(image)
     except (UnidentifiedImageError, OSError, ValueError) as exc:
         raise InvalidInputError(f"Cannot decode image {path.name}: {exc}", path=str(path)) from exc
+
+
+def _visual(image: Any) -> dict[str, Any] | None:
+    from assetforge.core.visual import features_from_image
+
+    try:
+        image.seek(0)
+        return features_from_image(image)
+    except Exception:  # features are a search aid; never fail cataloging over them
+        return None
 
 
 def _has_transparency(image: Any) -> bool:
@@ -123,6 +135,12 @@ def _read_svg(path: Path, meta: FileMeta) -> None:
     elif match := _SVG_VIEWBOX.search(head):
         meta.width, meta.height = round(float(match.group(1))), round(float(match.group(2)))
     meta.has_alpha = True
+    try:
+        from assetforge.image.svg import render_svg
+
+        meta.visual = _visual(render_svg(path, size=256))
+    except Exception:
+        meta.visual = None
 
 
 def _read_audio(path: Path, meta: FileMeta) -> None:

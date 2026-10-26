@@ -17,8 +17,12 @@ _IMAGE_HINTS: dict[AssetType, set[str]] = {
     AssetType.ICON: {"icon", "icons"},
     AssetType.UI: {"ui", "gui", "hud", "button", "buttons", "panel", "panels", "menu", "cursor"},
     AssetType.EFFECT: {"fx", "vfx", "effect", "effects", "particle", "particles", "explosion"},
-    AssetType.CHARACTER: {"character", "characters", "player", "hero", "enemy", "enemies", "npc", "npcs"},
-    AssetType.SPRITE: {"sprite", "sprites", "object", "objects", "item", "items", "prop", "props"},
+    AssetType.ANIMATION: {"animation", "animations", "anim", "anims"},
+    AssetType.TEXTURE: {"texture", "textures", "pattern", "patterns", "material", "materials"},
+    AssetType.ENEMY: {"enemy", "enemies", "monster", "monsters", "mob", "mobs", "boss", "bosses"},
+    AssetType.CHARACTER: {"character", "characters", "player", "hero", "npc", "npcs"},
+    AssetType.OBJECT: {"object", "objects", "item", "items", "prop", "props", "pickup", "pickups"},
+    AssetType.SPRITE: {"sprite", "sprites"},
 }
 _AUDIO_HINTS: dict[AssetType, set[str]] = {
     AssetType.MUSIC: {"music", "bgm", "song", "songs", "soundtrack", "ost", "theme", "jingle", "jingles"},

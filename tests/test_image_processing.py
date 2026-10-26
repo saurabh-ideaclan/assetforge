@@ -62,7 +62,7 @@ def test_prompt_templates():
     native = build_prompt("Cute cartoon beetle, front view", asset_type=AssetType.CHARACTER, transparent=True,
                           native_transparency=True, style_name="cute-jungle")  # fmt: skip
     assert native.final.startswith("Cute cartoon beetle, front view. A single game character")
-    assert "Transparent background" in native.final and "Art style: cute jungle." in native.final
+    assert "Transparent background" in native.final and "Art direction: cute jungle." in native.final
     assert native.key_colour is None
 
     keyed = build_prompt("pink flamingo", asset_type=AssetType.SPRITE, transparent=True, native_transparency=False)
@@ -73,11 +73,16 @@ def test_prompt_templates():
                            created_at="t", updated_at="t")  # fmt: skip
     styled = build_prompt("tree", asset_type=AssetType.BACKGROUND, transparent=False, native_transparency=True,
                           profile=profile, has_style_refs=True, negative="people, text")  # fmt: skip
-    assert "Art style: chunky cartoon with thick outlines. Soft shading only." in styled.final
-    assert "#4CAF50, #FFEB3B" in styled.final and "style reference images" in styled.final
+    assert "Art direction: cute jungle. chunky cartoon with thick outlines." in styled.final
+    assert "Soft shading only." in styled.final
+    assert "#4CAF50, #FFEB3B" in styled.final and "Image 1: art-style reference only" in styled.final
     assert "Avoid: people, text." in styled.final and "Transparent" not in styled.final
 
-    raw = build_prompt("exactly this", asset_type=AssetType.ICON, transparent=True, native_transparency=False, raw=True)
+    raw = build_prompt("exactly this", asset_type=AssetType.ICON, transparent=True, native_transparency=True, raw=True)
     assert raw.final == "exactly this" and raw.key_colour is None
+    # raw prompts still get the key-colour sentence when the background has to be keyed out
+    raw_keyed = build_prompt("exactly this", asset_type=AssetType.ICON, transparent=True, native_transparency=False,
+                             raw=True)  # fmt: skip
+    assert raw_keyed.final.startswith("exactly this. Render the subject") and raw_keyed.key_colour == "#FF00FF"
 
     assert pick_key_colour("a green frog", []) == ("magenta", "#FF00FF")

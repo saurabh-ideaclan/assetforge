@@ -3,7 +3,8 @@ import { api, qs, h, fmt, badge, assetCard, isAudio, thumbUrl, fileUrl, copy, to
 const PAGE = 60;
 const FILTERS = [
   ["type", "types", "Type"], ["status", "statuses", "Status"], ["kind", "kinds", "Kind"], ["origin", "origins", "Origin"],
-  ["project", "projects", "Project"], ["style", "styles", "Style"], ["collection", "collections", "Collection"],
+  ["project", "projects", "Project"], ["style", "styles", "Style"], ["category", "categories", "Category"],
+  ["genre", "genres", "Genre"], ["theme", "themes", "Theme"], ["collection", "collections", "Collection"],
 ];
 
 export async function assets(root, { rest, params }) {
@@ -132,7 +133,10 @@ function renderDetail({ asset, lineage, job, usage }, onClose) {
   const qc = asset.metadata.qc;
   const facts = [
     ["Type", asset.type], ["Status", badge(asset.status)], ["Origin", asset.origin], ["Key", asset.key],
-    ["Scope", asset.scope], ["Project", asset.project], ["Style", asset.style], ["License", asset.license],
+    ["Scope", asset.scope], ["Project", asset.project], ["Style", asset.style],
+    ["Category", [asset.category, asset.subcategory].filter(Boolean).join(" / ")], ["Genre", asset.genre],
+    ["Theme", asset.theme], ["Colours", colourSwatches(asset.primary_variant?.file?.colors)],
+    ["Shape", shapeFacts(asset.primary_variant?.file)], ["License", asset.license],
     ["Commercial use", asset.commercial_use], ["Collections", asset.collections.join(", ")],
     ["Created", fmt.date(asset.created_at)], ["ID", h("span.mono", asset.id)],
   ].filter(([, v]) => v !== null && v !== undefined && v !== "");
@@ -150,6 +154,18 @@ function renderDetail({ asset, lineage, job, usage }, onClose) {
       gen.final_prompt && gen.final_prompt !== gen.prompt ? h("details", h("summary.help", "Exact prompt sent"), h("div.prompt", gen.final_prompt)) : null);
   } else if (asset.metadata.derived) {
     generation.push(h("div.help", `Derived from ${asset.metadata.derived.from_asset}`));
+  }
+
+  const anim = asset.metadata.animation;
+  if (anim) {
+    generation.push(h("h3", "Animation"), h("dl.facts", dlRows([
+      ["Grid", `${anim.columns} × ${anim.rows}`], ["Cell", anim.cell ? `${anim.cell[0]} × ${anim.cell[1]} px, anchor ${anim.anchor}` : null],
+      ["Frames", anim.collection ? h("a", { href: `#/assets?collection=${encodeURIComponent(anim.collection)}` }, `${(anim.frames || []).length} in ${anim.collection}`) : null],
+      ...Object.entries(anim.animations || {}).map(([name, a]) => [name, `${a.frames.length} frames · ${a.fps} fps · ${a.loop ? "loop" : "once"}`]),
+    ])));
+  }
+  if (gen.art_layers?.length) {
+    generation.push(h("div.help", "Art direction: " + gen.art_layers.join(" → ")));
   }
 
   const issues = qc ? [...qc.errors.map((e) => h("span.issue.err", e)), ...qc.warnings.map((w) => h("span.issue.warn", w))] : [];
@@ -196,3 +212,19 @@ function lineageBlock(graph) {
 }
 
 export { isAudio };
+
+
+function colourSwatches(colors) {
+  if (!colors?.length) return null;
+  return h("span", { style: "display:inline-flex;gap:4px;align-items:center" }, colors.map((c) =>
+    h("span", { title: `${c.name} ${c.hex} · ${Math.round(c.share * 100)}%`,
+                style: `display:inline-block;width:16px;height:16px;border-radius:4px;border:1px solid var(--border);background:${c.hex}` })));
+}
+
+function shapeFacts(file) {
+  if (!file?.aspect) return null;
+  const orient = file.aspect > 1.15 ? "landscape" : file.aspect < 0.87 ? "portrait" : "square";
+  const tone = file.mean_luma == null ? "" : file.mean_luma < 0.32 ? ", dark" : file.mean_luma > 0.68 ? ", light" : "";
+  const alpha = file.alpha_fraction ? `, ${Math.round(file.alpha_fraction * 100)}% transparent` : "";
+  return `${orient} ${file.aspect.toFixed(2)}${tone}${alpha}`;
+}

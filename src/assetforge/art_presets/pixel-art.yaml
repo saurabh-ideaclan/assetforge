@@ -1,0 +1,14 @@
+summary: Hand-placed pixel art with a limited palette
+best_for: [character, enemy, object, tile, icon, background]
+description: Authentic low-resolution pixel art; every pixel deliberate, crisp square pixels
+mood: nostalgic
+lighting: single light direction implied with 2-3 tone steps
+shapes: chunky readable silhouettes built on a small pixel grid
+outline: 1-pixel dark outline, selectively broken on the lit side
+shading: hard-edged tone bands, limited dithering, no smooth gradients
+texture: pixel clusters suggest material; no noise or blur
+palette: ["#1A1C2C", "#5D275D", "#B13E53", "#EF7D57", "#FFCD75", "#A7F070", "#38B764", "#257179", "#29366F", "#3B5DC9", "#41A6F6", "#73EFF7", "#F4F4F4", "#94B0C2", "#566C86", "#333C57"]
+detail: low
+composition: subject fills the frame on a clean grid; no anti-aliased soft edges
+avoid: [anti-aliasing, blur, smooth gradients, photo textures, mixed pixel sizes]
+process: pixel-art-2x

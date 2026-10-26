@@ -1,0 +1,14 @@
+summary: Dark fantasy painted art, grim and ornate
+best_for: [enemy, character, background, ui, icon, object]
+description: Grim medieval fantasy like souls-like key art; weathered, ornate, ominous
+mood: ominous, foreboding, heavy
+lighting: low-key lighting, deep shadows, torchlight or moonlight accents, volumetric fog
+shapes: sharp angular silhouettes, tattered cloth, gothic ornament, asymmetric
+outline: no outlines; silhouettes against fog
+shading: high contrast chiaroscuro, desaturated midtones
+texture: rust, cracked stone, worn leather, grime and scratches
+palette: ["#0E0E12", "#2B2A33", "#4A4552", "#6E1F1F", "#A8732E", "#C9B27C"]
+detail: high
+composition: imposing low camera angle for creatures; layered depth for scenes
+avoid: [bright saturated colours, cute faces, rounded toy shapes, clean plastic surfaces]
+quality: high

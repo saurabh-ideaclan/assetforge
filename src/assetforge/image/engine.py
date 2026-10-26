@@ -41,7 +41,7 @@ from assetforge.core.models import (
 from assetforge.core.storage import hash_file
 from assetforge.core.util import normalize_name
 from assetforge.errors import AssetForgeError, InvalidInputError, ProviderError
-from assetforge.image.prompts import PromptParts, build_prompt
+from assetforge.image.prompts import PromptParts, SheetSpec, build_prompt
 from assetforge.image.providers import provider_chain
 from assetforge.image.providers.base import ASPECTS, ImageProvider, ProviderCall, ProviderResponse, nearest_aspect
 from assetforge.image.transparency import remove_background
@@ -117,6 +117,10 @@ class EngineInput:
     mask: str | None = None
     max_cost: float | None = None
     project: str | None = None
+    art_text: str = ""  # rendered art direction (preset + project profile + request)
+    palette: list[str] = field(default_factory=list)
+    sheet: SheetSpec | None = None
+    purpose: str | None = None
 
 
 # ---------------------------------------------------------------------- results
@@ -146,6 +150,8 @@ class ImageResult(BaseModel):
     estimated_cost_usd: float | None = None
     attempts: list[dict[str, Any]] = Field(default_factory=list)
     assets: list[ImageCandidate] = Field(default_factory=list)
+    art: dict[str, Any] | None = None  # the merged art direction (dry runs)
+    art_layers: list[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------- provider calls
@@ -172,9 +178,10 @@ def prepare_call(provider: ImageProvider, model: str, inp: EngineInput, tmp: Pat
     native = inp.transparent and caps.native_transparency
     parts = build_prompt(
         inp.prompt, asset_type=inp.asset_type, transparent=inp.transparent,
-        native_transparency=caps.native_transparency, style_name=inp.style_name, profile=inp.profile,
-        has_style_refs=bool(style_refs), has_user_refs=bool(inp.references), negative=inp.negative,
-        raw=inp.raw_prompt, edit=inp.operation == "edit",
+        native_transparency=caps.native_transparency, art_text=inp.art_text, palette=inp.palette,
+        style_name=inp.style_name, profile=inp.profile, user_refs=len(inp.references), style_refs=len(style_refs),
+        negative=inp.negative, raw=inp.raw_prompt, edit=inp.operation == "edit", sheet=inp.sheet,
+        purpose=inp.purpose,
     )  # fmt: skip
     images = [Path(r.path) for r in [*required, *style_refs]]
     if inp.source and parts.key_colour:
@@ -301,6 +308,24 @@ def persist_outputs(lib: Library, job_id: str, outcome: Outcome) -> Path:
     return path
 
 
+# Words that describe the look or the request rather than the subject; left out of automatic names.
+NAME_FILLER = {
+    "a", "an", "the", "of", "with", "and", "in", "on", "for", "to", "at", "its", "his", "her", "their", "very",
+    "cute", "chunky", "small", "little", "big", "single", "game", "asset", "sprite", "art", "style", "styled",
+    "2d", "3d", "cartoon", "illustration", "drawing", "image", "picture", "render", "rendered", "detailed",
+    "simple", "friendly", "soft", "glossy", "isolated", "transparent", "background", "centered", "centred",
+    "full", "body", "front", "view", "side", "high", "quality", "mobile", "casual", "one",
+}  # fmt: skip
+
+
+def subject_name(prompt: str, limit: int = 4) -> str:
+    """'A cute chunky cartoon beetle enemy, front view' → 'beetle_enemy'."""
+    words = [w for w in re.findall(r"[A-Za-z0-9]+", prompt.split(".")[0].split(",")[0].lower()) if w not in NAME_FILLER]
+    if not words:
+        words = [w for w in re.findall(r"[A-Za-z0-9]+", prompt.lower()) if w not in NAME_FILLER]
+    return "_".join(words[:limit]) or "image"
+
+
 def _candidate_name(record: dict[str, Any], index: int, total: int) -> str:
     request = record["request"]
     if request.get("name"):
@@ -308,7 +333,7 @@ def _candidate_name(record: dict[str, Any], index: int, total: int) -> str:
     elif record["operation"] == "edit":
         base = f"{record['source_name']}_edit"
     else:
-        base = " ".join(re.findall(r"[A-Za-z0-9]+", request["prompt"])[:6]) or "image"
+        base = subject_name(request["prompt"])
     return normalize_name(f"{base}_{index}" if total > 1 else base)
 
 
@@ -352,7 +377,9 @@ def finalize(lib: Library, job_id: str, record: dict[str, Any]) -> ImageResult:
                 "transparency": method,
                 "key": key_info,
                 "references": [asdict(r) for r in references],
-                "style": request.get("style"),
+                "style": record.get("style") or request.get("style"),
+                "art": record.get("art"),
+                "art_layers": record.get("art_layers"),
                 "seed": request.get("seed"),
                 "candidate": index,
                 "job_id": job_id,
@@ -370,13 +397,20 @@ def finalize(lib: Library, job_id: str, record: dict[str, Any]) -> ImageResult:
                 scope=Scope(record["scope"]),
                 project=record.get("project"),
                 style=record.get("style"),
+                category=record.get("category"),
+                subcategory=record.get("subcategory"),
+                theme=record.get("theme"),
+                genre=record.get("genre"),
                 status=Status(request.get("status") or Status.CANDIDATE),
                 origin=Origin.AI,
                 license=f"AI-generated ({response['provider']} {response['model']})",
                 commercial_use=CommercialUse.ALLOWED,
                 tags=[*record["tags"], "ai-generated", response["provider"]],
-                metadata={"generator": generation},
-            )
+                metadata={"generator": generation, "expect": {k: v for k, v in {
+                    "size": request.get("size"), "aspect": request.get("aspect"),
+                    "format": request.get("format") if request.get("format") != "png" else None,
+                    "transparent": transparent}.items() if v is not None}},
+            )  # fmt: skip
             reg = lib.register_file(raw, spec, label="original", params=generation, collection_id=collection_id)
             primary_id = reg.variant_id
             if reg.created and method == "keyed":
@@ -394,6 +428,12 @@ def finalize(lib: Library, job_id: str, record: dict[str, Any]) -> ImageResult:
                     if ref.asset_id and ref.asset_id != reg.asset_id:
                         relation = LineageRelation.EDITED_FROM if ref.role == "source" else LineageRelation.DERIVED_FROM
                         lib.add_lineage(reg.asset_id, ref.asset_id, relation)
+            if reg.created:
+                from assetforge.core.qc import check_asset
+
+                full = check_asset(lib, reg.asset_id)  # adds requested-size, near-duplicate… warnings
+                qc = {**qc, "issues": list(dict.fromkeys([*qc["issues"], *full["errors"], *full["warnings"]])),
+                      **({"near_duplicates": full["near_duplicates"]} if full.get("near_duplicates") else {})}  # fmt: skip
             asset = lib.get_asset(reg.asset_id)
             primary = asset.primary_variant
             assert primary is not None

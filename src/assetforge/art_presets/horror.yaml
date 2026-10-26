@@ -1,0 +1,14 @@
+summary: Unsettling horror illustration
+best_for: [enemy, background, object, ui]
+description: Psychological horror; something is subtly wrong; dread over gore
+mood: tense, eerie, claustrophobic
+lighting: single harsh light source (flashlight, flickering bulb), crushed blacks, sickly colour cast
+shapes: distorted proportions, too-long limbs, uncanny stillness, broken symmetry
+outline: no outlines; shapes dissolve into darkness
+shading: deep shadows, film grain, harsh falloff
+texture: stains, damp walls, peeling paint, scratched film, rust
+palette: ["#07090A", "#1C2321", "#3B4A42", "#7A8B69", "#8C1C13", "#D9D4C7"]
+detail: high
+composition: negative space hiding threats, off-centre framing, partial reveals
+avoid: [cute, cheerful colours, rounded friendly shapes, toy-like objects, comedic expressions]
+quality: high

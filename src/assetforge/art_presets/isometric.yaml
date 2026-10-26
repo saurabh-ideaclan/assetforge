@@ -1,0 +1,12 @@
+summary: Isometric 2D game art
+best_for: [tile, object, background, character]
+description: True isometric projection (2:1 pixel ratio), consistent tile footprint
+mood: tidy and strategic
+lighting: light from the top-left, consistent across tiles
+perspective: isometric 30-degree, no vanishing points, parallel edges
+shapes: blocky footprint aligned to the isometric grid
+outline: optional thin darker outline
+shading: three-face shading (top lightest, left mid, right darkest)
+texture: material detail per face
+composition: object centered on its tile footprint with room for height
+avoid: [perspective distortion, side view, front view]

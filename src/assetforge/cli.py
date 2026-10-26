@@ -17,6 +17,8 @@ from typing import Annotated, Any
 import typer
 
 from assetforge import __version__
+from assetforge.cli_art import art_app
+from assetforge.cli_sprite import sprite_app
 from assetforge.cli_audio import audio_app
 from assetforge.cli_image import image_app, style_app
 from assetforge.cli_export import register as register_export_command
@@ -24,6 +26,8 @@ from assetforge.cli_jobs import jobs_app
 from assetforge.cli_ops import register as register_ops_commands
 from assetforge.cli_report import register as register_report_commands
 from assetforge.cli_ui import register as register_ui_commands
+from assetforge.cli_discover import register as register_discover_commands
+from assetforge.cli_create import register as register_create_commands
 from assetforge.cli_process import register as register_process_commands
 from assetforge.cli_common import JsonOpt, parse_pairs, session
 from assetforge.cli_common import dump as _dump
@@ -34,6 +38,7 @@ from assetforge.core.models import (
     CommercialUse,
     FileKind,
     ImportOptions,
+    Origin,
     Scope,
     Status,
 )
@@ -54,6 +59,8 @@ app.add_typer(audio_app, name="audio")
 app.add_typer(image_app, name="image")
 app.add_typer(style_app, name="style")
 app.add_typer(jobs_app, name="jobs")
+app.add_typer(art_app, name="art")
+app.add_typer(sprite_app, name="sprite")
 
 def _version(value: bool) -> None:
     if value:
@@ -122,6 +129,10 @@ def import_(
     scope: Annotated[Scope, typer.Option(help="Reuse scope.")] = Scope.GLOBAL,
     project: Annotated[str | None, typer.Option(help="Owning project (game).")] = None,
     style: Annotated[str | None, typer.Option(help="Art-direction / style profile.")] = None,
+    category: Annotated[str | None, typer.Option(help="Category, e.g. environment, weapon, creature.")] = None,
+    subcategory: Annotated[str | None, typer.Option(help="Subcategory, e.g. forest, sword, undead.")] = None,
+    theme: Annotated[str | None, typer.Option(help="Theme, e.g. dark-fantasy, space, underwater.")] = None,
+    genre: Annotated[str | None, typer.Option(help="Game genre, e.g. platformer, puzzle, survival.")] = None,
     status: Annotated[Status, typer.Option(help="Review status for new assets.")] = Status.APPROVED,
     license_: Annotated[str | None, typer.Option("--license", help="License name, e.g. CC0-1.0.")] = None,
     commercial_use: Annotated[CommercialUse, typer.Option(help="Commercial-use permission.")] = CommercialUse.UNKNOWN,
@@ -138,7 +149,8 @@ def import_(
         try:
             options = ImportOptions(
                 type=type_, name=name, key=key, description=description, tags=tag or [], scope=scope,
-                project=project, style=style, status=status, license=license_, commercial_use=commercial_use,
+                project=project, style=style, category=category, subcategory=subcategory, theme=theme, genre=genre,
+                status=status, license=license_, commercial_use=commercial_use,
                 attribution=attribution, collection=collection, auto_tags=auto_tags, recursive=recursive,
                 all_files=all_files, dry_run=dry_run,
             )  # fmt: skip
@@ -171,20 +183,40 @@ def search(
     max_duration_ms: Annotated[int | None, typer.Option(help="Maximum audio duration.")] = None,
     min_width: Annotated[int | None, typer.Option(help="Minimum image width.")] = None,
     min_height: Annotated[int | None, typer.Option(help="Minimum image height.")] = None,
+    max_width: Annotated[int | None, typer.Option(help="Maximum image width.")] = None,
+    max_height: Annotated[int | None, typer.Option(help="Maximum image height.")] = None,
+    category: Annotated[str | None, typer.Option(help="Exact category.")] = None,
+    subcategory: Annotated[str | None, typer.Option(help="Exact subcategory.")] = None,
+    theme: Annotated[str | None, typer.Option(help="Exact theme.")] = None,
+    genre: Annotated[str | None, typer.Option(help="Exact game genre.")] = None,
+    origin: Annotated[list[Origin] | None, typer.Option("--origin", help="ai, procedural, import, derived (repeatable).")] = None,
+    color: Annotated[list[str] | None, typer.Option("--color", help="Dominant colour name or #hex (repeatable, all required).")] = None,
+    orientation: Annotated[str | None, typer.Option(help="landscape, portrait or square.")] = None,
+    aspect: Annotated[str | None, typer.Option(help="Aspect ratio W:H, e.g. 16:9 (±5%).")] = None,
+    tone: Annotated[str | None, typer.Option(help="Overall brightness: dark, mid or light.")] = None,
+    format_: Annotated[list[str] | None, typer.Option("--format", help="Primary file format: png, webp, svg… (repeatable).")] = None,
+    similar: Annotated[str | None, typer.Option(help="Rank by visual similarity to this asset (ignores the text query).")] = None,
     all_terms: Annotated[bool, typer.Option("--all-terms", help="Every query word must match.")] = False,
     min_coverage: Annotated[float, typer.Option(help="Drop hits matching less than this share of query words.")] = 0.0,
     limit: Annotated[int, typer.Option(help="Maximum results.")] = 20,
     json_: JsonOpt = False,
 ) -> None:
-    """Find existing assets before generating new ones."""
+    """Find existing assets before generating new ones.
+
+    Plain words match names, tags, descriptions, type, style, category, theme, genre, colour names and
+    technical words (transparent/opaque, landscape/portrait/square, dark/light, png/svg), e.g.
+    `search "transparent dark enemy sprite"`. Filters narrow further; `--similar ast_00012` ranks by look.
+    """
     with session(ctx, json_) as s:
         try:
             q = SearchQuery(
                 text=query, types=type_ or [], kind=kind, tags=tag or [], style=style, strict_style=strict_style,
                 project=project, scopes=scope or [], statuses=status or [], collection=collection,
                 include_restricted=include_restricted, transparent=transparent, min_duration_ms=min_duration_ms,
-                max_duration_ms=max_duration_ms, min_width=min_width, min_height=min_height, all_terms=all_terms,
-                min_coverage=min_coverage, limit=limit,
+                max_duration_ms=max_duration_ms, min_width=min_width, min_height=min_height, max_width=max_width,
+                max_height=max_height, category=category, subcategory=subcategory, theme=theme, genre=genre,
+                origins=origin or [], colors=color or [], orientation=orientation, aspect=aspect, tone=tone,
+                formats=format_ or [], similar=similar, all_terms=all_terms, min_coverage=min_coverage, limit=limit,
             )  # fmt: skip
         except ValueError as exc:
             raise InvalidInputError(str(exc)) from exc
@@ -220,6 +252,10 @@ def update(
     scope: Annotated[Scope | None, typer.Option(help="Change reuse scope, e.g. promote project -> global.")] = None,
     project: Annotated[str | None, typer.Option(help="Owning project ('' clears it).")] = None,
     style: Annotated[str | None, typer.Option(help="Style ('' clears it).")] = None,
+    category: Annotated[str | None, typer.Option(help="('' clears) Category, e.g. environment, weapon, creature.")] = None,
+    subcategory: Annotated[str | None, typer.Option(help="('' clears) Subcategory, e.g. forest, sword, undead.")] = None,
+    theme: Annotated[str | None, typer.Option(help="('' clears) Theme, e.g. dark-fantasy, space, underwater.")] = None,
+    genre: Annotated[str | None, typer.Option(help="('' clears) Game genre, e.g. platformer, puzzle, survival.")] = None,
     license_: Annotated[str | None, typer.Option("--license")] = None,
     commercial_use: Annotated[CommercialUse | None, typer.Option()] = None,
     attribution: Annotated[str | None, typer.Option()] = None,
@@ -233,7 +269,8 @@ def update(
         given = {
             "name": name, "key": key, "type": type_, "description": description, "scope": scope,
             "project": project, "style": style, "license": license_, "commercial_use": commercial_use,
-            "attribution": attribution,
+            "attribution": attribution, "category": category, "subcategory": subcategory, "theme": theme,
+            "genre": genre,
         }  # fmt: skip
         patch = AssetPatch(
             **{k: v for k, v in given.items() if v is not None},
@@ -381,6 +418,8 @@ register_export_command(app)
 register_ops_commands(app)
 register_report_commands(app)
 register_ui_commands(app)
+register_discover_commands(app)
+register_create_commands(app)
 
 
 # ---------------------------------------------------------------------- entry point

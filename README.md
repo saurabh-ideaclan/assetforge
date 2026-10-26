@@ -4,7 +4,11 @@ A local-first game asset warehouse with a CLI built for AI agents. Import existi
 generating anything new, and get stable IDs and file paths back as JSON.
 
 > Status: all six v1 phases are implemented: foundation, procedural audio, AI images, processing & QC, PixiJS
-> export, and multi-agent reliability (`request`, job queue, recovery, rate and spend limits).
+> export, and multi-agent reliability (`request`, job queue, recovery, rate and spend limits). On top of that:
+> visual indexing and similarity search, reuse with automatic adaptation, art-style presets and per-game art
+> profiles, SVG/procedural assets, sprite-sheet slicing into aligned animations, and a capped review loop.
+>
+> **Agents: run `assetforge guide --json` first.** It returns the workflow, commands, presets and request format.
 
 ## Mac app (for people)
 
@@ -32,27 +36,32 @@ The UI server listens on 127.0.0.1 only, on a random port, and every request nee
 ## For agents: one command
 
 ```bash
-assetforge request --file beetle-hit.json --json
+assetforge request --file ghoul.json --dry-run --json   # would it reuse (which asset, adapted how) or generate (cost)?
+assetforge request --file ghoul.json --json             # do it
 ```
 
 ```json
 {
-  "project": "panda-bamboo",
-  "key": "enemy/beetle/hit",
-  "type": "sfx",
-  "description": "Short soft crunchy cartoon insect hit",
-  "style": "cute-jungle",
-  "duration_ms": 350,
-  "variants": 4,
-  "reuse_policy": "prefer_existing",
-  "format": "ogg"
+  "type": "enemy",
+  "description": "hunched graveyard ghoul with lantern eyes",
+  "project": "crypt-run",
+  "key": "enemy/ghoul",
+  "purpose": "common melee enemy of level 1",
+  "style": "dark-fantasy",
+  "art": {"mood": "cold dread", "lighting": "moonlight from the left", "avoid": ["cute faces"]},
+  "size": "256x256",
+  "format": "webp",
+  "max_cost": 0.2
 }
 ```
 
 `request` tries, in order: the project's existing asset under `key`; an identical earlier or in-flight request
-(joined, not repeated); a matching approved asset found by search. Only then does it generate: procedural audio
-(recipe and preset inferred from the description) or AI images. The reply has a `state` (`ready`,
-`needs_review`, `queued`), `reused`/`reuse_reason`, the `asset_id` and ready-to-use file paths.
+(joined, not repeated); a matching approved asset found by search (category, genre, theme and the game's art
+style break ties). A reused image is **adapted** to the requested `size`/`format`/`process` as a new variant; the
+original never changes. Only then does it generate: procedural audio for sounds (recipe and preset inferred from
+the description), AI images for visual types (with the game's art profile applied), or a file you made yourself
+(`"method": "svg"`, `"file": "icon.svg"`). The reply has a `state` (`ready`, `needs_review`, `queued`, `dry_run`),
+`reused`/`reuse_reason`, `adapted`, `alternatives` (near misses), `near_duplicates`, the `asset_id` and paths.
 
 ## Install
 
@@ -86,9 +95,19 @@ assetforge review approve ast_00042 --note "matches style"
 |---|---|
 | `init` / `info` | Create the library / show location and stats |
 | `import PATH…` | Import files or folders. Type and tags are inferred from paths; duplicates are detected by SHA-256 |
-| `search [QUERY]` | Ranked search with filters: `--type --kind --tag --style --project --scope --status --collection --transparent --min/max-duration-ms --min-width/height --all-terms --min-coverage --limit` |
+| `search [QUERY]` | Ranked search. Plain words match names, tags, descriptions, type, style, category, theme, genre, colour names and technical words (`transparent`, `landscape`, `dark`, `svg`). Filters: `--type --category --subcategory --theme --genre --color --orientation --tone --aspect --format --origin --tag --style --project --scope --status --collection --transparent/--opaque --min/max-width/height --min/max-duration-ms --similar REF --all-terms --min-coverage --limit` |
+| `similar REF` / `duplicates` | Assets that look like REF (perceptual hash + colour mix) / groups of visually identical assets |
+| `reindex` | Compute colour/shape features for older files and rebuild the search index (safe any time) |
+| `guide` | One JSON document for agents: workflow, commands, presets, methods, request and profile formats |
+| `methods` | Which generation method suits which asset, and each method's limits |
+| `art presets` / `art preset NAME` | Art-style presets (built-in + your own YAML in `$ASSETFORGE_HOME/presets/`) |
+| `art profile set\|show\|list\|delete` | A game's visual identity (style, mood, palette, lighting, perspective, avoid…), YAML in/out |
+| `art preview` | The merged art direction and exact prompt for a request, without calling an API |
+| `add FILE --method svg\|procedural\|file` | Catalog a file you made (SVG master + PNG render, script kept as provenance) |
+| `sprite slice REF --grid 4x2` / `sprite assemble REF…` | Sheet → aligned frame assets with animation metadata / frames → normalized animation |
+| `regenerate REF -m FEEDBACK` | Another version of an AI image with review feedback (capped per asset) |
 | `get REF` | Full metadata, variants, file paths, lineage, usage and history. REF is `ast_…`, `var_…`, a key, or `project:key` |
-| `update REF` | Edit name, key, type, description, scope, project, style, license, tags or `--meta k=v` |
+| `update REF` | Edit name, key, type, description, scope, project, style, category, subcategory, theme, genre, license, tags or `--meta k=v` |
 | `review approve\|reject\|archive\|candidate REF…` | Set review status. Approval runs QC first; rejected and archived assets are hidden from default search |
 | `review pick REF` / `review queue` | Approve one candidate and reject the rest of its batch; list candidates awaiting review |
 | `image process` / `audio process` / `process` | Create game-ready derivatives (resize, trim, recolor, convert; trim silence, LUFS normalize, fade, loop…) |
@@ -137,7 +156,7 @@ assetforge audio reproduce ast_00012
 - Each request becomes **one asset** with variants `v1…vN`. Every variant has a 16-bit WAV master that stores its
   recipe, version, parameters, effects and noise seed, plus a `vN_ogg`/`vN_mp3` copy when `--format` asks for it.
   That copy becomes the primary file.
-- `--preset` sets the sound's character. `--style` is the art direction (e.g. `cute-jungle`), as everywhere else.
+- `--preset` sets the sound's character. `--style` is the art direction (e.g. `dark-fantasy`), as everywhere else.
 - **Reuse instead of regenerate.** Repeating a seeded request returns the earlier asset (`"reused": true,
   "reuse_reason": "fingerprint"`). If a request renders exactly the same sound as an existing asset, that asset is
   returned (`"identical_content"`). Pass `--new-variant` for a deliberately fresh take.
@@ -150,8 +169,13 @@ status collection`.
 
 ### Search semantics
 
-- Every query word (plus a few synonyms, e.g. `sound`→`sfx`, `bg`→`background`) is prefix-matched against the
-  name, key, tags, description, type and style, with stemming.
+- Every query word (plus synonyms, e.g. `sound`→`sfx`, `bg`→`background`, `monster`→`enemy`, `woods`→`forest`)
+  is prefix-matched against the name, key, tags, description, type, style, category, theme, genre, the image's
+  dominant colour names, and technical words (`transparent`/`opaque`, `landscape`/`portrait`/`square`,
+  `dark`/`light`, the file format), with stemming. So `search "transparent dark enemy sprites"` works as typed.
+- Every image gets local features when cataloged: up to 5 dominant colours (hex, name, share), aspect ratio,
+  transparent share, mean brightness and a 64-bit perceptual hash. `--similar REF` and `similar REF` rank by look;
+  `duplicates` finds the same picture saved twice at different sizes. Run `reindex` once on older libraries.
 - Each hit reports `coverage` (the share of query words it matched), `matched_terms` and `score`. Agents can use
   `--min-coverage 0.8` to accept only close matches before deciding to generate a new asset.
 - By default, results exclude rejected/archived assets and assets marked `commercial_use=restricted`
@@ -166,13 +190,11 @@ or in `$ASSETFORGE_HOME/.env`. Override models with `ASSETFORGE_OPENAI_IMAGE_MOD
 `ASSETFORGE_GEMINI_IMAGE_MODEL` or `--model`, and pick the default provider with `ASSETFORGE_IMAGE_PROVIDER`.
 
 ```bash
-assetforge style create cute-jungle --description "chunky cartoon, thick dark outlines" \
-  --palette "#4CAF50,#FFEB3B,#795548" --instructions "soft cel shading" --reference ast_00012
-assetforge image generate --type character --prompt "Cute cartoon beetle, front view" --style cute-jungle \
-  --provider gemini --transparent --json
-assetforge image generate --type background -p "Misty bamboo jungle at dawn" --style cute-jungle -n 3
-assetforge image generate --type icon -p "Golden bamboo coin" --format webp --dry-run   # show prompt, no API call
-assetforge image edit ast_00031 -p "Give the beetle a tiny red bandana"              # new asset, edited_from link
+assetforge image generate --type enemy -p "Hunched graveyard ghoul with lantern eyes" --style dark-fantasy \
+  --mood "cold dread" --lighting "moonlight from the left" --provider gemini --json
+assetforge image generate --type background -p "Flooded crypt corridor" --project crypt-run -n 3
+assetforge image generate --type icon -p "Brass key" --art-file brass.yaml --format webp --dry-run   # prompt, no call
+assetforge image edit ast_00031 -p "Give the ghoul a tattered red hood"          # new asset, edited_from link
 assetforge review approve ast_00031
 ```
 
@@ -188,6 +210,80 @@ assetforge review approve ast_00031
 - **Reuse:** repeating an identical request returns the earlier result without calling the API. Use `--new-variant`
   for a fresh take.
 - Cost figures are estimates from token/per-image price tables in the adapters. Check the providers' pricing pages.
+
+## Art direction: presets, game profiles, your own style
+
+Images are only as varied as the direction they get. AssetForge's templates say *what* an asset is (a single
+enemy, a tileable texture, a 4×2 sheet); the **look** comes from art direction, in layers (later wins per field):
+
+1. the preset named by the game's profile, 2. the game's **art profile**, 3. a preset named in the request
+(`--style horror`), 4. the request's own `art` fields (`--mood`, `--lighting`, `--palette`, `--avoid`, `--art-file`).
+
+```bash
+assetforge art presets                          # 18 looks: realistic-2d, pixel-art, dark-fantasy, horror, sci-fi…
+assetforge art preset horror                    # its palette, lighting, shapes, outlines, shading, texture, avoid
+assetforge art profile set --file art.yaml      # a game's visual identity
+assetforge art profile show space-survivor --yaml
+assetforge art preview -p "scavenger drone" --type enemy --project space-survivor   # merged direction + prompt
+```
+
+```yaml
+# art.yaml
+game: space_survivor
+style: sci-fi            # a preset, or any words ("ukiyo-e woodblock print")
+mood: dark
+perspective: side_view
+palette: ["#17212D", "#38536B", "#FF7A32"]
+lighting: cinematic
+detail: high             # high also asks the provider for larger images
+avoid: [childish_shapes, toy_like_objects, generic_cubes]
+```
+
+- Every `ArtDirection` field is free text: `style description genre theme mood palette lighting perspective shapes
+  outline shading texture detail composition notes avoid references`. Nothing limits an agent to the presets.
+- Presets are YAML. Add or override one by dropping `NAME.yaml` into `$ASSETFORGE_HOME/presets/`.
+- Profile reference assets (`--reference`) are sent as art-style references, and the prompt says which input image
+  is a subject reference and which is a style reference.
+- Generated assets record the merged direction and its layers (`metadata.generator.art`, `art_layers`), and inherit
+  the profile's genre and theme for search. `--no-profile` ignores the profile for one request.
+- `style create` profiles from earlier versions still work as a layer.
+
+## Choosing a method
+
+`assetforge methods` lists each method with what it suits and its limits: **AI images** (illustration,
+backgrounds, characters; paid, drifts between calls), **edits** (new poses of an existing design), **SVG**
+(icons/UI the agent writes itself; crisp, not painterly), **procedural images** (patterns, particles from the
+agent's own script), **processing** (resize/recolour/crop), **sprite slicing/assembly**, and **procedural audio**.
+
+```bash
+assetforge add heart.svg --method svg --type icon --size 256 -d "red heart health icon" --project crypt-run
+assetforge add noise.png --method procedural --script make_noise.py --type texture -d "grey static noise"
+```
+
+SVG keeps the vector master (variant `svg`) and gets a resvg PNG render as its primary file, so it is QC'd,
+searchable by colour and exported like any image. Procedural assets keep their script in `metadata.generator`.
+
+## Sprites and animation
+
+Separately generated images rarely animate well. Draw all poses in **one** call on a grid, then slice:
+
+```bash
+assetforge image generate -p "armoured knight" --type spritesheet --grid 4x2 \
+  --pose "walk contact" --pose "walk down" --pose "walk pass" --pose "walk up" \
+  --pose "idle 1" --pose "idle 2" --pose "attack windup" --pose "attack strike" --project castle --json
+assetforge sprite slice ast_00051 --grid 4x2 -a walk=0-3@8 -a idle=4-5@3 -a attack=6-7@12:once --cell 128
+assetforge sprite assemble ast_00060 ast_00061 ast_00062 --name torch_flicker --fps 12   # normalize loose frames
+```
+
+Slicing finds each subject by alpha (key-colour spill removed), scales **all frames by one factor** so the
+character never changes size, and pads them into equal cells on a common baseline (`--anchor bottom`) or centre.
+Frames become assets named `knight_walk_01…` in a `knight-frames` collection (linked `derived_from` the sheet),
+the sheet gets an aligned variant, and `metadata.animation` stores the grid, cell size, anchor, fps and loop.
+A report flags missing or extra frames, captions the model added, and frames whose heights differ by more than 25%.
+`--slice` on `image generate` (or `"slice": true` with a `sheet` in `request`) does this right after generating.
+
+On `export --atlas`, frames are packed with their pivot as the Pixi frame `anchor`, the atlas lists the
+animations, and `animations.json` gives each animation's frames, fps, loop and anchor.
 
 ## Processing, QC and review
 
@@ -211,6 +307,23 @@ assetforge lineage ast_00031
 - Loudness normalization uses ITU-R BS.1770 LUFS, and the peak ceiling is respected by lowering gain, never by clipping.
 - `review approve` runs QC first. Blank/empty images, silent/clipped audio and missing files block approval
   (exit 7, `POLICY_VIOLATION`) unless `--force`.
+- QC also checks what was asked for: `size_mismatch`/`aspect_mismatch`/`format_mismatch` against the request,
+  `near_duplicate` against the library, and `sheet_frames` for sheets whose slice found missing or merged frames.
+  Generated and added assets are checked automatically; the result is in `metadata.qc` and the command's JSON.
+
+### The review loop
+
+The agent judges fit itself: `get REF --json` and `preview` give it the image paths to look at. If an image misses
+the brief, ask for another version with concrete feedback:
+
+```bash
+assetforge regenerate ast_00042 -m "too cartoonish: realistic proportions, grittier texture, no outline" \
+  --style dark-fantasy --avoid "cute faces" --reject-previous --json
+```
+
+The original request is re-run with the feedback and overrides, new candidates are linked `variant_of` the
+original, and attempts per original are capped by `generation.max_regenerations` (default 3; exit 7,
+`RETRY_LIMIT`), on top of the budget and `--max-cost`. `--dry-run` shows the revised prompt and cost.
 
 ## Export to a game (PixiJS)
 

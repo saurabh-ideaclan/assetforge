@@ -3,9 +3,13 @@
 Reuse ladder, tried in order (`reuse_policy` = prefer_existing, the default):
   1. key: the project already has an asset or usage under this key
   2. request: an identical request already finished, or is running right now (join it, don't duplicate)
-  3. search: a cataloged asset matches the description well enough (coverage >= reuse_threshold)
-Then generate: procedural audio for `sfx` (recipe and preset inferred from the description), or AI
-images for visual types. Optionally post-process with a preset, record project usage, and return paths.
+  3. search: a cataloged asset matches the description well enough (coverage >= reuse_threshold);
+     category/genre/theme and the project's art style break ties
+A reused image is *adapted* when the request asks for a size, format or processing preset: a derived
+variant is made (the original is never touched) and its path returned. Then generate: procedural audio
+for `sfx` (recipe and preset inferred from the description), AI images for visual types, or register a
+file the agent made itself (`method: svg|procedural|file`). `dry_run` reports the decision and the cost
+without spending anything.
 `require_existing` stops after step 3 with NOT_FOUND. `always_generate` skips steps 1–3.
 
 Each generating request is a durable job (kind "request") with a lease, so a crash is recoverable,
@@ -20,6 +24,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from assetforge import art
+from assetforge.art import ArtDirection
 from assetforge.audio import process as audio_proc
 from assetforge.audio.generate import AudioRequest, generate_audio
 from assetforge.audio.recipes import PRESETS as SOUND_PRESETS
@@ -28,26 +34,37 @@ from assetforge.config import Settings, load_settings
 from assetforge.core import jobs, limits, queue, settings_store
 from assetforge.core.catalog import Library
 from assetforge.core.classify import tokens
-from assetforge.core.models import AssetSummary, AssetType, FileKind, JobStatus, Scope, Status
+from assetforge.core import visual
+from assetforge.core.models import IMAGE_TYPES as VISUAL_TYPES
+from assetforge.core.models import AssetPatch, AssetSummary, AssetType, FileKind, JobStatus, Scope, Status
 from assetforge.core.search import SearchQuery, search
 from assetforge.core.util import normalize_key, normalize_optional_slug
 from assetforge.errors import AssetForgeError, InternalError, InvalidInputError, NotFoundError
 from assetforge.image import process as image_proc
 from assetforge.image.generate import ImageRequest, generate_image
+from assetforge.image.prompts import SheetSpec
 
 ReusePolicy = Literal["prefer_existing", "require_existing", "always_generate"]
 AUDIO_TYPES = {AssetType.SFX, AssetType.AUDIO}
-IMAGE_TYPES = {AssetType.CHARACTER, AssetType.SPRITE, AssetType.BACKGROUND, AssetType.ICON, AssetType.TILE,
-               AssetType.UI, AssetType.EFFECT, AssetType.IMAGE}  # fmt: skip
+IMAGE_TYPES = set(VISUAL_TYPES)
 COMPATIBLE: dict[AssetType, list[AssetType]] = {
     AssetType.SFX: [AssetType.SFX, AssetType.AUDIO],
     AssetType.AUDIO: [AssetType.SFX, AssetType.AUDIO],
-    AssetType.CHARACTER: [AssetType.CHARACTER, AssetType.SPRITE],
-    AssetType.SPRITE: [AssetType.SPRITE, AssetType.CHARACTER],
+    AssetType.CHARACTER: [AssetType.CHARACTER, AssetType.SPRITE, AssetType.ENEMY],
+    AssetType.ENEMY: [AssetType.ENEMY, AssetType.CHARACTER, AssetType.SPRITE],
+    AssetType.SPRITE: [AssetType.SPRITE, AssetType.OBJECT, AssetType.CHARACTER, AssetType.ENEMY],
+    AssetType.OBJECT: [AssetType.OBJECT, AssetType.SPRITE],
     AssetType.ICON: [AssetType.ICON, AssetType.UI],
     AssetType.UI: [AssetType.UI, AssetType.ICON],
+    AssetType.TILE: [AssetType.TILE, AssetType.TEXTURE],
+    AssetType.TEXTURE: [AssetType.TEXTURE, AssetType.TILE],
+    AssetType.SPRITESHEET: [AssetType.SPRITESHEET, AssetType.ANIMATION],
+    AssetType.ANIMATION: [AssetType.ANIMATION, AssetType.SPRITESHEET],
     AssetType.IMAGE: sorted(IMAGE_TYPES),
 }
+FILL_TYPES = {AssetType.BACKGROUND, AssetType.TILE, AssetType.TEXTURE}  # resized with "cover", others padded
+DISCOVERY_BONUS = 0.05  # per matching category/subcategory/theme/genre when ranking reuse candidates
+Method = Literal["auto", "ai", "procedural", "svg", "file"]
 RETRY_DELAYS = (30.0, 120.0, 600.0)
 
 
@@ -60,7 +77,18 @@ class AssetRequest(BaseModel):
     description: str = Field(min_length=3)
     project: str | None = None
     key: str | None = Field(None, description="How the project refers to it, e.g. enemy/beetle/hit")
-    style: str | None = None
+    style: str | None = Field(None, description="Preset name (`art presets`) or any style label")
+    art: ArtDirection | None = Field(None, description="Custom art direction (overrides the project art profile)")
+    purpose: str | None = Field(None, description="What the asset is for in the game")
+    use_profile: bool = True
+    category: str | None = None
+    subcategory: str | None = None
+    theme: str | None = None
+    genre: str | None = None
+    method: Method = Field("auto", description="auto: AI image or procedural audio by type; svg/procedural/file: "
+                                               "register `file`, which the agent made itself")  # fmt: skip
+    file: str | None = Field(None, description="Agent-made file to register (method svg/procedural/file)")
+    script: str | None = Field(None, description="Generator script to keep as provenance (method procedural)")
     reuse_policy: ReusePolicy = "prefer_existing"
     reuse_threshold: float | None = Field(None, ge=0, le=1)
     accept_candidates: bool = Field(False, description="Allow reusing unreviewed candidates")
@@ -86,6 +114,8 @@ class AssetRequest(BaseModel):
     references: list[str] = Field(default_factory=list)
     negative: str | None = None
     max_cost: float | None = Field(None, ge=0)
+    sheet: SheetSpec | None = Field(None, description="Sprite-sheet grid and poses (type spritesheet/animation)")
+    slice: bool = Field(False, description="Cut a generated sheet into aligned frame assets (needs `sheet`)")
     # output + catalog
     format: str | None = Field(None, description="Audio: wav/ogg/mp3 (default ogg). Images: png/webp (default png)")
     process: str | None = Field(None, description="Processing preset applied to the result (e.g. web-sprite)")
@@ -94,10 +124,13 @@ class AssetRequest(BaseModel):
     scope: Scope | None = None
     collection: str | None = None
     priority: int = 0
+    adapt: bool = Field(True, description="Resize/convert a reused asset to `size`/`format`/`process` as a variant")
+    adapt_as_new_asset: bool = Field(False, description="Make the adapted copy its own asset owned by `project`")
+    dry_run: bool = Field(False, description="Report what would happen (reuse or generate, cost) without doing it")
 
 
 class RequestResult(BaseModel):
-    state: Literal["ready", "needs_review", "queued", "running", "failed", "cancelled"]
+    state: Literal["ready", "needs_review", "queued", "running", "failed", "cancelled", "dry_run"]
     reused: bool = False
     reuse_reason: Literal["key", "request", "in_flight", "search"] | None = None
     job_id: str | None = None
@@ -107,6 +140,11 @@ class RequestResult(BaseModel):
     candidates: list[dict[str, Any]] = Field(default_factory=list)
     match: dict[str, Any] | None = None
     generated: dict[str, Any] | None = None
+    adapted: dict[str, Any] | None = None
+    alternatives: list[dict[str, Any]] = Field(default_factory=list)
+    near_duplicates: list[dict[str, Any]] = Field(default_factory=list)
+    would: Literal["reuse", "generate", "register"] | None = None
+    plan: dict[str, Any] | None = None
     error: dict[str, Any] | None = None
 
 
@@ -155,7 +193,7 @@ def media_kind(asset_type: AssetType) -> Literal["audio", "image"]:
 
 
 def fingerprint(req: AssetRequest) -> str:
-    data = req.model_dump(mode="json", exclude={"priority", "new_variant"})
+    data = req.model_dump(mode="json", exclude={"priority", "new_variant", "dry_run"})
     return jobs.fingerprint({"engine": "request", **data})
 
 
@@ -194,37 +232,146 @@ def by_key(lib: Library, req: AssetRequest) -> str | None:
     return None
 
 
-def by_search(lib: Library, req: AssetRequest) -> tuple[str, dict[str, Any]] | None:
-    threshold = req.reuse_threshold if req.reuse_threshold is not None else settings_store.get(lib, "request.reuse_threshold")
-    query = SearchQuery(
+def _preferred_style(lib: Library, req: AssetRequest) -> str | None:
+    """The style to favour when reusing: the request's, else the project's art profile style."""
+    if req.style or (req.art and req.art.style):
+        return art.style_slug(req.style or (req.art.style if req.art else None))
+    profile = art.find_profile(lib, req.project) if req.use_profile else None
+    return art.style_slug(profile.direction.style) if profile else None
+
+
+def _search_query(lib: Library, req: AssetRequest, *, min_coverage: float, limit: int) -> SearchQuery:
+    size = image_proc_size(req.size)
+    return SearchQuery(
         text=req.description,
         types=COMPATIBLE.get(req.type, [req.type]),
-        kind=FileKind.AUDIO if media_kind(req.type) == "audio" else FileKind.IMAGE,
-        style=req.style,
+        kind=FileKind.AUDIO if media_kind(req.type) == "audio" else None,
+        style=_preferred_style(lib, req),
         project=req.project,
         statuses=[Status.APPROVED, *([Status.CANDIDATE] if req.accept_candidates else [])],
-        transparent=True if req.transparent else None,
+        transparent=req.transparent,
         min_duration_ms=req.duration_ms // 2 if req.duration_ms else None,
         max_duration_ms=req.duration_ms * 2 if req.duration_ms else None,
-        min_coverage=threshold,
-        limit=5,
+        min_width=size[0] // 2 if size else None,  # don't blow a tiny image up to the requested size
+        min_height=size[1] // 2 if size else None,
+        min_coverage=min_coverage,
+        limit=limit,
     )
-    hits = search(lib, query).results
+
+
+def _ranked(lib: Library, req: AssetRequest, hits: list[Any]) -> list[tuple[float, Any]]:
+    """Search hits re-ranked with a bonus for matching category/subcategory/theme/genre."""
+    wanted = {f: normalize_optional_slug(getattr(req, f), f) for f in ("category", "subcategory", "theme", "genre")}
+    if req.art:
+        wanted["theme"] = wanted["theme"] or normalize_optional_slug(req.art.theme, "theme")
+        wanted["genre"] = wanted["genre"] or normalize_optional_slug(req.art.genre, "genre")
+    ranked = [((h.score or 0) + DISCOVERY_BONUS * sum(1 for f, v in wanted.items() if v and getattr(h, f) == v), h)
+              for h in hits]  # fmt: skip
+    return sorted(ranked, key=lambda item: (-item[0], item[1].id))
+
+
+def _match(top: Any, score: float, threshold: float) -> dict[str, Any]:
+    return {"score": round(score, 4), "coverage": top.coverage, "matched_terms": top.matched_terms,
+            "threshold": threshold}  # fmt: skip
+
+
+def by_search(lib: Library, req: AssetRequest) -> tuple[str, dict[str, Any], list[dict[str, Any]]] | None:
+    threshold = req.reuse_threshold if req.reuse_threshold is not None else settings_store.get(lib, "request.reuse_threshold")
+    hits = search(lib, _search_query(lib, req, min_coverage=threshold, limit=10)).results
+    if media_kind(req.type) == "image":
+        hits = [h for h in hits if h.primary_variant and h.primary_variant.file.kind in (FileKind.IMAGE, FileKind.VECTOR)]
     if not hits:
         return None
-    top = hits[0]
-    return top.id, {"score": top.score, "coverage": top.coverage, "matched_terms": top.matched_terms,
-                    "threshold": threshold}  # fmt: skip
+    ranked = _ranked(lib, req, hits)
+    score, top = ranked[0]
+    return top.id, _match(top, score, threshold), [_brief(h, s) for s, h in ranked[1:4]]
+
+
+def _brief(hit: Any, score: float | None = None) -> dict[str, Any]:
+    return {"asset_id": hit.id, "name": hit.name, "type": hit.type.value, "score": round(score or hit.score or 0, 4),
+            "coverage": hit.coverage, "status": hit.status.value, "path": hit.path}  # fmt: skip
 
 
 def _closest(lib: Library, req: AssetRequest) -> list[dict[str, Any]]:
-    hits = search(lib, SearchQuery(text=req.description, types=COMPATIBLE.get(req.type, [req.type]), limit=3)).results
-    return [{"asset_id": h.id, "name": h.name, "coverage": h.coverage, "status": h.status.value} for h in hits]
+    """Near misses (any coverage) so the agent can decide to adapt one instead of generating."""
+    hits = search(lib, SearchQuery(text=req.description, types=COMPATIBLE.get(req.type, [req.type]),
+                                   style=_preferred_style(lib, req), limit=3)).results  # fmt: skip
+    return [_brief(h) for h in hits]
 
 
-def _record_use(lib: Library, asset_id: str, req: AssetRequest) -> None:
+# ---------------------------------------------------------------------- adaptation
+
+
+def image_proc_size(size: str | None) -> tuple[int, int] | None:
+    from assetforge.image.engine import parse_size
+
+    return parse_size(size)
+
+
+def adapt_ops(lib: Library, asset_id: str, req: AssetRequest) -> list[dict[str, Any]]:
+    """Processing that turns a reused asset into what the request asked for (empty: use it as is)."""
+    if not req.adapt:
+        return []
+    asset = lib.get_asset(asset_id)
+    primary = asset.primary_variant
+    if primary is None:
+        return []
+    if media_kind(req.type) == "audio":
+        ops = audio_proc.expand_preset(req.process) if req.process else []
+        if req.format and primary.file.ext.lstrip(".") != req.format and not any(o["op"] == "format" for o in ops):
+            ops.append({"op": "format", "format": req.format})
+        return ops
+    if primary.file.kind != FileKind.IMAGE:
+        return []
+    ops = []
+    size = image_proc_size(req.size)
+    if size and (primary.file.width, primary.file.height) != size:
+        mode = "cover" if req.type in FILL_TYPES or asset.type in FILL_TYPES else "pad"
+        ops.append({"op": "resize", "width": size[0], "height": size[1], "mode": mode})
+    if req.process:
+        ops += image_proc.expand_preset(req.process)
+    fmt = req.format
+    if fmt and primary.file.ext.lstrip(".").replace("jpeg", "jpg") != fmt:
+        ops = [o for o in ops if o["op"] != "format"] + [{"op": "format", "format": fmt}]
+    return ops
+
+
+def _adapt(lib: Library, asset_id: str, req: AssetRequest) -> tuple[str, dict[str, Any], dict[str, Any]] | None:
+    """Make (or find) the adapted derivative. Returns (asset_id, variant record, adapted info)."""
+    ops = adapt_ops(lib, asset_id, req)
+    if not ops:
+        return None
+    module = audio_proc.process_audio_asset if media_kind(req.type) == "audio" else image_proc.process_image_asset
+    name = f"{lib.get_asset(asset_id).name}_{normalize_optional_slug(req.project, 'project') or 'adapted'}"
+    derived = module(lib, asset_id, ops, new_asset=req.adapt_as_new_asset, name=name if req.adapt_as_new_asset else None)
+    if req.adapt_as_new_asset and req.project:
+        lib.update_asset(derived.asset_id, AssetPatch(project=req.project))
+    variant = next(v for v in lib.get_asset(derived.asset_id).variants if v.id == derived.variant_id)
+    record = {"variant_id": variant.id, "label": variant.label, "path": variant.file.path,
+              "format": variant.file.ext.lstrip("."), "width": variant.file.width, "height": variant.file.height}  # fmt: skip
+    info = {"from_asset": asset_id, "ops": ops, "variant_id": variant.id, "new_asset": derived.new_asset,
+            "reused_existing": derived.reused}  # fmt: skip
+    return derived.asset_id, record, info
+
+
+def _record_use(lib: Library, asset_id: str, req: AssetRequest, variant_id: str | None = None) -> None:
     if req.project:
-        lib.record_usage(asset_id, req.project, usage_key=normalize_key(req.key) if req.key else None)
+        lib.record_usage(asset_id, req.project, variant_id=variant_id,
+                         usage_key=normalize_key(req.key) if req.key else None)  # fmt: skip
+
+
+def _reuse(lib: Library, asset_id: str, req: AssetRequest, reason: str, *, match: dict[str, Any] | None = None,
+           alternatives: list[dict[str, Any]] | None = None) -> RequestResult:  # fmt: skip
+    adapted = _adapt(lib, asset_id, req)
+    if adapted is None:
+        _record_use(lib, asset_id, req)
+        result = _summary_result(lib, asset_id, reason, match=match)
+    else:
+        target, variant, info = adapted
+        _record_use(lib, target, req, variant_id=variant["variant_id"])
+        result = _summary_result(lib, target, reason, match=match).model_copy(update={"variants": [variant],
+                                                                                      "adapted": info})  # fmt: skip
+    return result.model_copy(update={"alternatives": alternatives or []})
 
 
 # ---------------------------------------------------------------------- generation
@@ -247,18 +394,48 @@ def _seed(req: AssetRequest, fp: str) -> int:
     return int(hashlib.sha256(fp.encode()).hexdigest()[:8], 16)  # retries reproduce the same sound
 
 
+def _scope(req: AssetRequest) -> tuple[str | None, str | None, Scope]:
+    project = normalize_optional_slug(req.project, "project")
+    style = art.style_slug(req.style or (req.art.style if req.art else None))
+    scope = req.scope or (Scope.PROJECT if project and not style and req.key else Scope.STYLE if style else Scope.GLOBAL)
+    return project, style, scope
+
+
+def _image_request(req: AssetRequest, *, key: str | None, dry_run: bool = False) -> ImageRequest:
+    project, style, scope = _scope(req)
+    return ImageRequest(
+        prompt=req.prompt or req.description, type=req.type, style=req.style, art=req.art, purpose=req.purpose,
+        sheet=req.sheet, use_profile=req.use_profile, provider=req.provider, model=req.model, n=req.n,
+        aspect=req.aspect, size=req.size, quality=req.quality, transparent=req.transparent,
+        format=req.format if req.format in ("png", "webp") else "png", references=req.references,
+        negative=req.negative, max_cost=req.max_cost, name=req.name, key=key if req.n == 1 else None,
+        description=req.description, tags=req.tags, category=req.category, subcategory=req.subcategory,
+        theme=req.theme, genre=req.genre, scope=scope, project=project, status=Status.CANDIDATE,
+        collection=req.collection, new_variant=req.new_variant, dry_run=dry_run,
+    )  # fmt: skip
+
+
 def _generate(lib: Library, job_id: str, req: AssetRequest, fp: str, settings: Settings) -> RequestResult:
     kind = media_kind(req.type)
-    project = normalize_optional_slug(req.project, "project")
-    style = normalize_optional_slug(req.style, "style")
-    scope = req.scope or (Scope.PROJECT if project and not style and req.key else Scope.STYLE if style else Scope.GLOBAL)
+    project, style, scope = _scope(req)
     key = _key_free(lib, req)
     produced: list[str] = []
     variants: list[dict[str, Any]] = []
     candidates: list[dict[str, Any]] = []
     generated: dict[str, Any]
 
-    if kind == "audio":
+    if req.method in ("svg", "procedural", "file"):
+        from assetforge.add import AddRequest, add_file
+
+        added = add_file(lib, AddRequest(
+            path=req.file or "", method=req.method, type=req.type, name=req.name, key=key,
+            description=req.description, style=req.style, art=req.art, project=project, scope=scope, tags=req.tags,
+            category=req.category, subcategory=req.subcategory, theme=req.theme, genre=req.genre,
+            script=req.script, collection=req.collection, size=req.size,
+        ))  # fmt: skip
+        produced = [added.asset_id]
+        generated = {"kind": req.method, "cost_usd": 0.0, "reused_content": not added.created}
+    elif kind == "audio":
         recipe = RECIPES[req.recipe] if req.recipe in RECIPES else infer_recipe(req.recipe or req.description)
         preset = req.preset or infer_preset(req.description, recipe)
         result = generate_audio(lib, AudioRequest(
@@ -281,14 +458,8 @@ def _generate(lib: Library, job_id: str, req: AssetRequest, fp: str, settings: S
             inner = jobs.get_job(lib, inner_id)
             image = result_from_job(lib, inner) if inner.status == JobStatus.SUCCEEDED else resume_image_job(lib, inner_id, settings)
         else:
-            image = generate_image(lib, ImageRequest(
-                prompt=req.prompt or req.description, type=req.type, style=style, provider=req.provider,
-                model=req.model, n=req.n, aspect=req.aspect, size=req.size, quality=req.quality,
-                transparent=req.transparent, format=req.format or "png", references=req.references,
-                negative=req.negative, max_cost=req.max_cost, name=req.name, key=key if req.n == 1 else None,
-                description=req.description, tags=req.tags, scope=scope, project=project,
-                status=Status.CANDIDATE, collection=req.collection, new_variant=req.new_variant,
-            ), settings, on_job=lambda inner: jobs.update_job(lib, job_id, result={"inner_job_id": inner}))  # fmt: skip
+            image = generate_image(lib, _image_request(req, key=key), settings,
+                                   on_job=lambda inner: jobs.update_job(lib, job_id, result={"inner_job_id": inner}))  # fmt: skip
         produced = [c.asset_id for c in image.assets]
         candidates = [{"asset_id": c.asset_id, "variant_id": c.variant_id, "path": c.path, "width": c.width,
                        "height": c.height, "has_alpha": c.has_alpha, "qc": c.qc} for c in image.assets]  # fmt: skip
@@ -305,6 +476,14 @@ def _generate(lib: Library, job_id: str, req: AssetRequest, fp: str, settings: S
                 image_proc.process_image_asset(lib, asset_id, ops, make_primary=True)
         generated["process"] = req.process
 
+    if req.slice and req.sheet and kind == "image":
+        from assetforge.image.sprites import slice_asset
+
+        frame_type = AssetType.ANIMATION if req.sheet.one_character else AssetType.OBJECT
+        sliced = [slice_asset(lib, asset_id, columns=req.sheet.columns, rows=req.sheet.rows,
+                              names=req.sheet.poses or None, frame_type=frame_type) for asset_id in produced]  # fmt: skip
+        generated["sliced"] = [{"collection": r.collection, "frames": len(r.frames), "report": r.report} for r in sliced]
+
     primary_id = produced[0]
     asset = lib.get_asset(primary_id)
     if kind == "image" or req.process:
@@ -316,8 +495,11 @@ def _generate(lib: Library, job_id: str, req: AssetRequest, fp: str, settings: S
     if len(produced) == 1:
         _record_use(lib, primary_id, req)
     state = "needs_review" if len(produced) > 1 else "ready"
+    duplicates = [{"asset_id": a, **d} for a in produced for d in visual.near_duplicates(lib, a) if d["asset_id"] not in
+                  produced] if kind == "image" else []  # fmt: skip
     return RequestResult(state=state, job_id=job_id, asset_id=primary_id, asset=lib.summaries([primary_id])[0],
-                         variants=variants, candidates=candidates if len(produced) > 1 else [], generated=generated)  # fmt: skip
+                         variants=variants, candidates=candidates if len(produced) > 1 else [], generated=generated,
+                         near_duplicates=duplicates)  # fmt: skip
 
 
 def run_job(lib: Library, job_id: str, owner: str, settings: Settings | None = None, *,
@@ -371,21 +553,27 @@ def handle(lib: Library, req: AssetRequest, *, settings: Settings | None = None,
         normalize_key(req.key)
     if req.process:
         (audio_proc if media_kind(req.type) == "audio" else image_proc).expand_preset(req.process)
+    if req.method in ("svg", "procedural", "file") and not req.file:
+        raise InvalidInputError(f"method {req.method} registers a file you made: pass `file`")
+    if req.slice and not req.sheet:
+        raise InvalidInputError("`slice` needs a `sheet` grid (columns/rows)")
     fp = fingerprint(req)
+    if req.dry_run:
+        return plan(lib, req, settings)
+    alternatives: list[dict[str, Any]] = []
     if req.reuse_policy != "always_generate":
         if asset_id := by_key(lib, req):
-            _record_use(lib, asset_id, req)
-            return _summary_result(lib, asset_id, "key")
+            return _reuse(lib, asset_id, req, "key")
         if not req.new_variant and (done := jobs.find_completed(lib, "request", fp)):
             result = result_from_job(lib, done)
             return result.model_copy(update={"reused": True, "reuse_reason": "request", "job_id": done.id})
         if found := by_search(lib, req):
-            asset_id, match = found
-            _record_use(lib, asset_id, req)
-            return _summary_result(lib, asset_id, "search", match=match)
+            asset_id, match, others = found
+            return _reuse(lib, asset_id, req, "search", match=match, alternatives=others)
+        alternatives = _closest(lib, req)
         if req.reuse_policy == "require_existing":
             raise NotFoundError("No existing asset matches this request", hint="Lower reuse_threshold or allow generation",
-                                closest=_closest(lib, req))  # fmt: skip
+                                closest=alternatives)  # fmt: skip
 
     owner = limits.owner_id()
     record = {"request": req.model_dump(mode="json")}
@@ -406,6 +594,39 @@ def handle(lib: Library, req: AssetRequest, *, settings: Settings | None = None,
         return result.model_copy(update={"reused": True, "reuse_reason": "in_flight", "job_id": active.id})
     assert job_id is not None
     if enqueue:
-        return RequestResult(state="queued", job_id=job_id)
-    return run_job(lib, job_id, owner, settings)
+        return RequestResult(state="queued", job_id=job_id, alternatives=alternatives)
+    return run_job(lib, job_id, owner, settings).model_copy(update={"alternatives": alternatives})
+
+
+def plan(lib: Library, req: AssetRequest, settings: Settings | None = None) -> RequestResult:
+    """`dry_run`: what `handle` would do (reuse which asset and how it would be adapted, or what generating would
+    send and cost), without writing anything or calling a paid API."""
+    if req.reuse_policy != "always_generate":
+        found: tuple[str, str, dict[str, Any] | None, list[dict[str, Any]]] | None = None
+        if asset_id := by_key(lib, req):
+            found = (asset_id, "key", None, [])
+        elif hit := by_search(lib, req):
+            found = (hit[0], "search", hit[1], hit[2])
+        if found:
+            asset_id, reason, match, others = found
+            result = _summary_result(lib, asset_id, reason, match=match)
+            ops = adapt_ops(lib, asset_id, req)
+            return result.model_copy(update={"state": "dry_run", "would": "reuse", "alternatives": others,
+                                             "plan": {"adapt_ops": ops} if ops else None})  # fmt: skip
+    alternatives = _closest(lib, req)
+    if req.reuse_policy == "require_existing":
+        raise NotFoundError("No existing asset matches this request", closest=alternatives)
+    if req.method in ("svg", "procedural", "file"):
+        return RequestResult(state="dry_run", would="register", alternatives=alternatives,
+                             plan={"method": req.method, "file": req.file, "cost_usd": 0.0})  # fmt: skip
+    if media_kind(req.type) == "audio":
+        recipe = RECIPES[req.recipe] if req.recipe in RECIPES else infer_recipe(req.recipe or req.description)
+        return RequestResult(state="dry_run", would="generate", alternatives=alternatives, plan={
+            "method": "procedural_audio", "recipe": recipe.name, "preset": req.preset or infer_preset(
+                req.description, recipe), "variants": req.variants, "cost_usd": 0.0})  # fmt: skip
+    image = generate_image(lib, _image_request(req, key=None, dry_run=True), settings)
+    return RequestResult(state="dry_run", would="generate", alternatives=alternatives, plan={
+        "method": "ai_image", "provider": image.provider, "model": image.model, "prompt": image.prompt,
+        "transparency": image.transparency, "art": image.art, "art_layers": image.art_layers, "n": req.n,
+        "estimated_cost_usd": image.estimated_cost_usd, "slice": req.slice})  # fmt: skip
 

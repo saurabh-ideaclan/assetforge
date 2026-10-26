@@ -1,0 +1,11 @@
+summary: Hand-painted textures and illustration
+best_for: [background, tile, texture, object, character]
+description: Painted with visible brush strokes like stylized MMO/fantasy hand-painted art
+mood: warm and inviting
+lighting: painted-in light, warm highlights and cool shadows
+shapes: slightly exaggerated chunky forms
+outline: no outlines; painted edges
+shading: painted gradients with bounced light baked in
+texture: visible directional brush strokes
+detail: medium
+avoid: [vector flatness, photo textures, thick black outlines]

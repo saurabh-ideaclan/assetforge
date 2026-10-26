@@ -118,7 +118,7 @@ def generate(
     tag: Annotated[list[str] | None, typer.Option("--tag", "-t", help="Extra tag (repeatable).")] = None,
     scope: Annotated[Scope | None, typer.Option(help="Reuse scope (default global).")] = None,
     project: Annotated[str | None, typer.Option(help="Owning project (game).")] = None,
-    style: Annotated[str | None, typer.Option(help="Art-direction style, e.g. cute-jungle (not the sound preset).")] = None,
+    style: Annotated[str | None, typer.Option(help="Art-direction style, e.g. dark-fantasy (not the sound preset).")] = None,
     status: Annotated[Status | None, typer.Option(help="Review status (default candidate).")] = None,
     collection: Annotated[str | None, typer.Option(help="Add to this collection (created if missing).")] = None,
     new_variant: Annotated[bool, typer.Option("--new-variant", help="Force a fresh take instead of reusing an identical sound.")] = False,

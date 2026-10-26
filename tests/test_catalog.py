@@ -19,7 +19,7 @@ def _import(lib, path, **options):
 
 def test_library_creates_layout_and_is_reopenable(home):
     with Library(home) as lib:
-        assert lib.info()["schema_version"] == 3
+        assert lib.info()["schema_version"] == 4
     for sub in ("objects/sha256", "previews", "jobs", "styles", "collections", "exports", "tmp"):
         assert (home / sub).is_dir()
     assert (home / "catalog.sqlite3").is_file()

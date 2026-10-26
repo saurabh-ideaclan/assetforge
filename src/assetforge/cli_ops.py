@@ -25,6 +25,23 @@ config_app = typer.Typer(help="Library-wide settings shared by all agents (budge
 
 
 def render_request(c: Console, r: RequestResult) -> None:
+    if r.state == "dry_run":
+        if r.would == "reuse":
+            extra = f" (coverage {r.match['coverage']:.0%})" if r.match and r.match.get("coverage") is not None else ""
+            c.print(f"[green]Would reuse[/green] {r.asset_id} ({r.reuse_reason}){extra}: {escape(r.asset.path or '') if r.asset else ''}")
+            if r.plan:
+                c.print(f"  adapted with: {r.plan['adapt_ops']}")
+        else:
+            p = r.plan or {}
+            cost = p.get("estimated_cost_usd", p.get("cost_usd"))
+            c.print(f"[yellow]Would {r.would}[/yellow] via {p.get('method')}"
+                    + (f" ({p.get('provider')}/{p.get('model')})" if p.get("provider") else "")
+                    + (f", ~${cost:.3f}" if cost else ", free"))  # fmt: skip
+            if p.get("prompt"):
+                c.print(f"  [dim]prompt:[/dim] {escape(p['prompt'])}")
+        for alt in r.alternatives:
+            c.print(f"  [dim]near miss {alt['asset_id']} {alt['name']} (coverage {alt['coverage'] or 0:.0%})[/dim]")
+        return
     if r.reused:
         how = {"key": "already used under this key", "request": "identical request done before",
                "in_flight": "joined an identical in-flight request", "search": "matching asset in the library"}  # fmt: skip
@@ -39,10 +56,14 @@ def render_request(c: Console, r: RequestResult) -> None:
         g = r.generated or {}
         source = g.get("recipe") and f"recipe {g['recipe']}" or f"{g.get('provider')} {g.get('model')}"
         c.print(f"[bold cyan]Generated[/bold cyan] {r.asset_id} with {source} ({r.job_id})")
+    if r.adapted:
+        c.print(f"  adapted from {r.adapted['from_asset']} with {r.adapted['ops']}")
     for v in r.variants:
         c.print(f"  {v['label']:>10} {v['variant_id']}  {escape(v['path'])}")
     for cand in r.candidates:
         c.print(f"  candidate {cand['asset_id']}  {escape(cand['path'])}")
+    for dup in r.near_duplicates:
+        c.print(f"  [yellow]looks like existing {dup['asset_id']}[/yellow] (distance {dup['distance']})")
 
 
 def register(app: typer.Typer) -> None:
@@ -56,7 +77,17 @@ def register(app: typer.Typer) -> None:
         description: Annotated[str | None, typer.Option("--description", "-d", help="What you need.")] = None,
         project: Annotated[str | None, typer.Option(help="Your game/project (records usage).")] = None,
         key: Annotated[str | None, typer.Option(help="How your project refers to it, e.g. enemy/beetle/hit.")] = None,
-        style: Annotated[str | None, typer.Option(help="Art direction / style profile.")] = None,
+        style: Annotated[str | None, typer.Option(help="Preset (`art presets`) or any style label.")] = None,
+        art_file: Annotated[Path | None, typer.Option("--art-file", help="YAML/JSON art direction for this asset.")] = None,
+        prompt: Annotated[str | None, typer.Option("--prompt", "-p", help="Detailed image prompt (default: the description).")] = None,
+        purpose: Annotated[str | None, typer.Option(help="What the asset is for in the game.")] = None,
+        size: Annotated[str | None, typer.Option(help="Wanted size WxH; reused images are resized to it as a variant.")] = None,
+        category: Annotated[str | None, typer.Option(help="Catalog category (also favoured when reusing).")] = None,
+        genre: Annotated[str | None, typer.Option(help="Game genre (also favoured when reusing).")] = None,
+        method: Annotated[str | None, typer.Option(help="auto, ai, svg, procedural or file (with --path).")] = None,
+        path: Annotated[Path | None, typer.Option("--path", help="Your own file to register (method svg/procedural/file).")] = None,
+        max_cost: Annotated[float | None, typer.Option(help="Refuse image calls estimated above this many USD.")] = None,
+        dry_run: Annotated[bool, typer.Option("--dry-run", help="Say whether it would reuse or generate, and the cost.")] = False,
         reuse_policy: Annotated[str | None, typer.Option(help="prefer_existing, require_existing, always_generate.")] = None,
         format_: Annotated[str | None, typer.Option("--format", help="Output format (ogg/mp3/wav, png/webp).")] = None,
         process: Annotated[str | None, typer.Option(help="Post-processing preset, e.g. web-sprite or web-sfx.")] = None,
@@ -65,7 +96,11 @@ def register(app: typer.Typer) -> None:
         wait_seconds: Annotated[float | None, typer.Option(help="Max wait for an identical in-flight request.")] = None,
         json_: JsonOpt = False,
     ) -> None:
-        """Get an asset: reuse a matching one if possible, otherwise generate it. Returns ready-to-use paths."""
+        """Get an asset: reuse a matching one if possible, otherwise generate it. Returns ready-to-use paths.
+
+        Reused images are adapted to --size/--format/--process as a new variant (originals never change).
+        Start with --dry-run to see whether it would reuse (and which asset) or generate (and the cost).
+        """
         with session(ctx, json_) as s:
             data: dict[str, Any] = {}
             if file is not None:
@@ -79,8 +114,15 @@ def register(app: typer.Typer) -> None:
                 if not isinstance(data, dict):
                     raise InvalidInputError("The request must be a JSON object")
             flags = {"type": type_, "description": description, "project": project, "key": key, "style": style,
-                     "reuse_policy": reuse_policy, "format": format_, "process": process, "provider": provider}  # fmt: skip
+                     "reuse_policy": reuse_policy, "format": format_, "process": process, "provider": provider,
+                     "prompt": prompt, "purpose": purpose, "size": size, "category": category, "genre": genre,
+                     "method": method, "file": str(path) if path else None, "max_cost": max_cost,
+                     "dry_run": dry_run or None}  # fmt: skip
             data |= {k: v for k, v in flags.items() if v is not None}
+            if art_file is not None:
+                from assetforge.art import read_direction_file
+
+                data["art"] = {**data.get("art", {}), **read_direction_file(art_file).model_dump(exclude_defaults=True)}
             for required in ("type", "description"):
                 if required not in data:
                     raise InvalidInputError(f"A request needs `{required}`")

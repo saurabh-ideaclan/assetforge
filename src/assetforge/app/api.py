@@ -8,6 +8,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from assetforge import art
 from assetforge.app.server import FileResponse, Request, Router
 from assetforge.audio.effects import EFFECTS
 from assetforge.audio.generate import AudioRequest, generate_audio
@@ -17,6 +18,7 @@ from assetforge.core import budget, jobs, lineage, pricing, previews, queue, rep
 from assetforge.core import collections as coll
 from assetforge.core.browse import SORTS, BrowseFilters, browse, facets
 from assetforge.core.catalog import Library
+from assetforge.core.models import IMAGE_TYPES as VISUAL_TYPES
 from assetforge.core.models import AssetType, FileKind, JobStatus, Variant
 from assetforge.errors import AssetForgeError, InvalidInputError, NotFoundError
 from assetforge.image.engine import result_from_job as image_result_from_job
@@ -27,8 +29,7 @@ from assetforge.image.providers import FACTORIES, get_provider
 from assetforge.image.providers.base import ASPECTS
 
 router = Router()
-IMAGE_TYPES = [t.value for t in (AssetType.CHARACTER, AssetType.SPRITE, AssetType.BACKGROUND, AssetType.ICON,
-                                 AssetType.TILE, AssetType.UI, AssetType.EFFECT, AssetType.IMAGE)]  # fmt: skip
+IMAGE_TYPES = [t.value for t in AssetType if t in VISUAL_TYPES]
 THUMB_SIZES = (128, 256, 512)
 IMMUTABLE = "private, max-age=31536000, immutable"
 JOB_START_WAIT = 15.0
@@ -93,7 +94,8 @@ def _filters(req: Request) -> BrowseFilters:
     return BrowseFilters(
         q=req.arg("q", "") or "", types=req.args("type"), statuses=req.args("status"), kind=req.arg("kind"),
         origins=req.args("origin"), project=req.arg("project"), style=req.arg("style"),
-        collection=req.arg("collection"), tag=req.arg("tag"),
+        collection=req.arg("collection"), tag=req.arg("tag"), category=req.arg("category"), genre=req.arg("genre"),
+        theme=req.arg("theme"),
     )  # fmt: skip
 
 
@@ -223,7 +225,8 @@ def image_options(req: Request, lib: Library) -> dict[str, Any]:
     providers = [get_provider(n, settings).describe() for n in names]
     return {
         "providers": providers,
-        "styles": [_dump(s) for s in styles.list_styles(lib)],
+        "styles": [*({"name": p.name, "description": p.summary} for p in art.presets(lib).values()),
+                   *(_dump(s) for s in styles.list_styles(lib))],
         "types": IMAGE_TYPES,
         "transparent_by_default": sorted(t.value for t in TRANSPARENT_BY_DEFAULT),
         "aspects": list(ASPECTS),

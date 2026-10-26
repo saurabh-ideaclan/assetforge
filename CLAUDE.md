@@ -15,7 +15,7 @@ it to **search for an existing asset before generating a new one**, then receive
 
 ```bash
 uv sync                       # install deps (Python 3.12+, uses .venv)
-uv run pytest                 # full suite (~22s, 450 tests, multi-process concurrency tests, no network)
+uv run pytest                 # full suite (~30s, 489 tests, multi-process concurrency tests, no network)
 uv run assetforge --help      # CLI entry point (also: uv run python -m assetforge)
 ```
 
@@ -192,6 +192,35 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   repo `.env`, clears key variables, and makes `openai.OpenAI`/`genai.Client` raise. Keep it that way.
   Live checks go in `.dev/` with `ASSETFORGE_HOME=$PWD/.dev/live` and cost real money, so keep them minimal.
 
+### Discovery, art direction, reuse, sprites (post-v1)
+
+- Schema v4: `assets.category/subcategory/theme/genre` (kebab slugs), `asset_files.aspect/alpha_fraction/
+  mean_luma/colors/dhash`, `art_profiles`, and `assets_fts` with `category theme genre colors tech` columns.
+  `Library.__init__` refills FTS whenever its row count differs from `assets` (after the v4 migration).
+- `core/visual.py`: features computed at cataloging (`metadata._read_image` → `FileMeta.visual`): top-5 colours
+  (named via HSV buckets), alpha share, mean luma, aspect, 64-bit dHash on a gray composite. `similar()`,
+  `near_duplicates()` (dHash ≤ 6 **and** colour overlap ≥ 0.6), `duplicate_groups()`, `ensure_features()`.
+  `tech_terms`/`color_terms` feed FTS so plain queries match "transparent", "landscape", "dark", "green".
+- `art.py`: `ArtDirection` (all-optional free text), YAML presets in `art_presets/` plus `$ASSETFORGE_HOME/presets/`,
+  per-project `art_profiles`, `resolve()` merge order preset(profile) < profile < preset(request) < legacy style
+  profile < request art, `render()` → labelled prompt lines. `detail: high` → quality high.
+- `image/prompts.py`: look-neutral `FRAMING`; `SheetSpec` grid framing; labelled references; keyed-background text
+  that keeps lighting; raw prompts still get the key sentence. **Bump `PROMPT_VERSION` when wording changes**
+  (it is in the image fingerprint, with the merged direction).
+- `request.py`: re-ranks search hits with category/genre/theme bonuses, adapts reused assets (`adapt_ops`: resize
+  pad/cover, process preset, format) via `process_*_asset` as variants (or `adapt_as_new_asset`), `plan()` for
+  `dry_run`, `method: svg|procedural|file` → `add.add_file`, `sheet` + `slice`.
+- `add.py` (agent-made files; SVG master + resvg PNG via `image/svg.py`), `methods.py`, `guide.py`,
+  `regenerate.py` (feedback loop, `generation.max_regenerations`, `RetryLimitError`).
+- `image/sprites.py`: `slice_image` (components → grid cells → despill → shared scale → anchored cells + report),
+  `slice_asset`/`assemble_assets` (frame assets `<base>_<anim>_<nn>`, `metadata.frame.pivot/fps/loop`, collection,
+  aligned sheet variant, `metadata.animation`). Export writes atlas frame `anchor` and `animations.json`.
+- `core/qc.check_asset` adds expectation warnings from `metadata.expect` (size/aspect/format), near-duplicates and
+  slice reports. The engine stores `expect` and runs it for every new candidate. Names come from
+  `engine.subject_name` (style/filler words dropped).
+- CLI modules: `cli_discover.py` (similar, duplicates, reindex), `cli_art.py`, `cli_sprite.py`, `cli_create.py`
+  (add, regenerate, guide, methods).
+
 Data model: **Asset** (logical item) → **Variant** (labelled rendering) → **File** (content by SHA-256).
 Identical bytes are stored once and resolve to the asset that first registered them. Generation jobs, lineage,
 project usage, style profiles and an asset event history all have tables already (schema v1).
@@ -211,8 +240,8 @@ collections are kebab-case. Keys look like `enemy/beetle/hit`.
 | 05 Export | `export` (named files, web formats, incremental/clean), atlas packing + animations, PixiJS manifest, sounds.json, TS constants, credits | **done** |
 | 06 Reliability | `request` (reuse ladder), durable queue + `worker`, leases/recovery, provider slots + RPM, budgets, structured errors | **done** |
 
-All six phases of the v1 plan are done. Possible next steps (not started): semantic/vector search,
-perceptual-hash near-duplicate detection, MIDI music, animation-frame generation, a web asset browser.
+All six phases of the v1 plan are done, plus discovery/art-direction/sprites (above) and the Mac app.
+Possible next steps (not started): semantic/vector search, MIDI music, in-app review and export.
 
 Generators should call `Library.register_file(path, NewAsset(origin=..., status="candidate", metadata={recipe/prompt}), params=...)`
 and use `add_variant` / `add_lineage` for derivatives, so search, dedupe and provenance work automatically.

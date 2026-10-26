@@ -73,6 +73,10 @@ class BudgetExceededError(PolicyError):
     code = "BUDGET_EXCEEDED"
 
 
+class RetryLimitError(PolicyError):
+    code = "RETRY_LIMIT"
+
+
 class InternalError(AssetForgeError):
     """An unexpected bug. The traceback goes to stderr and to <library>/logs/errors.log."""
 
@@ -117,6 +121,8 @@ CATALOG: dict[str, tuple[int, str, str]] = {
     "STORAGE_ERROR": (6, "Filesystem or database problem; failed `verify`", "Check disk space/permissions; run `verify`."),
     "POLICY_VIOLATION": (7, "Blocked by policy (QC errors on approve, restricted license)", "Fix the cause or pass --force."),
     "BUDGET_EXCEEDED": (7, "A spending limit would be exceeded", "See `assetforge budget`; raise limits or wait."),
+    "RETRY_LIMIT": (7, "An asset has used up its `regenerate` attempts",
+                    "Change the request (style, method, references) or raise generation.max_regenerations."),
     "PARTIAL": (8, "A batch partly succeeded (status 'partial')", "Inspect the per-item errors."),
     "PROVIDER_NOT_CONFIGURED": (9, "No API key for the provider", "Set the key in the environment or a .env file."),
     "PROVIDER_AUTH": (9, "The provider rejected the API key", "Check the key and its permissions."),

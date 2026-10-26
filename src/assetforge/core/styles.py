@@ -1,6 +1,6 @@
 """Style profiles: a named art direction (description, palette, instructions, reference assets).
 
-An image request with `--style cute-jungle` tags the asset with that style and, when a profile
+An image request with `--style ink-wash` tags the asset with that style and, when a profile
 of that name exists, adds its instructions and palette to the prompt and its reference
 images to the provider call, which keeps a game's assets visually consistent.
 """

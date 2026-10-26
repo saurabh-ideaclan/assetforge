@@ -13,14 +13,14 @@ from typing import Any
 from PIL import Image
 
 from assetforge.core.catalog import Library
-from assetforge.core.models import Asset, AssetType, FileKind, Variant
+from assetforge.core.models import ISOLATED_TYPES, Asset, AssetType, FileKind, Variant
 from assetforge.core.util import utcnow
 from assetforge.errors import AssetForgeError
 from assetforge.validation.audio import analyze_file
 from assetforge.validation.image import analyze_image
 
 ERRORS = {"blank", "empty", "silent", "clipping", "missing_file", "undecodable"}
-EXPECT_TRANSPARENCY = {AssetType.CHARACTER, AssetType.SPRITE, AssetType.ICON, AssetType.UI, AssetType.EFFECT}
+EXPECT_TRANSPARENCY = ISOLATED_TYPES
 LOOPABLE = {AssetType.MUSIC, AssetType.AMBIENCE}
 
 
@@ -69,9 +69,37 @@ def check_asset(lib: Library, ref: str, *, variant: str | None = None, store: bo
                   "warnings": [], "metrics": {}}  # fmt: skip
     else:
         report = check_variant(asset, target)
+        _expectations(lib, asset, target, report)
     result = {"asset_id": asset.id, "name": asset.name, "type": asset.type.value, "status": asset.status.value,
               **report, "checked_at": utcnow()}  # fmt: skip
     if store:
         lib.merge_metadata(asset.id, {"qc": {k: v for k, v in result.items() if k not in ("name", "type", "status")}},
                            event="qc")  # fmt: skip
     return result
+
+
+def _expectations(lib: Library, asset: Asset, variant: Variant, report: dict[str, Any]) -> None:
+    """Warnings that need context beyond the pixels: what was asked for, the rest of the library, the sheet grid."""
+    from assetforge.core import visual
+
+    warnings: list[str] = report["warnings"]
+    expect = asset.metadata.get("expect") or {}
+    f = variant.file
+    if expect.get("size") and f.width and f.height and "x" in str(expect["size"]):
+        w, h = (int(v) for v in str(expect["size"]).lower().split("x"))
+        if (f.width, f.height) != (w, h):
+            warnings.append("size_mismatch")
+            report["metrics"]["expected_size"] = [w, h]
+    if expect.get("aspect") and f.width and f.height:
+        aw, ah = (float(v) for v in str(expect["aspect"]).split(":"))
+        if abs(f.width / f.height - aw / ah) > 0.03 * aw / ah:
+            warnings.append("aspect_mismatch")
+    if expect.get("format") and f.ext.lstrip(".") != expect["format"] and variant.label not in ("original", "svg"):
+        warnings.append("format_mismatch")
+    if f.kind in (FileKind.IMAGE, FileKind.VECTOR) and (dups := visual.near_duplicates(lib, asset.id)):
+        warnings.append("near_duplicate")
+        report["near_duplicates"] = dups[:5]
+    sliced = (asset.metadata.get("animation") or {}).get("slice_report") or {}
+    if sliced.get("issues"):
+        warnings.append("sheet_frames")
+        report["metrics"]["sheet"] = {k: sliced.get(k) for k in ("expected", "found", "empty_cells", "issues")}
