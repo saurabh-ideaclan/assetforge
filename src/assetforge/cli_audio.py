@@ -399,14 +399,17 @@ def soundfont_install(
         if file is not None:
             if not file.is_file():
                 raise NotFoundError(f"File not found: {file}")
-            entry = soundfont.register(s.lib.paths.home, name, file.expanduser(), license_=license_ or "see source")
+            known = soundfont.KNOWN.get(name, {})
+            entry = soundfont.register(s.lib.paths.home, name, file.expanduser(),
+                                       license_=license_ or known.get("license", "see source"),
+                                       title=known.get("title", ""))  # fmt: skip
         else:
             known = soundfont.KNOWN.get(name, {})
             if not yes:
                 raise InvalidInputError(f"Downloading {known.get('title', name)} from {url or known.get('url')} needs --yes",
                                         hint="Re-run with --yes, or use --file with a SoundFont you already have")  # fmt: skip
             entry = soundfont.install(s.lib.paths.home, name, url=url, license_=license_)
-        s.out.emit({"installed": entry, "status": soundfont.status(s.lib.paths.home)["ready"]},
+        s.out.emit({"installed": entry, "ready": soundfont.status(s.lib.paths.home)["ready"]},
                    lambda c: c.print(f"Installed {entry['name']} ({entry['size_bytes'] // 1_000_000} MB) at {entry['path']}"))  # fmt: skip
 
 
