@@ -249,7 +249,7 @@ def resolve_spec(lib: Library, req: AmbienceRequest, direction_space: str | None
     if req.time_of_day == "night":
         events = [e for e in events if e.event not in DAY_ONLY]
         if outdoor and not any(b.bed == "insects_night" for b in beds):
-            beds.append(BedLayer(bed="insects_night", level_db=-8))
+            beds.append(BedLayer(bed="insects_night", level_db=-12))
     elif req.time_of_day == "day":
         events = [e for e in events if e.event not in NIGHT_ONLY]
         beds = [b for b in beds if b.bed not in NIGHT_ONLY]

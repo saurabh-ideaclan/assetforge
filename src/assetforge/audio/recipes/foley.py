@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import numpy as np
 
+from assetforge.audio import dsp
 from assetforge.audio import synth as s
 from assetforge.audio.recipes.base import RenderContext, choice, num, recipe
 from assetforge.audio.recipes.music import norm
+from assetforge.audio.recipes.physical import WOOD_PLANK, fade_tail, modal, rms_norm, strike
 from assetforge.audio.recipes.weapons import ring
 
 SURFACES = ("grass", "stone", "wood", "metal", "snow", "water", "sand", "gravel", "carpet", "mud")
@@ -31,15 +33,14 @@ def contact(ctx: RenderContext, n: int, surface: str, weight: float) -> np.ndarr
     elif surface == "gravel":
         body = grains(ctx, n, 80, 600, 5000, 0.01) * s.perc(n, sr, attack=0.003, curve=3)
     elif surface == "snow":
-        body = grains(ctx, n, 160, 400, 3000, 0.008) * s.perc(n, sr, attack=0.02, curve=2)
+        return snow_crunch(ctx, n, weight)
     elif surface == "sand":
         body = s.bandpass(s.noise(n, ctx.rng), 1200, 6000, sr) * s.perc(n, sr, attack=0.01, curve=4) * 0.6
     elif surface == "stone":
         body = norm(s.bandpass(s.noise(n, ctx.rng), 1500, 5000, sr)) * s.perc(n, sr, attack=0.0005, curve=14) + 0.15 * ring(
             ctx, (1900, 3100), n, 60)  # fmt: skip
     elif surface == "wood":
-        body = norm(ring(ctx, (310, 720, 1240), n, 35)) * 0.8 + norm(s.bandpass(s.noise(n, ctx.rng), 500, 2500, sr)) * s.perc(
-            n, sr, attack=0.0005, curve=16)  # fmt: skip
+        return wood_step(ctx, n, weight)
     elif surface == "metal":
         body = norm(ring(ctx, (520, 1430, 2810, 4170), n, 14)) * 0.6 + norm(s.highpass(s.noise(n, ctx.rng), 2000, sr)) * s.perc(
             n, sr, attack=0.0003, curve=18)  # fmt: skip
@@ -50,6 +51,36 @@ def contact(ctx: RenderContext, n: int, surface: str, weight: float) -> np.ndarr
     else:  # carpet
         body = norm(s.lowpass(s.noise(n, ctx.rng), 1200, sr)) * s.perc(n, sr, attack=0.004, curve=8) * 0.5
     return weight * thump + norm(body)
+
+
+def snow_crunch(ctx: RenderContext, n: int, weight: float) -> np.ndarray:
+    """Packed snow compressing: a quick burst of small, low-mid crunch grains that builds and stops dead,
+    over a soft low thump. No high hiss: snow absorbs it."""
+    sr = ctx.sr
+    out = np.zeros(n)
+    span = min(n, int(0.14 * sr))
+    count = int(60 + 60 * weight)
+    times = np.sort(ctx.rng.beta(2.2, 1.6, count)) * span
+    for t in times.astype(int):
+        k = min(n - t, int(ctx.rng.uniform(0.002, 0.006) * sr))
+        if k < 4:
+            continue
+        g = dsp.filt(ctx.rng.uniform(-1, 1, k) * np.hanning(k), "bandpass", ctx.rng.uniform(500, 1800), sr, q=1.5)
+        out[t : t + k] += g * ctx.rng.uniform(0.3, 1.0) * (0.4 + 0.6 * t / span)
+    thump = s.osc("sine", s.sweep(120, 70, n), n, sr) * s.perc(n, sr, attack=0.008, curve=10)
+    out = dsp.filt(out, "lowpass", 4000, sr)
+    return rms_norm(out) + weight * 0.8 * rms_norm(thump)
+
+
+def wood_step(ctx: RenderContext, n: int, weight: float) -> np.ndarray:
+    """A shoe on floorboards: a dull heel thump and a short, damped board knock (no ringing note), with a
+    faint chance of a creak, as on a real floor."""
+    sr = ctx.sr
+    thump = s.osc("sine", s.sweep(160, 90, n), n, sr) * s.perc(n, sr, attack=0.002, curve=14)
+    board = modal(ctx, n, ctx.rng.uniform(170, 230), WOOD_PLANK, decay_s=0.035, brightness=0.45, detune=0.0)
+    knock = strike(ctx, n, ms=1.2, tone_hz=2200)
+    scuff = dsp.filt(s.noise(n, ctx.rng, "pink"), "bandpass", 1200, sr, q=1.2) * s.perc(n, sr, attack=0.004, curve=18)
+    return weight * rms_norm(thump) + 0.9 * rms_norm(board) + 1.5 * knock / (np.abs(knock).max() + 1e-9) + 0.15 * rms_norm(scuff)
 
 
 def bubbles(ctx: RenderContext, n: int, count: int, base: float = 600) -> np.ndarray:
@@ -82,7 +113,7 @@ def footstep(ctx: RenderContext, p: dict) -> np.ndarray:
     heel = contact(ctx, n, p["surface"], p["weight"])
     gap = int((0.03 + 0.06 * p["roll"]) * sr)
     toe = s.place(contact(ctx, max(1, n - gap), p["surface"], p["weight"] * 0.4), n, gap) * 0.5
-    return heel + toe
+    return fade_tail(heel + toe, sr)
 
 
 @recipe(

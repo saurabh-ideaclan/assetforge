@@ -60,8 +60,10 @@ def kick(rng, sr, kit):
 
 
 def snare(rng, sr, kit):
-    if kit == "drums_chip":
-        return _noise_hit(rng, sr, 0.14, 800, 9000, 3)
+    if kit == "drums_chip":  # console style: a short triangle drop under a burst of mid noise
+        n = int(0.1 * sr)
+        body = s.osc("triangle", s.sweep(330, 140, n), n, sr) * s.perc(n, sr, attack=0.0005, curve=4)
+        return 0.7 * body + dsp.fit_len(_noise_hit(rng, sr, 0.09, 700, 5000, 4), n)
     n = int(0.3 * sr)
     tone = s.osc("triangle", s.sweep(240, 180, n), n, sr) * s.perc(n, sr, attack=0.0005, curve=8)
     rattle = _noise_hit(rng, sr, 0.3, 1200, 9000 if kit != "drums_808" else 6000, 4)
@@ -79,7 +81,7 @@ def clap(rng, sr, kit):
 
 def hat(rng, sr, kit, seconds=0.06):
     if kit == "drums_chip":
-        return _noise_hit(rng, sr, seconds, 6000, 12000, 4)
+        return _noise_hit(rng, sr, seconds * 0.6, 5000, 9000, 6)
     n = int(seconds * sr)
     metal = sum(s.osc("square", f, n, sr) for f in (205.3, 304.4, 369.6, 522.7, 540.0, 800.0))
     return s.highpass(metal / 6 + s.noise(n, rng) * 0.6, 7000, sr) * s.perc(n, sr, attack=0.0005, curve=6 if seconds < 0.1 else 2.5)

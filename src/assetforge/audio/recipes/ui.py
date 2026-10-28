@@ -273,7 +273,10 @@ def purchase(ctx: RenderContext, p: dict) -> np.ndarray:
     bell = s.place(bell * s.perc(bn, sr, attack=0.001, curve=2.5), n, bell_start)
     coins = np.zeros(n)
     for _ in range(12):
-        i = int(ctx.rng.uniform(0.05, 0.6) * n)
-        k = min(n - i, int(0.03 * sr))
-        coins[i : i + k] += np.sin(2 * np.pi * ctx.rng.uniform(2500, 4500) * np.arange(k) / sr) * s.perc(k, sr, curve=4)
-    return 0.5 * clunk + p["bell"] * bell + (1 - p["bell"] * 0.5) * 0.3 * coins
+        i = int(ctx.rng.uniform(0.02, 0.22) * n)  # coins land with the bell, not as a stray tick at the end
+        k = min(n - i, int(0.04 * sr))
+        coins[i : i + k] += np.sin(2 * np.pi * ctx.rng.uniform(2200, 3800) * np.arange(k) / sr) * s.perc(k, sr, attack=0.002, curve=4)
+    out = 0.5 * clunk + p["bell"] * bell + (1 - p["bell"] * 0.5) * 0.2 * coins
+    k = min(n, int(0.15 * sr))
+    out[-k:] *= np.cos(np.linspace(0, np.pi / 2, k)) ** 2
+    return out

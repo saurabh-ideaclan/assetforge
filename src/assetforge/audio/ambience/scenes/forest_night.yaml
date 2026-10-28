@@ -14,7 +14,7 @@ beds:
   params:
     rustle: 0.3
 - bed: insects_night
-  level_db: -2
+  level_db: -9
 events:
 - event: owl
   rate: 1.5

@@ -8,6 +8,7 @@ from assetforge.audio import dsp
 from assetforge.audio import synth as s
 from assetforge.audio.recipes.base import RenderContext, choice, num, recipe
 from assetforge.audio.recipes.music import norm
+from assetforge.audio.recipes.physical import STEEL_BAR, fade_tail, modal, n_wave, rms_norm, strike
 
 
 def ring(ctx: RenderContext, freqs: tuple[float, ...], n: int, decay: float) -> np.ndarray:
@@ -34,19 +35,19 @@ def gunshot(ctx: RenderContext, p: dict) -> np.ndarray:
     n, sr = ctx.n, ctx.sr
     w = p["weapon"]
     body_hz = {"pistol": 140, "rifle": 110, "shotgun": 80, "smg": 160, "sniper": 90, "blaster": 600}[w] * ctx.pitch
-    cn = min(n, int(0.006 * sr))
-    crack = s.place(norm(s.highpass(s.noise(cn, ctx.rng), 2500, sr)) * s.perc(cn, sr, attack=0.0002, curve=2), n, 0)
+    crack = n_wave(ctx, n, ms={"pistol": 2.5, "rifle": 1.6, "shotgun": 4.0, "smg": 2.0, "sniper": 1.4, "blaster": 3}[w],
+                   tone_hz=9000 - 6000 * p["distance"])  # fmt: skip
     bn = min(n, int((0.18 if w != "shotgun" else 0.28) * sr))
-    burst = norm(s.lowpass(s.noise(bn, ctx.rng), 4000 if w != "shotgun" else 2500, sr)) * s.perc(bn, sr, attack=0.0005, curve=5)
+    burst = s.lowpass(s.noise(bn, ctx.rng, "pink"), 3000 if w != "shotgun" else 2000, sr) * s.perc(bn, sr, attack=0.0005, curve=6)
     thump = s.osc("sine", s.sweep(body_hz * 2.2, body_hz, bn), bn, sr) * s.perc(bn, sr, attack=0.0005, curve=6)
-    body = s.place(burst + p["power"] * thump, n, 0)
+    body = s.place(rms_norm(burst) * 0.25 + p["power"] * thump, n, 0)
     if w == "blaster":
         body = s.place(s.osc("saw", s.sweep(body_hz * 3, body_hz * 0.6, bn), bn, sr) * s.perc(bn, sr, curve=3), n, 0)
-    tail = norm(s.lowpass(s.noise(n, ctx.rng, "pink"), 1800, sr)) * s.perc(n, sr, attack=0.02, curve=3 + 6 * (1 - p["tail"]))
-    x = (1 - p["distance"] * 0.8) * crack * 1.2 + body + 0.35 * p["tail"] * tail
+    tail = s.lowpass(s.noise(n, ctx.rng, "brown"), 900, sr) * s.perc(n, sr, attack=0.03, curve=3 + 6 * (1 - p["tail"]))
+    x = (1 - p["distance"] * 0.7) * norm(crack) * 1.2 + norm(body) + 0.3 * p["tail"] * norm(tail)
     if p["distance"] > 0:
         x = s.lowpass(x, 9000 - 7000 * p["distance"], sr)
-    return s.soft_clip(x, 0.3 + 0.4 * p["power"])
+    return fade_tail(s.soft_clip(x, 0.2 + 0.3 * p["power"]), sr)
 
 
 @recipe(
@@ -61,19 +62,36 @@ def gunshot(ctx: RenderContext, p: dict) -> np.ndarray:
     tags=("reload", "magazine", "clip", "rack", "bolt", "gun", "weapon", "click", "cock"),
 )
 def reload(ctx: RenderContext, p: dict) -> np.ndarray:
+    """Magazine out (click + slide), magazine in (thunk + latch), then the bolt racked back and snapping forward."""
     n, sr = ctx.n, ctx.sr
-    x = np.zeros(n)
-    count = int(p["clicks"])
-    for k in range(count):
-        start = int((0.05 + 0.85 * k / max(1, count)) * n * ctx.rng.uniform(0.95, 1.0))
-        cn = min(n - start, int(0.05 * sr))
-        if cn <= 0:
-            continue
-        f = (2600 - 1400 * p["weight"]) * ctx.rng.uniform(0.8, 1.2) * ctx.pitch
-        click = norm(s.bandpass(s.noise(cn, ctx.rng), f * 0.6, f * 1.6, sr)) * s.perc(cn, sr, attack=0.0003, curve=8)
-        click += 0.5 * ring(ctx, (f * 1.1, f * 1.9), cn, 90)
-        x += s.place(click, n, start)
-    return x
+    heavy = p["weight"]
+    out = np.zeros(n)
+
+    def click(at: float, hz: float, level: float = 1.0) -> None:
+        i = int(at * n)
+        out[:] += level * (strike(ctx, n, at=i, ms=0.6, tone_hz=7000) * 0.6
+                           + 0.4 * modal(ctx, n, hz * (1.3 - 0.5 * heavy), STEEL_BAR[:3], decay_s=0.025, at=i))  # fmt: skip
+
+    def slide(start: float, length: float, hz: float, level: float) -> None:
+        i, k = int(start * n), int(length * n)
+        k = min(k, n - i)
+        if k <= 8:
+            return
+        friction = np.clip(dsp.drift(k, sr, 60, ctx.rng), 0, 1) ** 2
+        scrape = dsp.filt(s.noise(k, ctx.rng, "pink"), "bandpass", hz, sr, q=2.5) * friction * np.hanning(k)
+        out[i : i + k] += level * rms_norm(scrape) * 0.12
+
+    click(0.04, 2600, 0.7)                     # release button
+    slide(0.07, 0.16, 1800, 0.8)               # magazine slides out
+    out[:] += 0.8 * modal(ctx, n, 420 * (1.2 - 0.4 * heavy), (1, 2.3, 3.9), decay_s=0.05, at=int(0.42 * n))  # mag in: thunk
+    click(0.43, 2200, 1.0)
+    for k in range(int(p["clicks"]) - 2):
+        click(0.5 + 0.03 * k, 3000, 0.4)
+    slide(0.62, 0.1, 2400, 1.0)                # bolt back
+    click(0.71, 1900, 1.0)
+    slide(0.74, 0.06, 2800, 0.7)               # forward
+    click(0.8, 1600, 1.2)                      # snaps home
+    return fade_tail(out, sr)
 
 
 @recipe(
@@ -83,23 +101,27 @@ def reload(ctx: RenderContext, p: dict) -> np.ndarray:
     duration_range=(0.12, 1.2),
     params=(
         num("speed", 0.6, 0, 1, "Faster swings are higher and sharper"),
-        num("ring", 0.2, 0, 1, "Metallic shimmer"),
+        num("ring", 0.5, 0, 1, "Steel blade singing (0 = pure air swish)"),
     ),
-    tags=("sword", "swing", "slash", "swish", "blade", "melee", "attack", "whoosh", "weapon"),
+    tags=("sword", "swing", "slash", "swish", "blade", "melee", "attack", "whoosh", "weapon", "steel"),
 )
 def sword_swing(ctx: RenderContext, p: dict) -> np.ndarray:
+    """Air whoosh shaped by the blade's speed, plus the steel itself singing as it cuts through."""
     n, sr = ctx.n, ctx.sr
     x = np.linspace(0, 1, n)
-    centre = (700 + 2600 * p["speed"]) * ctx.pitch * (0.5 + np.sin(np.pi * x))
-    swish = s.filter_track(s.noise(n, ctx.rng), "bandpass", centre, sr, bandwidth_octaves=0.8)
-    env = np.sin(np.pi * x) ** (2 - p["speed"])
-    return norm(swish) * env + p["ring"] * 0.3 * ring(ctx, (3100, 4700, 6900), n, 6) * env
+    speed = np.exp(-((x - 0.45) / 0.18) ** 2)  # fastest mid-swing
+    centre = (500 + 1800 * p["speed"]) * ctx.pitch * (0.5 + speed)
+    air = dsp.sweep_filter(s.noise(n, ctx.rng, "pink"), "bandpass", centre, sr, q=1.6, block=64) * speed ** (1.5 - p["speed"])
+    steel = modal(ctx, n, 1250, STEEL_BAR[:4], decay_s=0.5, brightness=0.55, at=int(0.3 * n)) * np.clip(speed * 1.6, 0, 1)
+    shing = dsp.filt(s.noise(n, ctx.rng, "pink"), "bandpass", 4200, sr, q=4) * speed ** 3
+    out = rms_norm(air) + p["ring"] * 3.0 * rms_norm(steel) * 0.5 + p["ring"] * 0.6 * rms_norm(shing)
+    return fade_tail(out * s.adsr(n, sr, attack=0.02, decay=0.01, sustain=1, release=n / sr * 0.3), sr)
 
 
 @recipe(
     "blade_hit",
     "Blade striking metal or armour: a clang with ringing overtones",
-    duration=0.7,
+    duration=1.3,
     duration_range=(0.15, 2.5),
     params=(
         num("hardness", 0.7, 0, 1, "Brighter, harder impact"),
@@ -108,12 +130,18 @@ def sword_swing(ctx: RenderContext, p: dict) -> np.ndarray:
     tags=("clang", "blade", "sword", "hit", "metal", "parry", "armor", "armour", "clash", "weapon", "impact"),
 )
 def blade_hit(ctx: RenderContext, p: dict) -> np.ndarray:
+    """Steel on steel: a hard contact, a short grinding scrape, then a rich, beating, slowly decaying clang."""
     n, sr = ctx.n, ctx.sr
-    tn = min(n, int(0.02 * sr))
-    transient = s.place(norm(s.highpass(s.noise(tn, ctx.rng), 1500 + 3000 * p["hardness"], sr)) * s.perc(tn, sr, curve=3), n, 0)
-    base = 900 + 900 * p["hardness"]
-    metal = ring(ctx, (base, base * 2.41, base * 3.87, base * 5.3, base * 7.1), n, 30 - 25 * p["ring"])
-    return transient + 0.7 * norm(metal)
+    base = 520 + 380 * p["hardness"]
+    decay = 0.25 + 1.1 * p["ring"]
+    clang = (modal(ctx, n, base, STEEL_BAR, decay_s=decay, detune=0.004, brightness=0.75)
+             + 0.7 * modal(ctx, n, base * 1.37, STEEL_BAR[:4], decay_s=decay * 0.8, detune=0.006, brightness=0.6)
+             + 0.5 * modal(ctx, n, base * 0.52, (1, 2.4, 3.9), decay_s=decay * 0.5, brightness=0.6))  # fmt: skip
+    hit = strike(ctx, n, ms=0.8, tone_hz=5000 + 3000 * p["hardness"])
+    k = min(n, int(0.09 * sr))
+    scrape = s.place(dsp.sweep_filter(s.noise(k, ctx.rng, "pink"), "bandpass", np.linspace(5000, 2500, k), sr, q=3)
+                     * s.perc(k, sr, attack=0.002, curve=2), n, 0)  # fmt: skip
+    return fade_tail(rms_norm(clang) + 1.5 * norm(hit) + 0.35 * p["hardness"] * rms_norm(scrape), sr)
 
 
 @recipe(
@@ -128,11 +156,17 @@ def blade_hit(ctx: RenderContext, p: dict) -> np.ndarray:
     tags=("bow", "arrow", "shoot", "twang", "string", "archer", "release", "weapon"),
 )
 def bow_release(ctx: RenderContext, p: dict) -> np.ndarray:
+    """The string snaps forward (a low, quickly damped twang), the limbs thump, and the arrow hisses away."""
     n, sr = ctx.n, ctx.sr
-    twang = dsp.karplus((90 + 160 * p["tension"]) * ctx.pitch, n, sr, ctx.rng, decay=0.993, brightness=0.7)
+    f = (85 + 90 * p["tension"]) * ctx.pitch
+    k = min(n, int(0.35 * sr))
+    twang = dsp.karplus(f, k, sr, ctx.rng, decay=0.985, brightness=0.45) * np.exp(-np.arange(k) / (0.09 * sr))
+    thump = s.osc("sine", s.sweep(f * 1.6, f * 0.8, k), k, sr) * s.perc(k, sr, attack=0.001, curve=7)
     x = np.linspace(0, 1, n)
-    whoosh = s.filter_track(s.noise(n, ctx.rng), "bandpass", 1500 + 2500 * x, sr) * np.exp(-((x - 0.3) / 0.2) ** 2)
-    return norm(twang) + p["whoosh"] * 0.6 * norm(whoosh)
+    flight = np.exp(-((x - 0.3) / 0.16) ** 2)
+    whoosh = dsp.sweep_filter(s.noise(n, ctx.rng, "pink"), "bandpass", 1200 + 1800 * flight, sr, q=1.8, block=64) * flight
+    out = s.place(norm(twang) + 0.6 * norm(thump), n, 0) + p["whoosh"] * 0.5 * norm(whoosh)
+    return fade_tail(out, sr)
 
 
 @recipe(

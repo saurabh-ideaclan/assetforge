@@ -8,6 +8,7 @@ from assetforge.audio import dsp
 from assetforge.audio import synth as s
 from assetforge.audio.recipes.base import RenderContext, choice, num, recipe
 from assetforge.audio.recipes.music import CHORDS, norm
+from assetforge.audio.recipes.physical import crackle, fade_tail, flame, n_wave, rms_norm
 
 
 def shimmer(ctx: RenderContext, n: int, base_hz: float, density: float, rise: float = 0.0) -> np.ndarray:
@@ -40,6 +41,13 @@ def shimmer(ctx: RenderContext, n: int, base_hz: float, density: float, rise: fl
 )
 def spell_cast(ctx: RenderContext, p: dict) -> np.ndarray:
     n, sr = ctx.n, ctx.sr
+    if p["element"] == "fire":  # a fire spell is fire: a rushing flame that ignites and roars, then crackles out
+        x = np.linspace(0, 1, n)
+        env = np.where(x < 0.3, (x / 0.3) ** 1.5, np.exp(-(x - 0.3) * (3.5 - 1.5 * p["power"])))
+        out = flame(ctx, n, 0.4 + 0.6 * p["power"], env)
+        ignite = s.osc("sine", s.sweep(180, 60, n), n, sr) * np.exp(-np.maximum(x - 0.28, 0) * 14) * (x > 0.27)
+        return fade_tail(rms_norm(out) + 1.2 * p["power"] * rms_norm(ignite) * 0.6 + p["sparkle"] * 0.1 * rms_norm(
+            shimmer(ctx, n, 900, 0.6)), sr)  # fmt: skip
     x = np.linspace(0, 1, n)
     base = {"arcane": 330, "fire": 180, "ice": 520, "nature": 260, "dark": 110, "holy": 440}[p["element"]] * ctx.pitch
     swell_env = np.where(x < 0.4, (x / 0.4) ** 2, np.exp(-(x - 0.4) * 6))
@@ -225,14 +233,11 @@ def freeze(ctx: RenderContext, p: dict) -> np.ndarray:
 def fire_burst(ctx: RenderContext, p: dict) -> np.ndarray:
     n, sr = ctx.n, ctx.sr
     x = np.linspace(0, 1, n)
-    roar = s.filter_track(s.noise(n, ctx.rng, "pink"), "lowpass", (2500 - 1500 * p["size"]) * (0.4 + np.sin(np.pi * x)), sr)
-    env = np.minimum(1, x * 12) * np.exp(-x * (5 - 3 * p["size"]))
-    pops = np.zeros(n)
-    for _ in range(int(40 * p["crackle"])):
-        i = int(ctx.rng.uniform(0, 0.9) * n)
-        pops[i] += ctx.rng.uniform(0.5, 1)
-    pops = s.highpass(dsp.one_pole_lowpass(pops, 6000, sr), 1500, sr)
-    return norm(roar) * env + 0.6 * norm(pops) * env
+    env = np.minimum(1, x * 14) * np.exp(-x * (4.5 - 2.5 * p["size"]))
+    whoomph = s.osc("sine", s.sweep(140, 50, n), n, sr) * np.exp(-x * 10)
+    out = flame(ctx, n, p["size"], env) + 0.8 * rms_norm(whoomph) * p["size"]
+    out = out + p["crackle"] * 0.5 * rms_norm(crackle(ctx, n, 40, lo=1500, hi=5000, envelope=np.exp(-x * 2)))
+    return fade_tail(out, sr)
 
 
 @recipe(
@@ -244,9 +249,16 @@ def fire_burst(ctx: RenderContext, p: dict) -> np.ndarray:
     tags=("lightning", "zap", "electric", "shock", "spark", "thunderbolt", "tesla", "electricity", "magic"),
 )
 def lightning_zap(ctx: RenderContext, p: dict) -> np.ndarray:
+    """An electric arc: a sharp crack, mains-like buzz through the arc's resonance, and a storm of spark pops
+    that flicker on and off. Shaped impulses instead of hiss, so it snaps rather than fizzes."""
     n, sr = ctx.n, ctx.sr
-    buzz = s.osc("saw", p["buzz_hz"] * ctx.pitch * (1 + 0.1 * dsp.drift(n, sr, 30, ctx.rng)), n, sr)
-    gate = (ctx.rng.uniform(0, 1, n // 64 + 1) < 0.55).repeat(64)[:n].astype(float)
-    arcs = s.highpass(s.noise(n, ctx.rng), 2000, sr) * dsp.one_pole_lowpass(gate, 200, sr)
-    env = s.perc(n, sr, attack=0.002, curve=1.5)
-    return s.soft_clip((0.6 * norm(s.highpass(buzz, 300, sr)) + p["crackle"] * norm(arcs)) * env, 0.5)
+    x = np.linspace(0, 1, n)
+    env = np.minimum(1, x * 60) * (1 - x) ** 1.2
+    flicker = np.clip(dsp.drift(n, sr, 35, ctx.rng) * 1.5 + 0.4, 0, 1)
+    f = p["buzz_hz"] * ctx.pitch * (1 + 0.04 * dsp.drift(n, sr, 20, ctx.rng))
+    buzz = sum(s.osc("saw", f * k, n, sr) / k for k in (1, 2, 3))
+    buzz = dsp.filt(dsp.filt(buzz, "bandpass", 900, sr, q=0.9), "lowpass", 4500, sr)
+    sparks = crackle(ctx, n, 500 + 1500 * p["crackle"], lo=900, hi=5500, envelope=flicker)
+    crack = n_wave(ctx, n, ms=1.2, tone_hz=6000)
+    out = 0.7 * rms_norm(buzz) * flicker + p["crackle"] * rms_norm(sparks) + 3 * norm(crack)
+    return fade_tail(s.soft_clip(out * env / 3, 0.4), sr)

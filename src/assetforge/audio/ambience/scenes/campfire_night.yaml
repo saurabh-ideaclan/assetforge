@@ -15,7 +15,7 @@ beds:
   params:
     size: 0.5
 - bed: insects_night
-  level_db: -8
+  level_db: -12
 events:
 - event: owl
   rate: 0.8

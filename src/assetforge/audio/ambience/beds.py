@@ -104,10 +104,14 @@ def rain(n, sr, rng, intensity, p, period):
     heavy = np.clip(p["heaviness"] * (0.3 + 1.0 * intensity), 0, 1.5)
 
     def one(r):
-        drops = dsp.filt(impulses(n, 300 + 4000 * heavy, sr, r), "bandpass", 2500 + 2500 * p["surface"], sr, q=1.2)
-        hiss = s.highpass(s.noise(n, r), 3000, sr) * (0.3 + 0.7 * heavy)
-        rumble = s.lowpass(s.noise(n, r, "pink"), 500, sr) * heavy
-        return _rms_norm(drops) + 0.6 * _rms_norm(hiss) * 0.5 + 0.4 * _rms_norm(rumble)
+        # Each drop is a tiny resonant "plink" (a bubble/surface ring), not a white click; the sheet of
+        # distant rain is soft pink noise rolled off above ~4 kHz rather than a high-passed hiss.
+        rate = 250 + 2500 * heavy
+        drops = sum(dsp.filt(impulses(n, rate / 3, sr, r, shape=2.2), "bandpass", f * (0.8 + 0.4 * p["surface"]), sr, q=7)
+                    for f in (1300, 2100, 3200))  # fmt: skip
+        sheet = dsp.filt(dsp.filt(s.noise(n, r, "pink"), "lowpass", 3500 + 1500 * heavy, sr), "highpass", 300, sr)
+        rumble = s.lowpass(s.noise(n, r, "brown"), 400, sr) * heavy
+        return 0.55 * _rms_norm(drops) + 0.6 * _rms_norm(sheet) * (0.3 + 0.7 * heavy) + 0.3 * _rms_norm(rumble)
 
     return stereo(one, rng)
 
@@ -150,7 +154,7 @@ def fire_crackle(n, sr, rng, intensity, p, period):
 
     def one(r):
         roar = s.lowpass(s.noise(n, r, "brown"), 300 + 300 * size, sr) * (0.7 + 0.3 * dsp.drift(n, sr, 1.5, r))
-        crackle = dsp.filt(impulses(n, 15 + 60 * size, sr, r, shape=1.2), "highpass", 1800, sr)
+        crackle = dsp.filt(dsp.filt(impulses(n, 15 + 60 * size, sr, r, shape=1.6), "bandpass", 2500, sr, q=1.2), "lowpass", 6000, sr)
         pops = dsp.filt(impulses(n, 2 + 6 * size, sr, r, shape=1.0), "bandpass", 900, sr, q=2)
         return 0.6 * _rms_norm(roar) * size + _rms_norm(crackle) + 0.5 * _rms_norm(pops)
 
@@ -162,13 +166,13 @@ def fire_crackle(n, sr, rng, intensity, p, period):
 def forest_air(n, sr, rng, intensity, p, period):
     def one(r):
         air = s.lowpass(s.noise(n, r, "pink"), 2500, sr)
-        rustle = s.highpass(s.noise(n, r), 2500, sr) * np.clip(dsp.drift(n, sr, 0.6, r, period=period), 0, 1) ** 2
-        return _rms_norm(air) * 0.7 + p["rustle"] * (0.5 + intensity) * _rms_norm(rustle)
+        rustle = dsp.filt(s.noise(n, r, "pink"), "bandpass", 2600, sr, q=0.9) * np.clip(dsp.drift(n, sr, 0.6, r, period=period), 0, 1) ** 2
+        return _rms_norm(air) * 0.7 + p["rustle"] * (0.3 + 0.5 * intensity) * _rms_norm(rustle)
 
     return stereo(one, rng)
 
 
-@bed("insects_night", "Night insects: crickets chirping and a cicada buzz", {"crickets": 4, "cicada": 0.3},
+@bed("insects_night", "Night insects: crickets chirping and a cicada buzz", {"crickets": 4, "cicada": 0.15},
      ("crickets", "insects", "night", "cicada", "summer", "nature", "evening"))  # fmt: skip
 def insects_night(n, sr, rng, intensity, p, period):
     out = np.zeros((n, 2))
@@ -178,8 +182,10 @@ def insects_night(n, sr, rng, intensity, p, period):
         pulses = (np.sin(2 * np.pi * 30 * t) > 0.2) * ((t * rate + rng.uniform()) % 1.0 < 0.3)
         voice = np.sin(2 * np.pi * f * t) * dsp.one_pole_lowpass(pulses.astype(float), 400, sr) * rng.uniform(0.3, 1)
         out += dsp.pan(voice, rng.uniform(-0.9, 0.9))
-    cicada = stereo(lambda r: s.bandpass(s.noise(n, r), 4000, 7000, sr) * (0.5 + 0.5 * np.sin(2 * np.pi * 90 * t)), rng)
-    return _rms_norm(out) + p["cicada"] * _rms_norm(cicada)
+    # A cicada is a tonal buzz (a tymbal ringing ~4-5 kHz, pulsed ~90 times a second), not hiss.
+    cicada = stereo(lambda r: dsp.fm(r.uniform(4200, 5000), 0.02, 2.0, n, sr) * np.clip(np.sin(2 * np.pi * 90 * t), 0, 1) ** 2
+                    * (0.6 + 0.4 * dsp.drift(n, sr, 0.3, r, period=period)), rng)  # fmt: skip
+    return _rms_norm(out) + p["cicada"] * 0.5 * _rms_norm(cicada)
 
 
 @bed("swamp", "Swamp: humid drone, croaks and wet bubbles", {"croak": 0.5},
@@ -247,14 +253,18 @@ def crowd_murmur(n, sr, rng, intensity, p, period):
     out = np.zeros((n, 2))
     for _ in range(int(p["voices"] * (0.5 + intensity))):
         r = np.random.default_rng(int(rng.integers(2**31)))
-        f0 = r.uniform(95, 240) * (1 + 0.08 * dsp.drift(n, sr, 3, r))
-        source = s.osc("saw", f0, n, sr) * 0.4 + s.noise(n, r, "pink") * 0.3
-        formant = 500 + 1500 * (0.5 + 0.5 * dsp.drift(n, sr, 5, r))
-        voiced = dsp.sweep_filter(source, "bandpass", formant, sr, q=3, block=512)
-        syllables = np.clip(dsp.drift(n, sr, 4 + 3 * p["excitement"], r) * 1.5, 0, 1)
+        # A talker: voiced pulses with sentence-like intonation, two formants gliding between vowels at
+        # syllable rate. No noise source, so a room full of them murmurs instead of hissing like static.
+        f0 = r.uniform(95, 230) * (1 + 0.12 * dsp.drift(n, sr, 1.5, r) + 0.03 * dsp.drift(n, sr, 6, r))
+        source = s.osc("saw", f0, n, sr)
+        vowel = 0.5 + 0.5 * dsp.drift(n, sr, 4 + 2 * p["excitement"], r)
+        f1 = dsp.sweep_filter(source, "bandpass", 350 + 450 * vowel, sr, q=4, block=256)
+        f2 = dsp.sweep_filter(source, "bandpass", 2100 - 1100 * vowel, sr, q=5, block=256)
+        voiced = f1 + 0.6 * f2
+        syllables = np.clip(dsp.drift(n, sr, 4 + 3 * p["excitement"], r) * 1.8 + 0.2, 0, 1) ** 1.5
         talk = np.clip((dsp.drift(n, sr, 0.3, r) - 0.05) * 4, 0, 1)  # voices fade in and out of the chatter
         out += dsp.pan(_rms_norm(voiced) * syllables * talk, r.uniform(-0.8, 0.8))
-    return dsp.filt(_rms_norm(out), "lowpass", 3500, sr)
+    return dsp.filt(_rms_norm(out), "lowpass", 2800, sr)
 
 
 @bed("traffic", "Distant city traffic: rumble and passing cars", {"cars_per_minute": 12},

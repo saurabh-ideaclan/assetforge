@@ -180,9 +180,10 @@ PRESETS: dict[str, dict[str, Any]] = {
               "effects": [{"name": "highpass", "params": {"cutoff_hz": 450}},
                           {"name": "lowpass", "params": {"cutoff_hz": 3200}},
                           {"name": "distortion", "params": {"drive_db": 10}}]},  # fmt: skip
-    "huge": {"description": "Enormous: lower, heavier, with a long tail", "params": {"pitch": -5, "size": 1.0},
-             "effects": [{"name": "compressor", "params": {"threshold_db": -24, "ratio": 5}},
-                         {"name": "reverb", "params": {"room_size": 0.85, "wet_level": 0.3}}]},  # fmt: skip
+    "huge": {"description": "Enormous: lower, heavier, with a long tail", "params": {"pitch": -4, "size": 1.0},
+             "effects": [{"name": "compressor", "params": {"threshold_db": -18, "ratio": 3}},
+                         {"name": "reverb", "params": {"room_size": 0.75, "damping": 0.7, "wet_level": 0.14,
+                                                       "dry_level": 0.9}}]},  # fmt: skip
 }
 
 RECIPES: dict[str, Recipe] = {}

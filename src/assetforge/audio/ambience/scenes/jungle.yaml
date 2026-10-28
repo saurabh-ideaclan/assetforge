@@ -15,7 +15,7 @@ beds:
   params:
     rustle: 0.6
 - bed: insects_night
-  level_db: -6
+  level_db: -11
   params:
     crickets: 6
     cicada: 0.7

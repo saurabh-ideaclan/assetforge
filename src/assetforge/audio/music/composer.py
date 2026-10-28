@@ -252,7 +252,7 @@ def plan_structure(brief: Brief, seed: int) -> Plan:
     meter = brief.meter or genre.meter
     bpb = parse_meter(meter).beats_per_bar
     if brief.form == "stinger":
-        bars = brief.bars or {"collect": 1, "level_up": 2, "victory": 3, "discovery": 2, "danger": 2}.get(
+        bars = brief.bars or {"collect": 1, "level_up": 1, "victory": 3, "discovery": 1, "danger": 2}.get(
             brief.stinger or "victory", 2)  # fmt: skip
     elif brief.bars:
         bars = brief.bars
@@ -536,12 +536,22 @@ def stinger(brief: Brief, plan: Plan, rng: np.random.Generator) -> list[dict[str
             out[-1]["beats"] = last
         return out
 
-    if kind in ("victory", "level_up", "collect"):
-        step = {"victory": 0.5, "level_up": 0.25, "collect": 0.25}[kind]
-        degrees = {"victory": [0, 2, 4, 7, 4, 7], "level_up": [0, 2, 4, 7, 9, 11, 14], "collect": [4, 7]}[kind]
+    final = chord("I" if not _is_minor_scale(key.scale) else "i", key)
+    if kind == "level_up":
+        # The classic: a quick triplet pickup on the fifth, a bright run up the chord, and a held, ringing top.
+        pickup = [_note(key.degree(4, 4), i * 0.17, 0.15, 0.7) for i in range(3)]
+        run = [_note(key.degree(d, 5), 0.5 + i * 0.125, 0.12, 0.75 + 0.03 * i) for i, d in enumerate((0, 2, 4, 7, 9, 11))]
+        top = _note(key.degree(14, 5) if key.degree(14, 5) <= 96 else key.degree(7, 5), 1.25, total - 1.25, 0.85)
+        tracks.append({"name": "fanfare", "instrument": lead, "role": "melody", "notes": [*pickup, *run, top]})
+        tracks.append({"name": "chord", "instrument": harm, "role": "harmony", "gain_db": -6.0,
+                       "notes": [_note(p, 1.25, total - 1.25, 0.6) for p in voice(final, center=67)]})  # fmt: skip
+        tracks.append({"name": "sparkle", "instrument": "celesta", "role": "counter", "gain_db": -9.0,
+                       "notes": [_note(key.degree(d, 6), 1.25 + i * 0.1, 0.4, 0.5) for i, d in enumerate((0, 4, 7, 4, 7))]})  # fmt: skip
+    elif kind in ("victory", "collect"):
+        step = {"victory": 0.5, "collect": 0.25}[kind]
+        degrees = {"victory": [0, 2, 4, 7, 4, 7], "collect": [4, 7]}[kind]
         mel = run(degrees, 0, step, last=total - step * (len(degrees) - 1))
         chord_start = step * (len(degrees) - 1)
-        final = chord("I" if not _is_minor_scale(key.scale) else "i", key)
         tracks.append({"name": "fanfare", "instrument": lead, "role": "melody", "notes": mel})
         tracks.append({"name": "chord", "instrument": harm, "role": "harmony",
                        "notes": [_note(p, chord_start, total - chord_start, 0.7) for p in voice(final, center=64)]})  # fmt: skip
@@ -560,11 +570,14 @@ def stinger(brief: Brief, plan: Plan, rng: np.random.Generator) -> list[dict[str
         tracks.append({"name": "chord", "instrument": harm, "role": "harmony",
                        "notes": [_note(p, 0, total, 0.5) for p in voice(final, center=55)]})  # fmt: skip
     elif kind == "discovery":
+        # Gentle wonder: a soft harp/celesta figure rising through the lydian colour over a quiet pad.
         lyd = Key(key.tonic, "lydian")
-        mel = [_note(lyd.degree(d, 5), i * 0.25, 0.3, 0.6) for i, d in enumerate([0, 2, 3, 4, 6, 7, 9, 11])]
-        tracks.append({"name": "shimmer", "instrument": "celesta", "role": "melody", "notes": mel})
-        tracks.append({"name": "chord", "instrument": harm, "role": "pad",
-                       "notes": [_note(p, 0, total, 0.5) for p in (tonic - 12, tonic - 5, tonic + 4, tonic + 6)]})  # fmt: skip
+        mel = [_note(lyd.degree(d, 5), i * 0.33, 0.6, 0.45 + 0.03 * i) for i, d in enumerate([0, 4, 3, 7, 11])]
+        tracks.append({"name": "shimmer", "instrument": "harp", "role": "melody", "notes": mel})
+        tracks.append({"name": "glow", "instrument": "celesta", "role": "counter", "gain_db": -10.0,
+                       "notes": [_note(lyd.degree(d, 6), 1.4 + i * 0.2, 0.5, 0.35) for i, d in enumerate([4, 7])]})  # fmt: skip
+        tracks.append({"name": "pad", "instrument": "warm_pad", "role": "pad", "gain_db": -10.0,
+                       "notes": [_note(p, 0, total, 0.3) for p in (tonic - 12, tonic - 5, tonic + 4)]})  # fmt: skip
     else:  # danger
         stabs = [(0, 0), (1.5, 1), (2, 0), (3, 1)]
         notes = []
@@ -601,8 +614,9 @@ def compose(brief: Brief, seed: int) -> Score:
         if "drums" in roles and energy >= 0.25:
             drum_notes = drum_part(plan, g.drums, _rng(plan.seeds, "drums"), energy)
             if drum_notes:
+                kit_gain = {"drums_chip": -7.0, "drums_orchestral": -5.0}.get(roles["drums"], -3.0)
                 tracks.append({"name": "drums", "instrument": roles["drums"], "role": "drums", "notes": drum_notes,
-                               "gain_db": -3.0})  # fmt: skip
+                               "gain_db": kit_gain})  # fmt: skip
         extra = {**g.extra, **{r: i for r, i in brief.instruments.items() if r in ("arp", "counter")}}
         if "arp" in extra and energy >= 0.45:
             tracks.append({"name": "arp", "instrument": extra["arp"], "role": "arp",
