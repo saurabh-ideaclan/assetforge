@@ -82,7 +82,13 @@ def crackle(ctx: RenderContext, n: int, rate: float, *, lo: float = 1500.0, hi: 
         x[where] += ctx.rng.pareto(1.6, count).clip(0, 6) * ctx.rng.choice([-1.0, 1.0], count)
     if envelope is not None:
         x *= envelope
-    return dsp.filt(dsp.filt(x, "bandpass", np.sqrt(lo * hi), ctx.sr, q=np.sqrt(lo * hi) / (hi - lo) * 1.5), "lowpass", hi, ctx.sr)
+    # Each pop is a short windowed grain (≈1.5 ms), then a band-pass and a 4th-order low-pass: a single-sample
+    # impulse through gentle filters stays broadband and reads as a click/hiss instead of a pop.
+    k = max(4, int(0.0015 * ctx.sr))
+    x = np.convolve(x, np.hanning(k), mode="same")
+    centre = float(np.sqrt(lo * hi))
+    x = dsp.filt(x, "bandpass", centre, ctx.sr, q=max(0.5, centre / (hi - lo) * 1.5))
+    return dsp.filt(dsp.filt(x, "lowpass", hi, ctx.sr), "lowpass", hi, ctx.sr)
 
 
 def flame(ctx: RenderContext, n: int, size: float, envelope: np.ndarray) -> np.ndarray:

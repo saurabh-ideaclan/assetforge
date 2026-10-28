@@ -249,16 +249,19 @@ def fire_burst(ctx: RenderContext, p: dict) -> np.ndarray:
     tags=("lightning", "zap", "electric", "shock", "spark", "thunderbolt", "tesla", "electricity", "magic"),
 )
 def lightning_zap(ctx: RenderContext, p: dict) -> np.ndarray:
-    """An electric arc: a sharp crack, mains-like buzz through the arc's resonance, and a storm of spark pops
-    that flicker on and off. Shaped impulses instead of hiss, so it snaps rather than fizzes."""
+    """An electric arc: a crack, then a strong mains-like buzz (the arc itself) that flickers in intensity,
+    with occasional sharp spark pops on top. Smooth flicker (no hard gating clicks), sparse band-limited sparks."""
     n, sr = ctx.n, ctx.sr
     x = np.linspace(0, 1, n)
-    env = np.minimum(1, x * 60) * (1 - x) ** 1.2
-    flicker = np.clip(dsp.drift(n, sr, 35, ctx.rng) * 1.5 + 0.4, 0, 1)
-    f = p["buzz_hz"] * ctx.pitch * (1 + 0.04 * dsp.drift(n, sr, 20, ctx.rng))
-    buzz = sum(s.osc("saw", f * k, n, sr) / k for k in (1, 2, 3))
-    buzz = dsp.filt(dsp.filt(buzz, "bandpass", 900, sr, q=0.9), "lowpass", 4500, sr)
-    sparks = crackle(ctx, n, 500 + 1500 * p["crackle"], lo=900, hi=5500, envelope=flicker)
-    crack = n_wave(ctx, n, ms=1.2, tone_hz=6000)
-    out = 0.7 * rms_norm(buzz) * flicker + p["crackle"] * rms_norm(sparks) + 3 * norm(crack)
-    return fade_tail(s.soft_clip(out * env / 3, 0.4), sr)
+    env = np.minimum(1, x * 80) * (1 - x) ** 0.8
+    flicker = dsp.one_pole_lowpass(np.clip(dsp.drift(n, sr, 25, ctx.rng) * 1.2 + 0.6, 0.25, 1.0), 60, sr)
+    f = p["buzz_hz"] * ctx.pitch * (1 + 0.03 * dsp.drift(n, sr, 12, ctx.rng))
+    buzz = sum(s.osc("saw", f * k, n, sr) / k for k in (1, 2))
+    buzz = dsp.filt(dsp.filt(buzz, "peak", 700, sr, q=1.2, gain_db=9), "lowpass", 3500, sr)
+    buzz = dsp.filt(buzz, "lowpass", 3500, sr)
+    sparks = crackle(ctx, n, 40 + 120 * p["crackle"], lo=1200, hi=4500, envelope=flicker)
+    sparks = dsp.filt(sparks, "lowpass", 5000, sr)
+    crack = dsp.filt(n_wave(ctx, n, ms=1.5, tone_hz=5000), "lowpass", 6000, sr)
+    peak = lambda v: v / (np.max(np.abs(v)) + 1e-12)  # noqa: E731
+    out = peak(buzz) * flicker * env * 0.8 + p["crackle"] * 0.45 * peak(sparks) * env + 0.8 * peak(crack)
+    return fade_tail(peak(out), sr)

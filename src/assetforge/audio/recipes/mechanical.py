@@ -128,7 +128,7 @@ def engine_rev(ctx: RenderContext, p: dict) -> np.ndarray:
     cycle = phase.astype(int)
     frac = phase % 1.0
     variance = ctx.rng.normal(1.0, 0.12, cycle.max() + 2)[cycle]  # every firing a little different
-    pulse = np.exp(-frac * {"car": 14, "motorbike": 20, "truck": 9}[kind]) * np.sin(2 * np.pi * frac * 3) * variance
+    pulse = np.exp(-frac * {"car": 8, "motorbike": 11, "truck": 6}[kind]) * np.sin(2 * np.pi * frac * 2) * variance
     pipe_hz = {"car": 140, "motorbike": 260, "truck": 85}[kind]
     period = max(2, int(sr / pipe_hz))
     a = np.zeros(period + 1)
@@ -136,12 +136,16 @@ def engine_rev(ctx: RenderContext, p: dict) -> np.ndarray:
     from scipy.signal import lfilter
 
     exhaust = lfilter([1.0], a, pulse)  # the pipe: a resonant comb
-    body = dsp.sweep_filter(exhaust, "lowpass", (1200 + 3000 * curve) * (1.4 if kind == "motorbike" else 1.0), sr, q=1.1)
-    body = dsp.filt(body, "peak", 2.5 * pipe_hz, sr, q=1.2, gain_db=5)  # the pipe's bark
-    rumble = dsp.filt(exhaust, "lowpass", 160, sr)
-    out = dsp.filt(rms_norm(dsp.filt(body, "highpass", 90, sr)) + 0.2 * rms_norm(rumble), "highpass", 40, sr)
+    cutoff = (500 + 1400 * curve) * (1.4 if kind == "motorbike" else 1.0)
+    body = dsp.sweep_filter(dsp.sweep_filter(exhaust, "lowpass", cutoff, sr, q=0.7), "lowpass", cutoff, sr, q=0.7)  # 4th order
+    body = dsp.filt(body, "peak", 2.5 * pipe_hz, sr, q=1.2, gain_db=4)  # the pipe's bark
+    # exhaust breath: noise puffed out with each firing, low-passed (what makes it sound like air, not a synth)
+    puff_env = np.sin(np.pi * np.minimum(frac / 0.35, 1.0)) * (frac < 0.35)  # smooth puff per firing: no step, no click
+    puff = dsp.sweep_filter(s.noise(n, ctx.rng, "pink") * puff_env, "lowpass", 900 + 900 * curve, sr)
+    out = rms_norm(dsp.filt(body, "highpass", 70, sr)) + 0.25 * rms_norm(puff)
     env = s.adsr(n, sr, attack=0.04, decay=0.01, sustain=1, release=0.3)
-    return fade_tail(s.soft_clip(out * env * 0.45, 0.25), sr)
+    out = out * env
+    return fade_tail(out / (np.max(np.abs(out)) + 1e-12), sr)
 
 
 @recipe(
