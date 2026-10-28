@@ -247,19 +247,25 @@ def _store_take(lib: Library, asset_id: str, out: Output, m: Mastered, tmp: Path
     if master_id is None:
         master_id = _ensure(lib, asset_id, f"v{i}", lambda: write_audio(m.pcm, sr, tmp / f"v{i}.wav", "wav"),
                             params=_master_params(out, m))  # fmt: skip
+    from assetforge.audio.generate import delivery_alternates
+
+    alternates = delivery_alternates(fmt)
     if fmt != "wav":
         _ensure(lib, asset_id, f"v{i}_{fmt}", lambda: write_audio(m.pcm, sr, tmp / f"v{i}.{fmt}", fmt),
                 parent_variant_id=master_id, params={"encoded_from": master_id, "format": fmt},
                 make_primary=primary)  # fmt: skip
+        for alt in alternates:
+            _ensure(lib, asset_id, f"v{i}_{alt}", lambda alt=alt: write_audio(m.pcm, sr, tmp / f"v{i}.{alt}", alt),
+                    parent_variant_id=master_id, params={"encoded_from": master_id, "format": alt})  # fmt: skip
     for label, pcm in m.extras.items():
         extra_id = _ensure(lib, asset_id, f"v{i}_{label}",
                            lambda pcm=pcm, label=label: write_audio(pcm, sr, tmp / f"v{i}_{label}.wav", "wav"),
                            parent_variant_id=master_id, params={"extra_of": master_id, "extra": label,
                                                                 "pcm_sha256": pcm_sha256(pcm)})  # fmt: skip
-        if fmt != "wav":
-            _ensure(lib, asset_id, f"v{i}_{label}_{fmt}",
-                    lambda pcm=pcm, label=label: write_audio(pcm, sr, tmp / f"v{i}_{label}.{fmt}", fmt),
-                    parent_variant_id=extra_id, params={"encoded_from": extra_id, "extra": label, "format": fmt})  # fmt: skip
+        for out_fmt in ([fmt] if fmt != "wav" else []) + alternates:
+            _ensure(lib, asset_id, f"v{i}_{label}_{out_fmt}",
+                    lambda pcm=pcm, label=label, out_fmt=out_fmt: write_audio(pcm, sr, tmp / f"v{i}_{label}.{out_fmt}", out_fmt),
+                    parent_variant_id=extra_id, params={"encoded_from": extra_id, "extra": label, "format": out_fmt})  # fmt: skip
     for label, path in m.files.items():
         _ensure(lib, asset_id, f"v{i}_{label}", lambda path=path: path, parent_variant_id=master_id,
                 params={"file_of": master_id, "file": label})  # fmt: skip
@@ -376,12 +382,17 @@ def result(lib: Library, asset_id: str, *, reused: bool, reuse_reason: str | Non
             extra = by_label.get(f"v{index}_{label}_{fmt}") or by_label.get(f"v{index}_{label}")
             if extra:
                 extras[label] = {"variant_id": extra.id, "path": extra.file.path}
+                if m4a := by_label.get(f"v{index}_{label}_m4a"):
+                    extras[label]["alternates"] = {"m4a": m4a.file.path}
+        alternates = {lab.rsplit("_", 1)[1]: x.file.path for lab, x in by_label.items()
+                      if x.params.get("encoded_from") == v.id and x.params.get("format") not in (None, fmt)}  # fmt: skip
         files = {lab.split("_", 1)[1]: {"variant_id": x.id, "path": x.file.path} for lab, x in by_label.items()
                  if lab.startswith(f"v{index}_") and x.params.get("file_of") == v.id}  # fmt: skip
         takes.append({"index": index, "label": delivery.label, "variant_id": delivery.id, "master_variant_id": v.id,
                       "path": delivery.file.path, "format": delivery.file.ext.lstrip("."),
                       "duration_ms": delivery.file.duration_ms, "seed": v.params.get("seed"),
-                      "qc": v.params.get("qc"), "info": v.params.get("info", {}), "extras": extras, "files": files})  # fmt: skip
+                      "qc": v.params.get("qc"), "info": v.params.get("info", {}), "extras": extras, "files": files,
+                      "alternates": alternates})  # fmt: skip
     takes.sort(key=lambda t: t["index"])
     summary = lib.summaries([asset_id])[0]
     return {"asset_id": asset_id, "reused": reused, "reuse_reason": reuse_reason, "job_id": job_id,

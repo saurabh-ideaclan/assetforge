@@ -50,6 +50,10 @@ def pcm_sha256(pcm: np.ndarray) -> str:
 
 
 def write_audio(pcm: np.ndarray, sr: int, path: Path, fmt: str) -> Path:
+    if fmt == "m4a":
+        from assetforge.audio.codecs import write_m4a
+
+        return write_m4a(pcm, sr, path)
     container, subtype = FORMATS[fmt]
     data = pcm if fmt == "wav" else pcm.astype(np.float32) / 32767.0
     soundfile.write(str(path), data, sr, format=container, subtype=subtype)

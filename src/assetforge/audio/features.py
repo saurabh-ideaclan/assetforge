@@ -129,11 +129,10 @@ def analyze(samples: np.ndarray, sr: int) -> dict[str, Any]:
 def from_file(path: Path) -> dict[str, Any] | None:
     """Features of an audio file, or None when it cannot be decoded (QC reports that separately)."""
     try:
-        import soundfile
+        from assetforge.audio.codecs import read_audio
 
-        with soundfile.SoundFile(str(path)) as f:
-            sr = f.samplerate
-            data = f.read(frames=MAX_SECONDS * sr, dtype="float64", always_2d=True)
+        data, sr = read_audio(path)
+        data = data[: MAX_SECONDS * sr]
         if len(data) == 0 or not np.isfinite(data).all() or np.max(np.abs(data)) > 4.0:
             return None  # empty, or not really audio (decoded garbage)
         return analyze(data if data.shape[1] > 1 else data[:, 0], sr)

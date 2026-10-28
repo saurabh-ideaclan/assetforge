@@ -118,26 +118,28 @@ def test_export_collection_with_atlas_and_pixi_manifest(lib, game, tmp_path):
     files = sorted(p.relative_to(out).as_posix() for p in out.rglob("*") if p.is_file())
     assert files == [
         "ASSET_CREDITS.md", "assetforge-export.json", "levels/jungle.png", "levels/jungle.webp", "manifest.json",
-        "sfx/coin.mp3", "sfx/coin.ogg", "sounds.json", "sprites.png", "sprites.png.json", "sprites.webp",
+        "sfx/coin.m4a", "sfx/coin.ogg", "sounds.json", "sprites.png", "sprites.png.json", "sprites.webp",
         "sprites.webp.json",
     ]  # fmt: skip
     assert Image.open(out / "levels/jungle.webp").size == (640, 360)
     assert soundfile.info(str(out / "sfx/coin.ogg")).format == "OGG"
-    assert soundfile.info(str(out / "sfx/coin.mp3")).format == "MP3"
+    from assetforge.audio.codecs import read_audio
+
+    assert read_audio(out / "sfx/coin.m4a")[0].shape[0] > 0  # AAC in MP4 for Safari/iOS
 
     manifest = json.loads((out / "manifest.json").read_text())
     [bundle] = manifest["bundles"]
     assert bundle["name"] == "jungle"
     assert {"alias": "levels/jungle", "src": "levels/jungle.{webp,png}"} in bundle["assets"]
     assert {"alias": "sprites", "src": "sprites.{webp,png}.json"} in bundle["assets"]
-    assert not any(a["src"].endswith((".ogg", ".mp3")) for a in bundle["assets"])
+    assert not any(a["src"].endswith((".ogg", ".mp3", ".m4a")) for a in bundle["assets"])
     sheet = json.loads((out / "sprites.png.json").read_text())
     assert set(sheet["frames"]) == {"characters/beetle", "icons/coin_icon", "characters/panda_walk_01",
                                     "characters/panda_walk_02", "characters/panda_walk_03"}  # fmt: skip
     assert sheet["animations"] == {"characters/panda_walk": ["characters/panda_walk_01", "characters/panda_walk_02",
                                                              "characters/panda_walk_03"]}  # fmt: skip
     sounds = json.loads((out / "sounds.json").read_text())
-    assert sounds == {"sounds": [{"alias": "sfx/coin", "src": ["sfx/coin.ogg", "sfx/coin.mp3"]}]}
+    assert sounds == {"sounds": [{"alias": "sfx/coin", "src": ["sfx/coin.ogg", "sfx/coin.m4a"]}]}
     assert "Sound by Alex" in (out / "ASSET_CREDITS.md").read_text()
     ts = (tmp_path / "game" / "src" / "assets.ts").read_text()
     assert '"characters/panda_walk"' in ts and "export type SoundAlias" in ts

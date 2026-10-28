@@ -25,7 +25,8 @@ from assetforge.core.models import FileKind
 from assetforge.errors import InvalidInputError
 
 PROCESSOR_VERSION = 1
-FORMATS = {"wav": ("WAV", "PCM_16", ".wav"), "ogg": ("OGG", "VORBIS", ".ogg"), "mp3": ("MP3", "MPEG_LAYER_III", ".mp3")}
+FORMATS = {"wav": ("WAV", "PCM_16", ".wav"), "ogg": ("OGG", "VORBIS", ".ogg"), "mp3": ("MP3", "MPEG_LAYER_III", ".mp3"),
+           "m4a": ("M4A", "AAC", ".m4a")}  # M4A is encoded by ffmpeg (audio/codecs.py)
 
 PRESETS: dict[str, list[dict[str, Any]]] = {
     "web-sfx": [
@@ -200,11 +201,9 @@ def apply_ops(audio: Audio, ops: list[dict[str, Any]]) -> tuple[Audio, dict[str,
 
 
 def load(path: Path) -> Audio:
-    try:
-        data, sr = soundfile.read(str(path), dtype="float64", always_2d=True)
-    except Exception as exc:
-        raise InvalidInputError(f"Cannot decode audio {path.name}: {exc}") from exc
-    return data, sr
+    from assetforge.audio.codecs import read_audio
+
+    return read_audio(path)
 
 
 def encode(audio: Audio, path: Path, encoding: dict[str, Any]) -> Path:
@@ -212,6 +211,10 @@ def encode(audio: Audio, path: Path, encoding: dict[str, Any]) -> Path:
     container, subtype, ext = FORMATS[encoding.get("format", "wav")]
     target = path.with_suffix(ext)
     data = np.clip(data, -1.0, 1.0)
+    if container == "M4A":
+        from assetforge.audio.codecs import write_m4a
+
+        return write_m4a(data, sr, target)
     kwargs: dict[str, Any] = {}
     if container != "WAV" and "quality" in encoding:
         kwargs["compression_level"] = float(np.clip(1.0 - float(encoding["quality"]), 0.0, 1.0))
@@ -263,7 +266,9 @@ def process_audio_asset(
     source = source_variant(asset, variant)
     if source.file.kind != FileKind.AUDIO:
         raise InvalidInputError(f"{asset.id} ({source.label}) is not audio")
-    audio, encoding = apply_ops(load(Path(source.file.path)), ops)
+    from assetforge.audio.masters import ensure_file
+
+    audio, encoding = apply_ops(load(ensure_file(lib, source)), ops)  # a pruned master is re-rendered first
     tmp = Path(tempfile.mkdtemp(dir=lib.paths.tmp, prefix="process-"))
     try:
         output = encode(audio, tmp / "derivative", encoding)

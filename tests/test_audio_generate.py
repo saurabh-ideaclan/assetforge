@@ -45,7 +45,7 @@ def test_generate_catalogs_a_reproducible_candidate(lib):
 def test_ogg_output_keeps_wav_masters(lib):
     result = generate_audio(lib, AudioRequest(recipe="coin", variants=2, seed=3, format="ogg"))
     asset = lib.get_asset(result.asset_id)
-    assert sorted(v.label for v in asset.variants) == ["v1", "v1_ogg", "v2", "v2_ogg"]
+    assert sorted(v.label for v in asset.variants) == ["v1", "v1_m4a", "v1_ogg", "v2", "v2_m4a", "v2_ogg"]
     assert asset.primary_variant.label == "v1_ogg" and asset.path.endswith(".ogg")
     for v in result.variants:
         assert v.format == "ogg" and Path(v.path).suffix == ".ogg"

@@ -49,4 +49,4 @@ def test_concurrent_identical_audio_requests_produce_one_asset(home):
     assert all(len(r["variants"]) == 3 for r in results)
     with Library(home) as lib:
         assert lib.info()["counts"]["assets"] == 1
-        assert lib.info()["counts"]["variants"] == 6  # 3 WAV masters + 3 OGG
+        assert lib.info()["counts"]["variants"] == 9  # 3 WAV masters + 3 OGG + 3 M4A

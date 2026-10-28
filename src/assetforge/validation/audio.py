@@ -97,14 +97,13 @@ def seam_ok(seam: dict[str, Any]) -> bool:
 
 
 def analyze_file(path: Path, *, loopable: bool = False) -> dict[str, Any]:
-    import soundfile
-
+    from assetforge.audio.codecs import read_audio
     from assetforge.audio.loudness import integrated_loudness
 
     try:
-        data, sr = soundfile.read(str(path), dtype="float64", always_2d=False)
-    except Exception as exc:
-        raise InvalidInputError(f"Cannot decode audio {path.name}: {exc}", path=str(path)) from exc
+        data, sr = read_audio(path, always_2d=False)
+    except InvalidInputError as exc:
+        raise InvalidInputError(exc.message, path=str(path)) from exc
     report = analyze(data, sr)
     report["loudness_lufs"] = integrated_loudness(data, sr) if len(data) else FLOOR_DB
     if report["peak_dbfs"] > -0.1 and "clipping" not in report["issues"]:

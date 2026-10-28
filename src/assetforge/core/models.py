@@ -107,6 +107,7 @@ class FileInfo(BaseModel):
     mean_luma: float | None = None
     colors: list[dict[str, Any]] | None = None
     dhash: str | None = None
+    pruned: bool = False  # a synthesized master deleted to save space; re-rendered from its spec on demand
 
 
 class Variant(BaseModel):

@@ -373,7 +373,9 @@ def _variant(lib: Library, variant_id: str) -> Variant:
 @router.route("GET", r"/media/variant/(?P<variant>var_\d+)")
 def media_variant(req: Request, lib: Library) -> FileResponse:
     variant = _variant(lib, req.match["variant"])
-    path = Path(variant.file.path)
+    from assetforge.audio.masters import ensure_file
+
+    path = ensure_file(lib, variant)  # a pruned WAV master is re-rendered on demand
     if not path.is_file():
         raise NotFoundError("The file is missing from the library; run `assetforge verify`")
     return FileResponse(path, variant.file.mime_type, IMMUTABLE)

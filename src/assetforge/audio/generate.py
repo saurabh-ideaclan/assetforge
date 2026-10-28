@@ -97,6 +97,14 @@ class GeneratedVariant(BaseModel):
     render_seed: int
     params: dict[str, Any]
     qc: dict[str, Any]
+    alternates: dict[str, str] = Field(default_factory=dict, description="Other delivery formats: format → path")
+
+
+def delivery_alternates(fmt: str) -> list[str]:
+    """Extra delivery copies made next to the requested one: M4A whenever a compressed format is requested."""
+    from assetforge.audio.codecs import skip_unavailable
+
+    return skip_unavailable(["m4a"]) if fmt in ("ogg", "mp3") else []
 
 
 class AudioResult(BaseModel):
@@ -289,6 +297,12 @@ def _add_rendered_variants(
                 parent_variant_id=master_id, params={"encoded_from": master_id, "format": plan.format},
                 make_primary=is_first,
             )  # fmt: skip
+            for alt in delivery_alternates(plan.format):  # M4A next to OGG: the Safari/iOS fallback
+                _ensure_variant(
+                    lib, asset_id, f"v{i}_{alt}",
+                    lambda r=r, i=i, alt=alt: write_audio(r.pcm, plan.sample_rate, tmp / f"v{i}.{alt}", alt),
+                    parent_variant_id=master_id, params={"encoded_from": master_id, "format": alt},
+                )  # fmt: skip
 
 
 def result_from_asset(
@@ -303,7 +317,8 @@ def result_from_asset(
     asset = lib.get_asset(asset_id)
     gen = asset.metadata.get("generator", {})
     fmt = gen.get("format", "wav")
-    encoded = {v.params.get("encoded_from"): v for v in asset.variants if v.params.get("encoded_from")}
+    encoded = {(v.params.get("encoded_from"), v.params.get("format")): v for v in asset.variants
+               if v.params.get("encoded_from")}  # fmt: skip
     variants = []
     for master in asset.variants:
         if master.params.get("generator") != ENGINE:
@@ -311,7 +326,8 @@ def result_from_asset(
         index = master.params["index"]
         if indices is not None and index not in indices:
             continue
-        delivery = encoded.get(master.id, master)
+        delivery = encoded.get((master.id, fmt), master)
+        alternates = {f: v.file.path for (src, f), v in encoded.items() if src == master.id and f != fmt}
         variants.append(
             GeneratedVariant(
                 index=index,
@@ -324,6 +340,7 @@ def result_from_asset(
                 render_seed=master.params["render_seed"],
                 params=master.params["params"],
                 qc=master.params["qc"],
+                alternates=alternates,
             )
         )
     variants.sort(key=lambda v: v.index)

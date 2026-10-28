@@ -342,7 +342,9 @@ def analyze(
             variant = next((v for v in asset.variants if v.id == target), asset.primary_variant)
             if variant is None or variant.file.kind != "audio":
                 raise InvalidInputError(f"{target} is not an audio asset")
-            path = Path(variant.file.path)
+            from assetforge.audio.masters import ensure_file
+
+            path = ensure_file(s.lib, variant)
         report = analyze_file(path)
 
         def human(c: Console) -> None:
@@ -421,3 +423,49 @@ def soundfont_use(ctx: typer.Context, name: Annotated[str, typer.Argument()], js
     with session(ctx, json_) as s:
         soundfont.set_default(s.lib.paths.home, name)
         s.out.emit({"default": name}, lambda c: c.print(f"Default SoundFont: {name}"))
+
+
+# ---------------------------------------------------------------------- masters
+
+
+@audio_app.command("prune-masters")
+def prune_masters(
+    ctx: typer.Context,
+    older_than: Annotated[float | None, typer.Option("--older-than", help="Only masters made more than this many days ago.")] = None,
+    project: Annotated[str | None, typer.Option(help="Only this project's sounds.")] = None,
+    type_: Annotated[list[str] | None, typer.Option("--type", help="Only these asset types: sfx, ambience, music… (repeatable).")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Report what would be deleted and the space freed.")] = False,
+    json_: JsonOpt = False,
+) -> None:
+    """Delete WAV masters of synthesized sounds to save space (OGG/M4A delivery copies stay).
+
+    Only masters that re-render bit for bit from their stored spec are removed (SoundFont music only while the
+    same SoundFont is installed); imported audio is never touched. Anything that needs a pruned master later
+    (edits, new export formats, `audio restore-masters`, the app) re-renders it first. Never runs automatically.
+    """
+    from assetforge.audio import masters
+
+    with session(ctx, json_) as s:
+        report = masters.prune(s.lib, older_than_days=older_than, project=project, types=type_, dry_run=dry_run)
+
+        def human(c: Console) -> None:
+            verb = "Would free" if dry_run else "Freed"
+            c.print(f"{verb} {report['freed_mb']} MB from {report['count']} master(s)")
+            for item in report["items"][:20]:
+                c.print(f"  {item['asset_id']} {escape(item['name'])} {item['label']}  {item['bytes'] / 1e6:.2f} MB")
+            for skip in report["skipped"][:10]:
+                c.print(f"  [dim]kept {skip['asset_id']}: {escape(skip['reason'])}[/dim]")
+
+        s.out.emit({"prune": report}, human)
+
+
+@audio_app.command("restore-masters")
+def restore_masters(ctx: typer.Context, ref: Annotated[list[str], typer.Argument(help="Assets whose pruned masters to re-render.")],
+                    json_: JsonOpt = False) -> None:  # fmt: skip
+    """Re-render pruned WAV masters now (they are also re-rendered automatically when needed)."""
+    from assetforge.audio import masters
+
+    with session(ctx, json_) as s:
+        results = [masters.restore(s.lib, r) for r in ref]
+        s.out.emit({"restored": results}, lambda c: [c.print(f"{r['asset_id']}: restored {len(r['restored'])} master(s)")
+                                                     for r in results])  # fmt: skip

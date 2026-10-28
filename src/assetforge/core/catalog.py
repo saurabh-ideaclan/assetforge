@@ -57,7 +57,7 @@ _VARIANT_COLUMNS = """
     v.id, v.asset_id, v.label, v.parent_variant_id, v.params, v.original_filename, v.created_at,
     f.sha256, f.rel_path, f.ext, f.mime_type, f.kind, f.size_bytes, f.width, f.height,
     f.has_alpha, f.frames, f.duration_ms, f.sample_rate, f.channels,
-    f.aspect, f.alpha_fraction, f.mean_luma, f.colors, f.dhash
+    f.aspect, f.alpha_fraction, f.mean_luma, f.colors, f.dhash, f.extra
 """
 
 
@@ -606,6 +606,7 @@ class Library:
             mean_luma=row["mean_luma"],
             colors=loads(row["colors"], None) if row["colors"] else None,
             dhash=row["dhash"],
+            pruned=bool(loads(row["extra"], {}).get("pruned")),
         )
         return Variant(
             id=row["id"],
@@ -795,10 +796,12 @@ class Library:
         """Check every cataloged file is present (and, with `rehash`, unmodified)."""
         issues: list[dict[str, Any]] = []
         known: set[str] = set()
-        rows = self.conn.execute("SELECT sha256, rel_path, size_bytes FROM asset_files ORDER BY sha256").fetchall()
+        rows = self.conn.execute("SELECT sha256, rel_path, size_bytes, extra FROM asset_files ORDER BY sha256").fetchall()
         for row in rows:
             path = self.store.abs_path(row["rel_path"])
             known.add(row["rel_path"])
+            if not path.is_file() and loads(row["extra"], {}).get("pruned"):
+                continue  # a master removed on purpose by `audio prune-masters`; re-rendered on demand
             if not path.is_file():
                 issues.append({"sha256": row["sha256"], "path": str(path), "problem": "missing"})
             elif path.stat().st_size != row["size_bytes"]:

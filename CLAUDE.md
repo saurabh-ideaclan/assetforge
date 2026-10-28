@@ -15,7 +15,7 @@ it to **search for an existing asset before generating a new one**, then receive
 
 ```bash
 uv sync                       # install deps (Python 3.12+, uses .venv)
-uv run pytest                 # full suite (~70s, 2248 tests incl. every recipe × preset; multi-process concurrency tests; no network)
+uv run pytest                 # full suite (~75s, 2256 tests incl. every recipe × preset; multi-process concurrency tests; no network)
 uv run assetforge --help      # CLI entry point (also: uv run python -m assetforge)
 ```
 
@@ -62,11 +62,11 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   `pitch` and `brightness`. Presets only apply the params a recipe has. **Changing a recipe's sound means bumping its
   `version`.** Otherwise `audio reproduce` reports drift for older assets.
 - `audio/effects.py`: Pedalboard effect chain stored as data (`{"name", "params"}`) with all defaults resolved.
-- `audio/export.py`: `finish()` (DC removal, tail trim, fades, peak normalize), PCM16, `pcm_sha256`, WAV/OGG/MP3 writing.
+- `audio/export.py`: `finish()` (DC removal, tail trim, fades, peak normalize), PCM16, `pcm_sha256`, WAV/OGG/MP3/M4A writing.
 - `audio/variations.py`: `(seed, index)` → per-variant params and noise seed. v1 is canonical unless `new_variant`.
 - `audio/generate.py`: `generate_audio`, `vary_audio`, `reproduce_audio`. One request = one asset with variants
-  `v1..vN` (16-bit WAV masters, each storing everything needed to re-render bit-for-bit) plus `vN_ogg`/`vN_mp3`
-  delivery copies (the first is primary). Reuse happens at two levels: same seeded request → fingerprint reuse;
+  `v1..vN` (16-bit WAV masters, each storing everything needed to re-render bit-for-bit) plus `vN_ogg` (primary) and
+  `vN_m4a` delivery copies (AAC fallback for Safari/iOS; the same for every engine, stems and extras). Reuse happens at two levels: same seeded request → fingerprint reuse;
   identical rendered v1 → content reuse, topping up missing variants. Adding variants is idempotent per label,
   which makes concurrent identical requests safe.
 - `validation/audio.py`: `analyze()` → peak/RMS/crest/clipping/DC/silence + `issues`. `silent`/`clipping` fail QC.
@@ -273,6 +273,17 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
 - `audio/infer.py`: description → recipe/patch, scene + extra layers, or music brief. `request` routes `sfx`,
   `ambience`, `music` through `sound_plan` (`sound` dict / `--sound k=v` overrides). Export: `sounds.json` loop
   points, music facts, `extras`, `--audio-takes` variations, `--audio-sprite`.
+- `audio/codecs.py`: M4A via ffmpeg's native AAC encoder (its MP4 edit list trims the priming, so decoded length
+  is exact and loops stay aligned; tested). No ffmpeg → M4A is skipped with one stderr warning, never an error.
+  `read_audio` decodes anything (soundfile, then ffmpeg). Export defaults to `--audio-format ogg m4a`:
+  `sounds.json` `src` = [ogg, m4a], sprites get an `.m4a` twin, older assets get M4A derived from the WAV
+  master (no re-render).
+- `audio/masters.py`: WAV masters are never deleted automatically. `audio prune-masters [--older-than D
+  --project P --type T --dry-run]` deletes re-renderable masters only (procedural; SoundFont music only while
+  that .sf2 sha is installed; never imported audio; a shared file only when every user is prunable), marking
+  `asset_files.extra.pruned`. `ensure_file` re-renders a pruned master and checks its SHA-256 before anything
+  reads it (process, export, analyze, the app's media route); `verify`/QC treat pruned files as fine.
+  `audio restore-masters REF`. Possible later: FLAC masters (lossless, ~half the size).
 - CLI: `cli_sound.py` (sound profile, spaces), `cli_ambience.py`, `cli_music.py`, `cli_audio.py` (design, patch,
   soundfont). App: `/api/sound/options`, `/api/generate/{design,ambience,music}`, `/api/sound/request` (the
   agents' `request`), `/api/sound/profiles/{project}[/delete]`, `/api/assets/{id}/sound/vary` (keep=chords|melody

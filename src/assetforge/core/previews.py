@@ -41,9 +41,9 @@ def checkerboard(size: tuple[int, int], square: int = 12) -> Image.Image:
 
 
 def waveform(path: Path, size: tuple[int, int]) -> Image.Image:
-    import soundfile
+    from assetforge.audio.codecs import read_audio
 
-    data, sr = soundfile.read(str(path), dtype="float32", always_2d=True)
+    data, sr = read_audio(path, dtype="float32")
     mono = data.mean(axis=1)
     w, h = size
     image = Image.new("RGBA", size, (24, 28, 40, 255))

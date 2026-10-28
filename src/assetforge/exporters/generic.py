@@ -51,7 +51,7 @@ TYPE_DIRS = {
 ATLAS_TYPES = ISOLATED_TYPES | {AssetType.ANIMATION}
 OPAQUE_TYPES = {AssetType.BACKGROUND, AssetType.TILE, AssetType.TEXTURE, AssetType.IMAGE}
 IMAGE_FORMATS = ("webp", "png")
-AUDIO_FORMATS = ("ogg", "mp3", "wav")
+AUDIO_FORMATS = ("ogg", "m4a", "mp3", "wav")
 OWN_PROVENANCE = ("AssetForge procedural", "AI-generated")
 
 
@@ -66,7 +66,8 @@ class ExportRequest(BaseModel):
     allow_restricted: bool = False
     layout: Literal["by-type", "flat"] = "by-type"
     image_formats: list[str] = Field(default_factory=lambda: ["webp", "png"])
-    audio_formats: list[str] = Field(default_factory=lambda: ["ogg", "mp3"])
+    audio_formats: list[str] = Field(default_factory=lambda: ["ogg", "m4a"],
+                                     description="OGG for most browsers, M4A (AAC) for Safari/iOS")  # fmt: skip
     audio_extras: bool = Field(True, description="Also export stems and intensity versions of ambience/music")
     audio_takes: bool = Field(False, description="Also export every take (v2, v3…) as round-robin variations")
     audio_sprite: str | None = Field(None, description="Also pack the short one-shot sounds into one file with "
@@ -121,6 +122,7 @@ class ExportResult(BaseModel):
     sounds: list[dict[str, Any]]
     skipped: list[dict[str, str]]
     removed: list[str]
+    warnings: list[str] = Field(default_factory=list)
     outputs: dict[str, str | None]
 
 
@@ -192,16 +194,26 @@ def _image_variant(lib: Library, asset: Asset, fmt: str, max_size: int | None) -
 
 
 def _audio_variant(lib: Library, asset: Asset, fmt: str, source: Variant | None = None) -> Variant:
-    """`source` (default: the primary) in `fmt`: itself, an existing encoding of it, or a new derived variant."""
+    """`source` (default: the primary) in `fmt`: itself, a stored encoding of the same master, or a new derived
+    variant. New encodings are made from the lossless master when there is one (never OGG → M4A), so a
+    re-export can add M4A to older assets without re-rendering them."""
     primary = source or asset.primary_variant
     assert primary is not None
     if primary.file.ext.lstrip(".") == fmt:
         return primary
-    existing = next((v for v in asset.variants if v.label == f"{primary.label}_{fmt}"), None)
-    if existing is not None:
-        return existing
-    ops = [{"op": "format", "format": fmt, **({"quality": 0.6} if fmt != "wav" else {})}]
-    derived = audio_proc.process_audio_asset(lib, asset.id, ops, variant=primary.id, label=f"{fmt}_of_{primary.label}")
+    by_id = {v.id: v for v in asset.variants}
+    master = by_id.get(primary.params.get("encoded_from")) or primary
+    sibling = next((v for v in asset.variants if v.params.get("encoded_from") == master.id
+                    and v.params.get("format") == fmt), None)  # fmt: skip
+    if sibling is None:
+        sibling = next((v for v in asset.variants if v.label in (f"{primary.label}_{fmt}", f"{fmt}_of_{master.label}")), None)
+    if sibling is not None:
+        return sibling
+    from assetforge.audio.masters import ensure_file
+
+    ensure_file(lib, master)  # a pruned master is re-rendered first
+    ops = [{"op": "format", "format": fmt, **({"quality": 0.6} if fmt not in ("wav", "m4a") else {})}]
+    derived = audio_proc.process_audio_asset(lib, asset.id, ops, variant=master.id, label=f"{fmt}_of_{master.label}")
     return next(v for v in lib.get_asset(asset.id).variants if v.id == derived.variant_id)
 
 
@@ -220,7 +232,7 @@ SPRITE_GAP_S = 0.25
 SPRITE_MAX_S = 6.0
 
 
-def _audio_sprite(name: str, assets: list[Asset], aliases: dict[str, str]) -> dict[str, bytes]:
+def _audio_sprite(name: str, assets: list[Asset], aliases: dict[str, str], *, m4a: bool = False) -> dict[str, bytes]:
     """One-shot sounds (not loops, ≤ 6 s) concatenated with short gaps; offsets in milliseconds."""
     import io
 
@@ -247,9 +259,18 @@ def _audio_sprite(name: str, assets: list[Asset], aliases: dict[str, str]) -> di
     if not sprite:
         return {}
     buffer = io.BytesIO()
-    soundfile.write(buffer, np.concatenate(pieces), rate, format="OGG", subtype="VORBIS")
-    meta = {"src": [f"{name}.ogg"], "sprite": sprite}
-    return {f"{name}.ogg": buffer.getvalue(), f"{name}.json": _json_bytes(meta)}
+    mix = np.concatenate(pieces)
+    soundfile.write(buffer, mix, rate, format="OGG", subtype="VORBIS")
+    files = {f"{name}.ogg": buffer.getvalue()}
+    if m4a:  # the Safari/iOS twin; AAC's priming is trimmed by the MP4 edit list, so offsets still line up
+        import tempfile
+
+        from assetforge.audio.codecs import write_m4a
+
+        with tempfile.TemporaryDirectory() as tmp:
+            files[f"{name}.m4a"] = write_m4a(mix, rate, Path(tmp) / f"{name}.m4a").read_bytes()
+    meta = {"src": sorted(files, key=lambda f: not f.endswith(".ogg")), "sprite": sprite}
+    return files | {f"{name}.json": _json_bytes(meta)}
 
 
 # ---------------------------------------------------------------------- writing
@@ -357,6 +378,14 @@ def export(lib: Library, req: ExportRequest) -> ExportResult:
     project = normalize_optional_slug(req.project, "project")
     bundle = slugify(req.bundle or req.collection or project or "game") or "game"
     selected = select_assets(lib, req)
+    from assetforge.audio.codecs import skip_unavailable
+
+    warnings: list[str] = []
+    audio_formats = skip_unavailable(list(req.audio_formats))
+    if len(audio_formats) < len(req.audio_formats):
+        warnings.append("ffmpeg not found: M4A files were skipped (install ffmpeg to export them)")
+    if not audio_formats:
+        audio_formats = ["ogg"]
 
     skipped: list[dict[str, str]] = []
     assets: list[Asset] = []
@@ -421,7 +450,7 @@ def export(lib: Library, req: ExportRequest) -> ExportResult:
 
             def audio_files(name: str, source: Variant | None) -> list[str]:
                 out = []
-                for fmt in req.audio_formats:
+                for fmt in audio_formats:
                     variant = (source or primary) if req.dry_run else _audio_variant(lib, asset, fmt, source)
                     emit(f"{name}.{fmt}", Path(variant.file.path).read_bytes(), asset, variant, "sound")
                     out.append(f"{name}.{fmt}")
@@ -469,7 +498,8 @@ def export(lib: Library, req: ExportRequest) -> ExportResult:
         outputs["sounds"] = SOUNDS_FILE
     if req.audio_sprite and not req.dry_run:
         sprite_files = _audio_sprite(req.audio_sprite, [a for a in assets if a.primary_variant and
-                                                        a.primary_variant.file.kind == FileKind.AUDIO], aliases)  # fmt: skip
+                                                        a.primary_variant.file.kind == FileKind.AUDIO], aliases,
+                                     m4a="m4a" in audio_formats)  # fmt: skip
         for rel, data in sprite_files.items():
             writer.write(rel, data)
             generated.append(rel)
@@ -526,7 +556,7 @@ def export(lib: Library, req: ExportRequest) -> ExportResult:
 
     actions = list(writer.written.values())
     return ExportResult(
-        out=str(root), bundle=bundle, dry_run=req.dry_run,
+        out=str(root), bundle=bundle, dry_run=req.dry_run, warnings=warnings,
         counts={"assets": len(assets), "files": len(files), "written": actions.count("written"),
                 "unchanged": actions.count("unchanged"), "skipped": len(skipped), "removed": len(removed),
                 "atlas_frames": len(frames)},

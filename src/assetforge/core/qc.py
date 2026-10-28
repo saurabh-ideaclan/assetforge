@@ -27,7 +27,9 @@ LOOPABLE = {AssetType.MUSIC, AssetType.AMBIENCE}
 def check_variant(asset: Asset, variant: Variant) -> dict[str, Any]:
     path = Path(variant.file.path)
     metrics: dict[str, Any] = {}
-    if not path.is_file():
+    if not path.is_file() and variant.file.pruned:
+        issues, metrics = [], {"pruned": True}
+    elif not path.is_file():
         issues = ["missing_file"]
     elif variant.file.kind == FileKind.IMAGE:
         try:

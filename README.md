@@ -252,8 +252,13 @@ assetforge similar ast_00031          # sounds like this one
 
 A profile can also live under `sound:` in the game's art profile YAML. Export writes `sounds.json` with
 `loop/loopStart/loopEnd`, `bpm/key/meter/bars`, `extras` (stems, intensity versions) and, with `--audio-takes`,
-round-robin `variations`; `--audio-sprite NAME` packs short sounds into one OGG plus a Howler sprite JSON. Use OGG
-for loops (MP3 encoders add padding that breaks gapless looping).
+round-robin `variations`; `--audio-sprite NAME` packs short sounds into one OGG (+ M4A twin) plus a Howler sprite
+JSON. Every take is stored as OGG plus an M4A (AAC) fallback for Safari/iOS; both loop gaplessly. Avoid MP3 for
+loops (encoders add padding). M4A needs ffmpeg; without it AssetForge warns and ships OGG only.
+
+WAV masters are kept so sounds can be edited and re-encoded. To save space, `assetforge audio prune-masters
+--older-than 30 --dry-run --json` shows what can go (only synthesized sounds that re-render bit for bit; never
+imported audio); drop `--dry-run` to delete them. Anything that needs a pruned master re-renders it first.
 
 **Checked against reality.** Thunder, roar, growl, engine, explosion (`blast`), lightning and the rain and
 night-forest scenes are tuned to measurements of real field recordings (Wikimedia Commons and Freesound CC0;
@@ -452,8 +457,8 @@ public/assets/
 ├── sprites.{png,webp}          # atlas of characters, sprites, icons, UI and effects (trimmed, packed)
 ├── sprites.{png,webp}.json     # spritesheet data; frames named by alias; `walk_01…` → animations.walk
 ├── backgrounds/jungle.{webp,png}
-├── sfx/coin.{ogg,mp3}
-├── sounds.json                 # alias → [ogg, mp3] for @pixi/sound or any audio library
+├── sfx/coin.{ogg,m4a}
+├── sounds.json                 # alias → [ogg, m4a] for @pixi/sound or any audio library
 ├── ASSET_CREDITS.md            # licenses/attributions of imported assets, when any
 └── assetforge-export.json      # what AssetForge owns here (enables incremental re-export and --clean)
 ```
@@ -471,7 +476,7 @@ const walk = new AnimatedSprite(Assets.get("sprites").animations["characters/bee
 - Files are named by asset key (`enemy/beetle/hit.ogg`) or `<type>/<name>`. Use `--layout flat` for bare names.
 - Only **approved** assets are exported by default (`--include-candidates` to override), and assets marked
   `commercial_use: restricted` are skipped unless `--allow-restricted`. Skipped assets are listed with reasons.
-- WebP/PNG and OGG/MP3 copies are cataloged derivatives, so the library knows exactly which file each game ships.
+- WebP/PNG and OGG/M4A copies are cataloged derivatives, so the library knows exactly which file each game ships.
   `--max-image-size 1024` also downscales large images.
 - Re-running an export only rewrites changed files. `--clean` removes files AssetForge exported earlier that are no
   longer selected. Files AssetForge didn't create are never overwritten (`--overwrite` to force).
