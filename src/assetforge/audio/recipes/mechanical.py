@@ -8,7 +8,7 @@ from assetforge.audio import dsp
 from assetforge.audio import synth as s
 from assetforge.audio.recipes.base import WAVES, RenderContext, choice, integer, num, recipe
 from assetforge.audio.recipes.music import norm
-from assetforge.audio.recipes.physical import PLATE, WOOD_PLANK, fade_tail, modal, rms_norm, strike
+from assetforge.audio.recipes.physical import PLATE, WOOD_PLANK, exp_env, fade_tail, modal, rms_norm, strike
 from assetforge.audio.recipes.weapons import ring
 
 
@@ -30,8 +30,10 @@ def click(ctx: RenderContext, n: int, start: int, freq: float, length: float = 0
         choice("action", "open", ("open", "close", "slam"), "What the door does"),
         choice("material", "wood", ("wood", "metal", "stone"), "Door material"),
         num("creak", 0.5, 0, 1, "Hinge creak"),
+        num("room", 0.6, 0, 1, "How much the space around a metal door booms after the hit"),
     ),
     tags=("door", "gate", "open", "close", "slam", "creak", "hinge", "latch", "house", "dungeon"),
+    version=2,
 )
 def door(ctx: RenderContext, p: dict) -> np.ndarray:
     """Hinge creak while it swings, then the door's panel ringing as it hits the frame, and the latch."""
@@ -47,23 +49,42 @@ def door(ctx: RenderContext, p: dict) -> np.ndarray:
     hit = int(n * {"open": 0.82, "close": 0.55, "slam": 0.03}[p["action"]])
     force = 1.0 if p["action"] == "slam" else 0.45
     material = p["material"]
-    base, decay, ratios = {"wood": (150, 0.12, WOOD_PLANK), "metal": (260, 0.6, PLATE), "stone": (90, 0.18, (1, 2.2, 3.4))}[material]
+    if material == "metal":
+        return fade_tail(dsp.filt(out + force * metal_impact(ctx, n, hit, p["room"]), "highpass", 45, sr), sr)
+    base, decay, ratios = {"wood": (150, 0.12, WOOD_PLANK), "stone": (90, 0.18, (1, 2.2, 3.4))}[material]
     panel = modal(ctx, n, base, ratios, decay_s=decay * (1.3 if p["action"] == "slam" else 1.0), detune=0.003,
-                  brightness=0.75 if material == "metal" else 0.5, at=hit)  # fmt: skip
+                  brightness=0.5, at=hit)  # fmt: skip
     thud = np.zeros(n)
     k = n - hit
     if k > 0:
         thud[hit:] = s.osc("sine", s.sweep(150, 80, k), k, sr) * s.perc(k, sr, attack=0.002, curve=12)
-    contact = strike(ctx, n, at=hit, ms=1.5, tone_hz=2500 if material != "metal" else 4500)
+    contact = strike(ctx, n, at=hit, ms=1.5, tone_hz=2500)
     latch = (strike(ctx, n, at=hit + int(0.045 * sr), ms=0.5, tone_hz=6000)
              + 0.5 * modal(ctx, n, 2300, (1, 2.7), decay_s=0.03, at=hit + int(0.045 * sr)))  # fmt: skip
-    rattle = np.zeros(n)
-    if material == "metal" and p["action"] == "slam":
-        rattle = modal(ctx, n, 610, PLATE[3:], decay_s=0.25, detune=0.01, brightness=0.8, at=hit + int(0.01 * sr))
-    impact = force * (rms_norm(panel) * 0.9 + rms_norm(thud) * 0.35 + 2.5 * contact / (np.abs(contact).max() + 1e-9)
-                      + 0.3 * rms_norm(rattle))  # fmt: skip
+    impact = force * (rms_norm(panel) * 0.9 + rms_norm(thud) * 0.35 + 2.5 * contact / (np.abs(contact).max() + 1e-9))
     mix = out + impact + 0.6 * latch / (np.abs(latch).max() + 1e-9)
     return fade_tail(dsp.filt(mix, "highpass", 45, sr), sr)
+
+
+def metal_impact(ctx: RenderContext, n: int, hit: int, room: float) -> np.ndarray:
+    """A metal door hitting its frame, measured on real slams: mostly a dull broadband bang whose noise dies in
+    ~60 ms, a low thud, a booming room tail, and only a little (quickly damped) panel ring and latch ring."""
+    sr = ctx.sr
+    at = hit / sr
+    out = np.zeros(n)
+    if hit >= n:
+        return out
+    bang = dsp.filt(s.noise(n, ctx.rng, "pink"), "lowpass", 4000, sr, q=0.6) * exp_env(n, sr, 0.06, at=at, attack=0.004)
+    tail = dsp.filt(s.noise(n, ctx.rng, "pink"), "lowpass", 2500, sr, q=0.6) * exp_env(
+        n, sr, 0.09 + 0.15 * room, at=at, attack=0.03 + 0.1 * max(0.0, room - 0.6))  # fmt: skip
+    k = n - hit
+    thud = s.place(s.osc("sine", s.sweep(140, 75, k), k, sr) * exp_env(k, sr, 0.07, attack=0.003), n, hit)
+    panel = modal(ctx, n, 260, PLATE, decay_s=0.15, detune=0.003, brightness=0.75, at=hit)
+    f = 2900 * ctx.rng.uniform(0.9, 1.1)
+    latch = modal(ctx, n, f, (1, 2, 3), decay_s=0.025, damping=0.3, detune=0.0, brightness=0.6, at=min(n, hit + int(0.045 * sr)))
+    contact = strike(ctx, n, at=hit, ms=0.6, tone_hz=7000)
+    return (rms_norm(bang) + 0.5 * room * rms_norm(tail) + 0.8 * rms_norm(thud) + 0.35 * rms_norm(panel)
+            + 0.3 * norm(latch) + 1.6 * contact)  # fmt: skip
 
 
 @recipe(

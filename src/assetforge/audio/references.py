@@ -15,11 +15,19 @@ from typing import Any
 
 import numpy as np
 
-# recipe or scene → (target name, render overrides used when checking)
+# recipe, bed or scene ("name/case" when one recipe has several targets) → (target name, render overrides)
 REFERENCE_FOR: dict[str, tuple[str, dict[str, Any]]] = {
     "recipe:thunder": ("thunder", {"duration": 9.0}),
     "recipe:roar": ("roar", {"duration": 4.0}),
-    "recipe:growl": ("growl", {"duration": 3.0}),
+    "recipe:growl": ("growl_dog", {"duration": 3.0}),
+    "recipe:blade_hit": ("sword_clash", {"duration": 0.8}),
+    "recipe:footstep/snow": ("footstep_snow", {"surface": "snow", "duration": 0.45}),
+    "recipe:footstep/wood": ("footstep_wood", {"surface": "wood", "duration": 0.45}),
+    "recipe:fire_burst": ("fire_burst", {"duration": 3.0, "size": 0.8}),
+    "recipe:spell_cast/fire": ("fire_burst", {"element": "fire", "duration": 2.5}),
+    "recipe:fire_ignite": ("fire_ignite", {"size": 1.0, "duration": 0.7}),
+    "recipe:door/slam_metal": ("door_slam_metal", {"action": "slam", "material": "metal", "duration": 1.2}),
+    "bed:fire_crackle": ("fire_crackle", {"length": 10}),
     "recipe:engine_rev": ("engine", {"duration": 4.0}),
     "recipe:blast": ("explosion", {}),
     "recipe:lightning_zap": ("electric_spark", {"duration": 1.5}),

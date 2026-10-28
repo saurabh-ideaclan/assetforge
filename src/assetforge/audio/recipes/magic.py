@@ -8,7 +8,7 @@ from assetforge.audio import dsp
 from assetforge.audio import synth as s
 from assetforge.audio.recipes.base import RenderContext, choice, num, recipe
 from assetforge.audio.recipes.music import CHORDS, norm
-from assetforge.audio.recipes.physical import crackle, fade_tail, flame, n_wave, rms_norm
+from assetforge.audio.recipes.physical import clicks, fade_tail, flame, n_wave, rms_norm
 
 
 def shimmer(ctx: RenderContext, n: int, base_hz: float, density: float, rise: float = 0.0) -> np.ndarray:
@@ -38,6 +38,7 @@ def shimmer(ctx: RenderContext, n: int, base_hz: float, density: float, rise: fl
         num("sparkle", 0.5, 0, 1, "Glittering high grains"),
     ),
     tags=("spell", "cast", "magic", "wizard", "mage", "arcane", "sorcery", "ability", "skill"),
+    version=2,
 )
 def spell_cast(ctx: RenderContext, p: dict) -> np.ndarray:
     n, sr = ctx.n, ctx.sr
@@ -229,15 +230,21 @@ def freeze(ctx: RenderContext, p: dict) -> np.ndarray:
     duration_range=(0.25, 3.0),
     params=(num("size", 0.6, 0, 1, "Bigger flames are lower and longer"), num("crackle", 0.5, 0, 1, "Crackling embers")),
     tags=("fire", "fireball", "flame", "burn", "blaze", "ignite", "inferno", "magic", "spell", "explosion"),
+    version=2,
 )
 def fire_burst(ctx: RenderContext, p: dict) -> np.ndarray:
+    """Flames flaring up: a 0.1-0.2 s accelerating swell, a hold that grows with size (real flare-ups roar
+    steadily within ±5 dB), then a ~0.4 s die-down, with extra snapping embers."""
     n, sr = ctx.n, ctx.sr
-    x = np.linspace(0, 1, n)
-    env = np.minimum(1, x * 14) * np.exp(-x * (4.5 - 2.5 * p["size"]))
-    whoomph = s.osc("sine", s.sweep(140, 50, n), n, sr) * np.exp(-x * 10)
-    out = flame(ctx, n, p["size"], env) + 0.8 * rms_norm(whoomph) * p["size"]
-    out = out + p["crackle"] * 0.5 * rms_norm(crackle(ctx, n, 40, lo=1500, hi=5000, envelope=np.exp(-x * 2)))
-    return fade_tail(out, sr)
+    size = p["size"]
+    t = np.arange(n) / sr
+    dur = n / sr
+    att = min(0.12 + 0.08 * size, 0.3 * dur)
+    hold = max(0.0, (0.1 + 0.6 * size) * dur - att)
+    env = np.where(t < att, (t / att) ** 1.5, np.exp(-np.maximum(t - att - hold, 0) / (0.3 + 0.1 * size)))
+    out = flame(ctx, n, size, env)
+    embers = clicks(ctx, n, 15 + 30 * p["crackle"], hp=1500, lp=10000, envelope=np.clip(env * 3, 0, 1))
+    return fade_tail(out + p["crackle"] * 0.15 * rms_norm(embers), sr)
 
 
 @recipe(

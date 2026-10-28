@@ -260,9 +260,11 @@ WAV masters are kept so sounds can be edited and re-encoded. To save space, `ass
 --older-than 30 --dry-run --json` shows what can go (only synthesized sounds that re-render bit for bit; never
 imported audio); drop `--dry-run` to delete them. Anything that needs a pruned master re-renders it first.
 
-**Checked against reality.** Thunder, roar, growl, engine, explosion (`blast`), lightning and the rain and
-night-forest scenes are tuned to measurements of real field recordings (Wikimedia Commons and Freesound CC0;
-only the numbers are kept, in `audio/references.json`), and the test suite fails if they drift.
+**Checked against reality.** Thunder, roar, growl (dog), engine, explosion (`blast`), lightning, sword clash
+(`blade_hit`), snow and wood footsteps, fire (`fire_burst`, fire spells, `fire_ignite`, the `fire_crackle` bed), the
+metal door slam and the rain and night-forest scenes are tuned to measurements of real field recordings (Wikimedia
+Commons and Freesound CC0; only the numbers are kept, in `audio/references.json`). The test suite fails if their
+spectra drift, if impacts ring longer than real ones, or if creature voices break into separate bursts.
 
 Limits: no speech or vocals (crowds murmur, radios chatter unintelligibly); synthesized, not recorded, so foley
 is close to real rather than identical; the composer writes good game loops, not hit songs.

@@ -141,8 +141,10 @@ SOUND_RULES = [
     "Ask for variants (takes) for anything repeated (steps, hits, shots) and play them round-robin.",
     "Loops: ambience and music loops are exact-length and seamless; ship OGG with the M4A twin for Safari/iOS.",
     "Every take has OGG (primary) + M4A copies; export lists both in sounds.json src. M4A needs ffmpeg.",
-    "Reference-matched (spectra checked against real field recordings in the tests): thunder, roar, growl, "
-    "engine_rev, blast, lightning_zap, and the rain_light, rain_storm and forest_night scenes.",
+    "Reference-matched (spectra checked against real field recordings in the tests): thunder, roar, growl (dog), "
+    "engine_rev, blast, lightning_zap, blade_hit, footstep on snow and wood, fire_burst, spell_cast fire, "
+    "fire_ignite, door slam (metal), the fire_crackle bed, and the rain_light, rain_storm and forest_night scenes.",
+    "Bears, dragons and big monsters: use roar (a growl is dog-sized; raise size for wolves).",
 ]
 
 

@@ -159,11 +159,16 @@ def ocean_waves(n, sr, rng, intensity, p, period):
 def fire_crackle(n, sr, rng, intensity, p, period):
     size = p["size"] * (0.5 + intensity)
 
+    # Measured on a real bonfire: the roar below ~200 Hz carries the level, the mids are a valley, and the
+    # crackle is a dense hail of tiny broadband ticks (3-12 kHz) plus a few sharp pops, never silent between.
     def one(r):
-        roar = s.lowpass(s.noise(n, r, "brown"), 300 + 300 * size, sr) * (0.7 + 0.3 * dsp.drift(n, sr, 1.5, r))
-        crackle = dsp.filt(dsp.filt(impulses(n, 15 + 60 * size, sr, r, shape=1.6), "bandpass", 2500, sr, q=1.2), "lowpass", 6000, sr)
-        pops = dsp.filt(impulses(n, 2 + 6 * size, sr, r, shape=1.0), "bandpass", 900, sr, q=2)
-        return 0.6 * _rms_norm(roar) * size + _rms_norm(crackle) + 0.5 * _rms_norm(pops)
+        roar = dsp.filt(dsp.filt(s.noise(n, r, "pink"), "lowpass", 450, sr, q=0.7), "highpass", 95, sr)
+        roar = dsp.filt(roar, "lowpass", 450, sr, q=0.7) * (0.8 + 0.2 * dsp.drift(n, sr, 1.5, r, period=period))
+        fine = impulses(n, 400 * (0.5 + size), sr, r, shape=2.5)
+        fine = dsp.filt(dsp.filt(dsp.filt(fine, "highpass", 3000, sr, q=0.7), "highpass", 3000, sr, q=0.7), "lowpass", 12000, sr)
+        pops = np.convolve(impulses(n, 6 * (0.5 + size), sr, r, shape=1.2), np.hanning(max(3, int(0.0003 * sr))), mode="same")
+        pops = dsp.filt(pops, "highpass", 600, sr, q=0.6)
+        return _rms_norm(roar) + 0.45 * _rms_norm(fine) + 0.15 * _rms_norm(pops)
 
     return stereo(one, rng)
 

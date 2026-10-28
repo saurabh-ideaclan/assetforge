@@ -143,3 +143,16 @@ def test_cli_prune_and_restore(capsys, home, monkeypatch):
     assert code == 0 and out["prune"]["freed_bytes"] > 0
     code, out, _ = run_cli(capsys, "audio", "restore-masters", asset_id, "--json")
     assert code == 0 and out["restored"][0]["restored"]
+
+
+def test_masters_whose_recipe_changed_are_kept(lib, monkeypatch):
+    no_ffmpeg(monkeypatch)
+    from dataclasses import replace
+
+    from assetforge.audio.recipes import RECIPES
+
+    res = generate_audio(lib, AudioRequest(recipe="coin", seed=8, format="ogg"))
+    monkeypatch.setitem(RECIPES, "coin", replace(RECIPES["coin"], render=lambda ctx, p: np.zeros(ctx.n) + 0.1))
+    report = masters.prune(lib)
+    assert report["count"] == 0 and any("re-render" in s["reason"] for s in report["skipped"])
+    assert all(Path(v.file.path).is_file() for v in lib.get_asset(res.asset_id).variants)

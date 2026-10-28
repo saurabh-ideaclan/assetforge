@@ -8,7 +8,7 @@ from assetforge.audio import dsp
 from assetforge.audio import synth as s
 from assetforge.audio.recipes.base import RenderContext, choice, num, recipe
 from assetforge.audio.recipes.music import norm
-from assetforge.audio.recipes.physical import WOOD_PLANK, fade_tail, modal, rms_norm, strike
+from assetforge.audio.recipes.physical import clicks, exp_env, fade_tail, rms_norm
 from assetforge.audio.recipes.weapons import ring
 
 SURFACES = ("grass", "stone", "wood", "metal", "snow", "water", "sand", "gravel", "carpet", "mud")
@@ -32,15 +32,11 @@ def contact(ctx: RenderContext, n: int, surface: str, weight: float) -> np.ndarr
         body = grains(ctx, n, 120, 1500, 7000, 0.004) * s.perc(n, sr, attack=0.01, curve=3)
     elif surface == "gravel":
         body = grains(ctx, n, 80, 600, 5000, 0.01) * s.perc(n, sr, attack=0.003, curve=3)
-    elif surface == "snow":
-        return snow_crunch(ctx, n, weight)
     elif surface == "sand":
         body = s.bandpass(s.noise(n, ctx.rng), 1200, 6000, sr) * s.perc(n, sr, attack=0.01, curve=4) * 0.6
     elif surface == "stone":
         body = norm(s.bandpass(s.noise(n, ctx.rng), 1500, 5000, sr)) * s.perc(n, sr, attack=0.0005, curve=14) + 0.15 * ring(
             ctx, (1900, 3100), n, 60)  # fmt: skip
-    elif surface == "wood":
-        return wood_step(ctx, n, weight)
     elif surface == "metal":
         body = norm(ring(ctx, (520, 1430, 2810, 4170), n, 14)) * 0.6 + norm(s.highpass(s.noise(n, ctx.rng), 2000, sr)) * s.perc(
             n, sr, attack=0.0003, curve=18)  # fmt: skip
@@ -54,33 +50,35 @@ def contact(ctx: RenderContext, n: int, surface: str, weight: float) -> np.ndarr
 
 
 def snow_crunch(ctx: RenderContext, n: int, weight: float) -> np.ndarray:
-    """Packed snow compressing: a quick burst of small, low-mid crunch grains that builds and stops dead,
-    over a soft low thump. No high hiss: snow absorbs it."""
+    """Packed snow, measured on real steps: a low-mid compression rumble (250 Hz-1.3 kHz) that swells over ~0.1 s,
+    with separate sharp crust cracks every 20-40 ms (most of them late), a soft thump, and a gradual end."""
     sr = ctx.sr
-    out = np.zeros(n)
-    span = min(n, int(0.14 * sr))
-    count = int(60 + 60 * weight)
-    times = np.sort(ctx.rng.beta(2.2, 1.6, count)) * span
-    for t in times.astype(int):
-        k = min(n - t, int(ctx.rng.uniform(0.002, 0.006) * sr))
-        if k < 4:
-            continue
-        g = dsp.filt(ctx.rng.uniform(-1, 1, k) * np.hanning(k), "bandpass", ctx.rng.uniform(500, 1800), sr, q=1.5)
-        out[t : t + k] += g * ctx.rng.uniform(0.3, 1.0) * (0.4 + 0.6 * t / span)
-    thump = s.osc("sine", s.sweep(120, 70, n), n, sr) * s.perc(n, sr, attack=0.008, curve=10)
-    out = dsp.filt(out, "lowpass", 4000, sr)
-    return rms_norm(out) + weight * 0.8 * rms_norm(thump)
+    t = np.arange(n) / sr
+    rise = ctx.rng.uniform(0.10, 0.13)
+    env = np.where(t < rise, (t / rise) ** 1.5, np.exp(-(t - rise) / 0.08))
+    body = dsp.filt(dsp.filt(s.noise(n, ctx.rng, "pink"), "lowpass", 1100, sr, q=0.6), "highpass", 180, sr) * env
+    cenv = np.where(t < rise, t / rise, np.exp(-(t - rise) / 0.12))
+    cracks = clicks(ctx, n, 90, at=0.01, span=0.4, hp=400, lp=12000, shape=1.4, envelope=cenv)
+    thump = s.osc("sine", s.sweep(110, 70, n), n, sr) * exp_env(n, sr, 0.04, at=0.02, attack=0.01)
+    return rms_norm(body) + 0.7 * rms_norm(cracks) + 0.6 * weight * rms_norm(thump)
 
 
-def wood_step(ctx: RenderContext, n: int, weight: float) -> np.ndarray:
-    """A shoe on floorboards: a dull heel thump and a short, damped board knock (no ringing note), with a
-    faint chance of a creak, as on a real floor."""
+def wood_step(ctx: RenderContext, n: int, weight: float, roll: float) -> np.ndarray:
+    """A shoe on floorboards, measured on real steps: a dull heel thump and a short noisy knock with a damped
+    low body (no ringing board note), the toe ~0.1 s later and quieter, and a little room."""
     sr = ctx.sr
-    thump = s.osc("sine", s.sweep(160, 90, n), n, sr) * s.perc(n, sr, attack=0.002, curve=14)
-    board = modal(ctx, n, ctx.rng.uniform(170, 230), WOOD_PLANK, decay_s=0.035, brightness=0.45, detune=0.0)
-    knock = strike(ctx, n, ms=1.2, tone_hz=2200)
-    scuff = dsp.filt(s.noise(n, ctx.rng, "pink"), "bandpass", 1200, sr, q=1.2) * s.perc(n, sr, attack=0.004, curve=18)
-    return weight * rms_norm(thump) + 0.9 * rms_norm(board) + 1.5 * knock / (np.abs(knock).max() + 1e-9) + 0.15 * rms_norm(scuff)
+
+    def hit(at: float, f0: float) -> np.ndarray:
+        i = min(n, int(at * sr))
+        k = n - i
+        thump = s.place(s.osc("sine", s.sweep(f0 * 1.5, f0, k), k, sr) * exp_env(k, sr, 0.035), n, i)
+        body = dsp.filt(s.noise(n, ctx.rng, "pink"), "bandpass", 260, sr, q=0.8) * exp_env(n, sr, 0.045, at=at, attack=0.001)
+        knock = dsp.filt(dsp.filt(s.noise(n, ctx.rng), "highpass", 800, sr), "lowpass", 3500, sr) * exp_env(
+            n, sr, 0.004, at=at, attack=0.0003)  # fmt: skip
+        room = dsp.filt(s.noise(n, ctx.rng, "pink"), "bandpass", 400, sr, q=0.5) * exp_env(n, sr, 0.09, at=at, attack=0.01)
+        return (0.9 + 0.6 * weight) * rms_norm(thump) + rms_norm(body) + 0.4 * rms_norm(knock) + 0.12 * rms_norm(room)
+
+    return hit(0.0, 80) + 0.45 * hit(0.05 + 0.10 * roll, 100)  # real toes land 0.10-0.12 s after the heel
 
 
 def bubbles(ctx: RenderContext, n: int, count: int, base: float = 600) -> np.ndarray:
@@ -107,9 +105,14 @@ def bubbles(ctx: RenderContext, n: int, count: int, base: float = 600) -> np.nda
         num("roll", 0.5, 0, 1, "Heel-to-toe gap"),
     ),
     tags=("footstep", "footsteps", "step", "walk", "run", "foot", "boots", "shoes", "foley", "player", "movement"),
+    version=2,
 )
 def footstep(ctx: RenderContext, p: dict) -> np.ndarray:
     n, sr = ctx.n, ctx.sr
+    if p["surface"] == "snow":  # one long crunch: heel and toe blur together
+        return fade_tail(snow_crunch(ctx, n, p["weight"]), sr)
+    if p["surface"] == "wood":
+        return fade_tail(wood_step(ctx, n, p["weight"], p["roll"]), sr)
     heel = contact(ctx, n, p["surface"], p["weight"])
     gap = int((0.03 + 0.06 * p["roll"]) * sr)
     toe = s.place(contact(ctx, max(1, n - gap), p["surface"], p["weight"] * 0.4), n, gap) * 0.5

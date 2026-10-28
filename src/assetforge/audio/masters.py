@@ -6,7 +6,9 @@ and rebuilt later: `ensure_file` re-renders a pruned master, checks the bytes ha
 and puts it back, so editing, re-encoding, exporting new formats or `audio reproduce` keep working.
 
 Never pruned: imported audio (no spec), masters whose spec can't be re-rendered here (SoundFont music whose
-.sf2 is no longer installed), and files that another, non-prunable variant also uses (files are shared by hash).
+.sf2 is no longer installed), masters that no longer re-render bit for bit (a recipe or engine changed since;
+`prune` re-renders each candidate to check), and files that another, non-prunable variant also uses (files are
+shared by hash).
 Masters are never pruned automatically.
 """
 
@@ -59,8 +61,11 @@ def can_rerender(lib: Library, asset: Asset) -> tuple[bool, str]:
     return True, ""
 
 
-def render_master(lib: Library, asset: Asset, variant: Variant) -> tuple[np.ndarray, int]:
-    """Re-render a master's PCM (int16) from its stored spec; raises if it no longer matches."""
+def render_master(lib: Library, asset: Asset, variant: Variant, cache: dict | None = None) -> tuple[np.ndarray, int]:
+    """Re-render a master's PCM (int16) from its stored spec; raises if it no longer matches.
+
+    `cache` keeps engine takes per (asset, take), so a take's mix and stems are rendered once.
+    """
     from assetforge.audio import pipeline
     from assetforge.audio.export import pcm_sha256
 
@@ -74,17 +79,22 @@ def render_master(lib: Library, asset: Asset, variant: Variant) -> tuple[np.ndar
                                 p["sample_rate"], p["peak_db"])  # fmt: skip
         sr = int(p["sample_rate"])
     elif kind in ("engine", "engine_extra"):
-        token = pipeline.active_home.set(lib.paths.home)
-        try:
-            out, _, _ = pipeline.output_from_asset(lib, asset.id)
-            master = variant if kind == "engine" else next(v for v in asset.variants if v.id == variant.params["extra_of"])
-            index, seed = master.params["index"], master.params["seed"]
-            take = pipeline.master_take(out.engine.render(out.spec, index, seed, out.sample_rate), out, index, seed)
-            pipeline._discard_files([take])
-        finally:
-            pipeline.active_home.reset(token)
+        master = variant if kind == "engine" else next(v for v in asset.variants if v.id == variant.params["extra_of"])
+        index, seed = master.params["index"], master.params["seed"]
+        hit = (cache or {}).get((asset.id, index))
+        if hit is None:
+            token = pipeline.active_home.set(lib.paths.home)
+            try:
+                out, _, _ = pipeline.output_from_asset(lib, asset.id)
+                take = pipeline.master_take(out.engine.render(out.spec, index, seed, out.sample_rate), out, index, seed)
+                pipeline._discard_files([take])
+            finally:
+                pipeline.active_home.reset(token)
+            hit = (take, out.sample_rate)
+            if cache is not None:
+                cache[(asset.id, index)] = hit
+        take, sr = hit
         pcm = take.pcm if kind == "engine" else take.extras[variant.params["extra"]]
-        sr = out.sample_rate
     else:
         raise StorageError(f"{variant.id} is not a re-renderable master", variant_id=variant.id)
     if pcm_sha256(pcm) != variant.params.get("pcm_sha256"):
@@ -144,14 +154,17 @@ def prune(lib: Library, *, older_than_days: float | None = None, project: str | 
     for asset_id in ids:
         asset = lib.get_asset(asset_id)
         ok, reason = can_rerender(lib, asset)
-        masters = [v for v in asset.variants if master_kind(asset, v)]
+        masters = [v for v in asset.variants if master_kind(asset, v)
+                    and not v.file.pruned and Path(v.file.path).is_file() and not (cutoff and v.created_at > cutoff)]  # fmt: skip
         if masters and not ok:
             skipped.append({"asset_id": asset.id, "reason": reason})
             continue
+        cache: dict = {}
         for v in masters:
-            if v.file.pruned or not Path(v.file.path).is_file():
-                continue
-            if cutoff and v.created_at > cutoff:
+            try:  # only delete what provably comes back: recipes and engines change over time
+                render_master(lib, asset, v, cache)
+            except Exception as exc:  # noqa: BLE001 - any failure means "keep it"
+                skipped.append({"asset_id": asset.id, "variant_id": v.id, "reason": f"does not re-render identically: {exc}"})
                 continue
             eligible.setdefault(v.file.sha256, []).append((asset, v))
     items, freed = [], 0

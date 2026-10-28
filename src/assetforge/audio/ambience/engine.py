@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from assetforge.core.catalog import Library
 
 ENGINE = "assetforge-ambience"
-ENGINE_VERSION = 1
+ENGINE_VERSION = 2  # 2: fire_crackle bed matched to a real bonfire
 DAY_ONLY = {"bird_chirp", "songbird", "crow"}
 NIGHT_ONLY = {"owl", "cricket_chirp", "distant_howl", "bat_squeak", "insects_night"}
 MAX_EVENT_SECONDS = 12

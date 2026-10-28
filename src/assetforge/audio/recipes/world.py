@@ -8,7 +8,7 @@ from assetforge.audio import dsp
 from assetforge.audio import synth as s
 from assetforge.audio.recipes.base import RenderContext, num, recipe
 from assetforge.audio.recipes.music import norm
-from assetforge.audio.recipes.physical import crackle, fade_tail, n_wave, rms_norm
+from assetforge.audio.recipes.physical import crackle, fade_tail, flame, n_wave, rms_norm
 
 
 @recipe(
@@ -94,14 +94,26 @@ def water_drop(ctx: RenderContext, p: dict) -> np.ndarray:
     duration_range=(0.2, 3.0),
     params=(num("size", 0.5, 0, 1, "Match (0) to bonfire (1)"),),
     tags=("ignite", "fire", "torch", "match", "light", "flame", "burn", "campfire", "whoomph"),
+    version=2,
 )
 def fire_ignite(ctx: RenderContext, p: dict) -> np.ndarray:
+    """A match strike (small) or a whoomph (big). Measured on a real bonfire catching: nearly all energy below
+    ~300 Hz, an accelerating ~0.1 s swell and a fast ~0.1 s fall, then the flame settles."""
     n, sr = ctx.n, ctx.sr
-    x = np.linspace(0, 1, n)
-    strike = s.place(norm(s.highpass(s.noise(int(0.05 * sr), ctx.rng), 2000, sr)) * s.perc(int(0.05 * sr), sr, curve=2), n, 0)
-    whoomph = s.filter_track(s.noise(n, ctx.rng, "pink"), "lowpass", 300 + 2500 * np.sin(np.pi * np.clip(x * 2, 0, 1)), sr)
-    env = np.clip((x - 0.05) * 10, 0, 1) * np.exp(-x * (4 - 2 * p["size"]))
-    return (1 - p["size"]) * 0.8 * strike + norm(whoomph) * env * (0.4 + 0.6 * p["size"])
+    size = p["size"]
+    t = np.arange(n) / sr
+    k = min(n, int(0.05 * sr))
+    strike = s.place(norm(s.highpass(s.noise(k, ctx.rng), 2000, sr)) * s.perc(k, sr, curve=2), n, 0)
+    t0, att = 0.03, 0.08 + 0.04 * size
+    u = t - t0
+    env = np.where(u < 0, 0.0, np.where(u < att, (np.maximum(u, 0) / att) ** 2, np.exp(-(u - att) / (0.08 + 0.12 * (1 - size)))))
+    cutoff = 300 + 300 * (1 - size) * np.clip(env, 0, 1)  # the swell opens the sound up a little, never past 600 Hz
+    whoomph = dsp.sweep_filter(s.noise(n, ctx.rng, "brown"), "lowpass", cutoff, sr, q=0.8, block=64)
+    body = rms_norm(dsp.filt(whoomph, "highpass", 40, sr)) + 0.03 * rms_norm(s.bandpass(s.noise(n, ctx.rng, "pink"), 250, 1800, sr))
+    settle = np.clip(u / (att + 0.15), 0, 1) * np.exp(-np.maximum(u, 0) / 0.6)
+    burn = flame(ctx, n, size, settle)
+    out = body * env + (0.02 + 0.12 * (1 - size)) * rms_norm(burn) + (1 - size) * 2.0 * strike
+    return fade_tail(out, sr)
 
 
 @recipe(

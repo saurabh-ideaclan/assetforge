@@ -91,17 +91,43 @@ def crackle(ctx: RenderContext, n: int, rate: float, *, lo: float = 1500.0, hi: 
     return dsp.filt(dsp.filt(x, "lowpass", hi, ctx.sr), "lowpass", hi, ctx.sr)
 
 
+def clicks(ctx: RenderContext, n: int, rate: float, *, at: float = 0.0, span: float | None = None, hp: float = 1500.0,
+           lp: float = 10000.0, shape: float = 1.6, envelope: np.ndarray | None = None) -> np.ndarray:  # fmt: skip
+    """Sharp broadband clicks (snapping embers, breaking snow crust): 0.3 ms grains, high-passed.
+
+    Unlike `crackle`, nothing smooths them into thuds; real fire and snow crackles reach 10 kHz.
+    """
+    x = np.zeros(n)
+    lo = min(n, int(at * ctx.sr))
+    hi = n if span is None else min(n, lo + int(span * ctx.sr))
+    count = ctx.rng.poisson(rate * (hi - lo) / ctx.sr) if hi > lo else 0
+    if count:
+        x[ctx.rng.integers(lo, hi, count)] += ctx.rng.pareto(shape, count).clip(0, 8) * ctx.rng.choice([-1.0, 1.0], count)
+    if envelope is not None:
+        x *= envelope
+    x = np.convolve(x, np.hanning(max(3, int(0.0003 * ctx.sr))), mode="same")
+    return dsp.filt(dsp.filt(x, "highpass", hp, ctx.sr, q=0.6), "lowpass", lp, ctx.sr)
+
+
+def exp_env(n: int, sr: int, tau: float, *, at: float = 0.0, attack: float = 0.002) -> np.ndarray:
+    """Linear attack from `at`, then exponential decay with time constant `tau` seconds."""
+    t = np.arange(n) / sr - at
+    a = max(attack, 1e-4)
+    return np.where(t < 0, 0.0, np.minimum(1, t / a) * np.exp(-np.maximum(t - a, 0) / tau))
+
+
 def flame(ctx: RenderContext, n: int, size: float, envelope: np.ndarray) -> np.ndarray:
-    """Fire: a lapping roar (low-passed noise whose brightness and level gust), a little hiss, and crackle."""
+    """Fire, measured on real flare-ups: a deep gusting roar below ~250 Hz, weak mids, hiss bands near 2.4 and
+    6.5 kHz that gust harder than the roar, and sharp broadband crackles (not low thuds)."""
     sr = ctx.sr
-    gust = np.clip(0.6 + 0.4 * dsp.drift(n, sr, 6, ctx.rng), 0.1, 1.2)
-    cutoff = (350 + 900 * (1 - size * 0.6)) * (0.5 + gust) * (0.4 + 0.6 * envelope)
-    roar = dsp.sweep_filter(s.noise(n, ctx.rng, "pink"), "lowpass", cutoff, sr, q=0.9, block=64)
-    body = dsp.filt(roar, "peak", 180 + 120 * (1 - size), sr, q=0.8, gain_db=6)
-    hiss = dsp.filt(s.noise(n, ctx.rng, "pink"), "bandpass", 3500, sr, q=0.7) * 0.08
-    pops = crackle(ctx, n, 25 + 30 * size, lo=1200, hi=5000, envelope=envelope)
-    lvl = lambda v: v / (np.sqrt(np.mean(v**2)) + 1e-12)  # noqa: E731
-    return (lvl(body) * gust + 0.4 * lvl(hiss) + 0.25 * lvl(pops)) * envelope
+    gust = np.clip(0.75 + 0.25 * dsp.drift(n, sr, 8, ctx.rng), 0.3, 1.2)
+    roar = dsp.filt(dsp.filt(s.noise(n, ctx.rng, "brown"), "lowpass", 180 + 80 * (1 - size), sr, q=0.8), "highpass", 45, sr)
+    mids = s.bandpass(s.noise(n, ctx.rng, "pink"), 250, 1800, sr)
+    hiss = (dsp.filt(s.noise(n, ctx.rng), "bandpass", 2300, sr, q=2.5)
+            + 1.2 * dsp.filt(s.noise(n, ctx.rng), "bandpass", 6500, sr, q=1.2))  # fmt: skip
+    pops = clicks(ctx, n, 30, hp=1500, lp=10000)
+    body = (rms_norm(roar) * gust + 0.15 * rms_norm(mids) * gust + 0.25 * rms_norm(hiss) * gust**2) * envelope
+    return body + 0.12 * rms_norm(pops) * np.clip(envelope * 3, 0, 1)
 
 
 def fade_tail(x: np.ndarray, sr: int, seconds: float | None = None) -> np.ndarray:

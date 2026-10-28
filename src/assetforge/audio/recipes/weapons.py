@@ -8,7 +8,9 @@ from assetforge.audio import dsp
 from assetforge.audio import synth as s
 from assetforge.audio.recipes.base import RenderContext, choice, num, recipe
 from assetforge.audio.recipes.music import norm
-from assetforge.audio.recipes.physical import STEEL_BAR, fade_tail, modal, n_wave, rms_norm, strike
+from assetforge.audio.recipes.physical import STEEL_BAR, exp_env, fade_tail, modal, n_wave, rms_norm, strike
+
+BLADE = (1.0, 1.27, 1.52, 1.6, 1.84, 2.63)  # blade mode ratios measured from real clashes (2.9-7.6 kHz lines)
 
 
 def ring(ctx: RenderContext, freqs: tuple[float, ...], n: int, decay: float) -> np.ndarray:
@@ -120,28 +122,31 @@ def sword_swing(ctx: RenderContext, p: dict) -> np.ndarray:
 
 @recipe(
     "blade_hit",
-    "Blade striking metal or armour: a clang with ringing overtones",
-    duration=1.3,
+    "Blade striking metal or armour: a bright steel clash with a short ring",
+    duration=0.8,
     duration_range=(0.15, 2.5),
     params=(
         num("hardness", 0.7, 0, 1, "Brighter, harder impact"),
         num("ring", 0.6, 0, 1, "How long the metal rings"),
     ),
     tags=("clang", "blade", "sword", "hit", "metal", "parry", "armor", "armour", "clash", "weapon", "impact"),
+    version=2,
 )
 def blade_hit(ctx: RenderContext, p: dict) -> np.ndarray:
-    """Steel on steel: a hard contact, a short grinding scrape, then a rich, beating, slowly decaying clang."""
+    """Steel on steel, measured on real clashes: mostly a 2-10 kHz grinding burst (~40 ms) over dense, high blade
+    modes (3-8 kHz) that die within ~0.2 s, plus a faint long ring. Not a low bell-like clang."""
     n, sr = ctx.n, ctx.sr
-    base = 520 + 380 * p["hardness"]
-    decay = 0.25 + 1.1 * p["ring"]
-    clang = (modal(ctx, n, base, STEEL_BAR, decay_s=decay, detune=0.004, brightness=0.75)
-             + 0.7 * modal(ctx, n, base * 1.37, STEEL_BAR[:4], decay_s=decay * 0.8, detune=0.006, brightness=0.6)
-             + 0.5 * modal(ctx, n, base * 0.52, (1, 2.4, 3.9), decay_s=decay * 0.5, brightness=0.6))  # fmt: skip
-    hit = strike(ctx, n, ms=0.8, tone_hz=5000 + 3000 * p["hardness"])
-    k = min(n, int(0.09 * sr))
-    scrape = s.place(dsp.sweep_filter(s.noise(k, ctx.rng, "pink"), "bandpass", np.linspace(5000, 2500, k), sr, q=3)
-                     * s.perc(k, sr, attack=0.002, curve=2), n, 0)  # fmt: skip
-    return fade_tail(rms_norm(clang) + 1.5 * norm(hit) + 0.35 * p["hardness"] * rms_norm(scrape), sr)
+    h, r = p["hardness"], p["ring"]
+    base = 3200 * (0.8 + 0.3 * h) * ctx.rng.uniform(0.94, 1.06)
+    ratios = tuple(q * ctx.rng.uniform(0.97, 1.03) for q in BLADE)
+    clang = modal(ctx, n, base, ratios, decay_s=0.05 + 0.12 * r, damping=0.6, detune=0.003, brightness=1.0)
+    tail = modal(ctx, n, base, ratios[:4], decay_s=0.5 + 0.8 * r, damping=0.3, detune=0.002, brightness=0.8)
+    grind = dsp.filt(s.noise(n, ctx.rng), "bandpass", 5500, sr, q=0.6) * exp_env(n, sr, 0.03 + 0.02 * h, attack=0.003)
+    hit = strike(ctx, n, ms=0.4, tone_hz=9000)
+    knock = dsp.filt(s.noise(n, ctx.rng, "pink"), "lowpass", 400, sr) * exp_env(n, sr, 0.05, attack=0.002)  # arm and hilt
+    out = (2.0 * rms_norm(grind) + 0.6 * rms_norm(clang) + 0.06 * r * rms_norm(tail) + 0.8 * norm(hit)
+           + 0.1 * rms_norm(knock))  # fmt: skip
+    return fade_tail(out, sr)
 
 
 @recipe(
