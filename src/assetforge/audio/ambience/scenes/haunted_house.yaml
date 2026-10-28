@@ -1,0 +1,36 @@
+name: haunted_house
+description: 'Haunted house: creaking boards, wind in the eaves, distant tolling'
+tags:
+- haunted
+- house
+- mansion
+- horror
+- spooky
+- ghost
+- night
+- indoor
+space: room
+beds:
+- bed: room_tone
+  level_db: -4
+- bed: wind
+  level_db: -8
+  params:
+    strength: 0.4
+    howl: 0.7
+events:
+- event: creak
+  rate: 3
+  distance: 0.4
+- event: bell_toll
+  rate: 0.3
+  distance: 0.9
+  gain_db: -6
+- event: footsteps_far
+  rate: 0.3
+  distance: 0.7
+  gain_db: -8
+- event: crow
+  rate: 0.4
+  distance: 0.8
+  gain_db: -8

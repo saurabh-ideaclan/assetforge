@@ -45,7 +45,13 @@ class BrowseFilters(BaseModel):
     orientation: str | None = None
     tone: str | None = None
     transparent: bool | None = None
-    similar: str | None = None  # rank by visual similarity to this asset
+    similar: str | None = None  # rank by similarity (look or sound) to this asset
+    bpm: float | None = None  # ±8
+    key: str | None = None  # "A minor" or "minor"
+    loopable: bool | None = None
+    channels: int | None = None
+    min_duration_ms: int | None = None
+    max_duration_ms: int | None = None
     group: bool = False  # show parts (sliced frames) as their parent sheet instead of separately
     parent: str | None = None  # only the parts of this asset
 
@@ -83,6 +89,15 @@ def _where(lib: Library, f: BrowseFilters) -> tuple[list[str], list[Any]]:
     if f.transparent is not None:
         where.append("pf.has_alpha = ?")
         params.append(int(f.transparent))
+    from assetforge.core.search import audio_filters
+
+    audio_where, audio_params = audio_filters(f.bpm, 8.0, f.key, f.loopable, f.channels)
+    where += audio_where
+    params += audio_params
+    for clause, value in (("pf.duration_ms >= ?", f.min_duration_ms), ("pf.duration_ms <= ?", f.max_duration_ms)):
+        if value is not None:
+            where.append(clause)
+            params.append(value)
     # colour/orientation/tone use the same SQL as search
     visual_q = SearchQuery(colors=[f.color] if f.color else [], orientation=f.orientation or None, tone=f.tone or None,
                            statuses=list(Status), include_restricted=True)  # fmt: skip
@@ -131,9 +146,9 @@ def _matching_ids(lib: Library, f: BrowseFilters, sort: str, upto: int | None) -
     """Ids of every match in display order (`upto` caps the plain SQL listing when nothing is regrouped)."""
     where, params = _where(lib, f)
     if f.similar:
-        from assetforge.core import visual
+        from assetforge.core.search import _similar
 
-        ranked = visual.similar(lib, f.similar, limit=SEARCH_POOL, where=" AND ".join(where) or "1", params=params)
+        ranked = _similar(lib, f.similar, limit=SEARCH_POOL, where=" AND ".join(where) or "1", params=params)
         return [asset_id for asset_id, _, _ in ranked]
     if f.q.strip():
         # Text: rank with the search engine, then apply browse's exact filters to the ranked ids.

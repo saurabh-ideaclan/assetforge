@@ -84,6 +84,23 @@ SYNONYMS: dict[str, list[str]] = {
     "creepy": ["horror"],
     "grey": ["gray"],
     "gray": ["grey"],
+    "ambience": ["ambient", "atmosphere", "soundscape"],
+    "ambient": ["ambience", "atmosphere"],
+    "atmosphere": ["ambience", "ambient"],
+    "soundscape": ["ambience"],
+    "environment": ["ambience"],
+    "soundtrack": ["music", "score"],
+    "score": ["music", "soundtrack"],
+    "jingle": ["stinger"],
+    "stinger": ["jingle"],
+    "looping": ["loop"],
+    "seamless": ["loop"],
+    "footstep": ["footsteps", "step"],
+    "footsteps": ["footstep"],
+    "spell": ["magic", "cast"],
+    "magic": ["spell"],
+    "gun": ["gunshot", "shot"],
+    "gunshot": ["gun", "shot"],
 }
 
 # bm25 weights follow the assets_fts column order: asset_id, name, key, tags, description, type, style,
@@ -126,7 +143,12 @@ class SearchQuery(BaseModel):
     aspect: str | None = Field(None, description="e.g. 16:9 (±5%)")
     tone: Literal["dark", "mid", "light"] | None = None
     formats: list[str] = Field(default_factory=list, description="File extensions of the primary file: png, webp, svg")
-    similar: str | None = Field(None, description="Rank by visual similarity to this asset instead of text")
+    similar: str | None = Field(None, description="Rank by similarity to this asset (image or sound) instead of text")
+    bpm: float | None = Field(None, gt=0, description="Tempo of music/loops, ± bpm_tolerance")
+    bpm_tolerance: float = Field(8.0, ge=0)
+    key: str | None = Field(None, description="Musical key, e.g. 'A minor' or 'minor'")
+    loopable: bool | None = Field(None, description="Only sounds made or verified to loop seamlessly")
+    channels: int | None = Field(None, ge=1, le=8)
     all_terms: bool = False
     min_coverage: float = Field(0.0, ge=0.0, le=1.0)
     limit: int = Field(20, ge=1, le=500)
@@ -221,6 +243,9 @@ def _filters(lib: Library, q: SearchQuery) -> tuple[list[str], list[Any]]:
         exts = ["." + f.lower().lstrip(".") for f in q.formats]
         where.append(f"pf.ext IN ({qmarks(len(exts))})")
         params += exts
+    where_audio, params_audio = audio_filters(q.bpm, q.bpm_tolerance, q.key, q.loopable, q.channels)
+    where += where_audio
+    params += params_audio
     for column, op, value in (
         ("pf.duration_ms", ">=", q.min_duration_ms),
         ("pf.duration_ms", "<=", q.max_duration_ms),
@@ -232,6 +257,38 @@ def _filters(lib: Library, q: SearchQuery) -> tuple[list[str], list[Any]]:
         if value is not None:
             where.append(f"{column} {op} ?")
             params.append(value)
+    return where, params
+
+
+# Generated sounds record exact tempo/key/loop in metadata.audio; imported ones fall back to estimates.
+BPM_SQL = "coalesce(json_extract(a.metadata, '$.audio.bpm'), json_extract(pf.audio, '$.bpm'))"
+KEY_SQL = "coalesce(json_extract(a.metadata, '$.audio.key'), json_extract(pf.audio, '$.key'))"
+LOOP_SQL = "coalesce(json_extract(a.metadata, '$.audio.loop'), json_extract(pf.audio, '$.loop_seam_ok'), 0)"
+
+
+def audio_filters(bpm: float | None, tolerance: float, key: str | None, loopable: bool | None,
+                  channels: int | None) -> tuple[list[str], list[Any]]:  # fmt: skip
+    """SQL conditions (on `a` and `pf`) for the music/loop filters shared by search and browse."""
+    where: list[str] = []
+    params: list[Any] = []
+    if bpm is not None:
+        where.append(f"abs({BPM_SQL} - ?) <= ?")
+        params += [bpm, tolerance]
+    if key:
+        text = " ".join(key.replace("_", " ").split()).lower()
+        if text in ("major", "minor"):
+            where.append(f"lower({KEY_SQL}) LIKE ?")
+            params.append(f"% {text}")
+        else:
+            from assetforge.audio.music.theory import parse_key
+
+            where.append(f"{KEY_SQL} = ?")
+            params.append(parse_key(text).name)
+    if loopable is not None:
+        where.append(f"{LOOP_SQL} {'!=' if loopable else '='} 0")
+    if channels is not None:
+        where.append("pf.channels = ?")
+        params.append(channels)
     return where, params
 
 
@@ -251,6 +308,19 @@ _JOINS = (
 )
 
 
+def _similar(lib: Library, ref: str, **kwargs: Any) -> list[tuple[str, float, Any]]:
+    """Visual similarity for images, feature similarity for sounds."""
+    from assetforge.audio import features
+
+    asset_id = lib.resolve_asset_id(ref)
+    row = lib.conn.execute(
+        f"SELECT pf.kind FROM assets a {_JOINS} WHERE a.id = ?", (asset_id,)
+    ).fetchone()
+    if row and row["kind"] == "audio":
+        return features.similar(lib, asset_id, **kwargs)  # type: ignore[return-value]
+    return visual.similar(lib, asset_id, **kwargs)  # type: ignore[return-value]
+
+
 def search(lib: Library, q: SearchQuery) -> SearchResult:
     where, params = _filters(lib, q)
     terms = query_terms(q.text)
@@ -259,7 +329,7 @@ def search(lib: Library, q: SearchQuery) -> SearchResult:
     query_echo = q.model_dump(mode="json", exclude_defaults=True)
 
     if q.similar:
-        ranked = visual.similar(lib, q.similar, limit=q.limit, where=" AND ".join(where), params=params)
+        ranked = _similar(lib, q.similar, limit=q.limit, where=" AND ".join(where), params=params)
         summaries = {s.id: s for s in lib.summaries([asset_id for asset_id, _, _ in ranked])}
         hits = [SearchHit(**summaries[i].model_dump(), score=score) for i, score, _ in ranked if i in summaries]
         return SearchResult(query=query_echo, terms=[], count=len(hits), results=hits)

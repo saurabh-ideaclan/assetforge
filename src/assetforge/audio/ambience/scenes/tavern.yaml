@@ -1,0 +1,35 @@
+name: tavern
+description: 'Busy tavern: crowd chatter, clinking mugs, laughter, a crackling hearth'
+tags:
+- tavern
+- inn
+- pub
+- bar
+- crowd
+- people
+- medieval
+- fantasy
+- indoor
+- cozy
+space: room
+beds:
+- bed: crowd_murmur
+  level_db: 0
+  params:
+    voices: 10
+    excitement: 0.4
+- bed: fire_crackle
+  level_db: -10
+  params:
+    size: 0.4
+events:
+- event: glass_clink
+  rate: 10
+  distance: 0.4
+- event: laugh_far
+  rate: 3
+  distance: 0.5
+- event: footsteps_far
+  rate: 1
+  distance: 0.5
+  gain_db: -6

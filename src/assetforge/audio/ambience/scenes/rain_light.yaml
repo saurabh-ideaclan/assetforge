@@ -1,0 +1,21 @@
+name: rain_light
+description: 'Light rain: gentle patter and the odd drip'
+tags:
+- rain
+- drizzle
+- weather
+- outdoor
+- calm
+- cozy
+space: outdoor
+beds:
+- bed: rain
+  level_db: 0
+  params:
+    heaviness: 0.25
+    surface: 0.5
+events:
+- event: drip
+  rate: 8
+  distance: 0.2
+  gain_db: -6

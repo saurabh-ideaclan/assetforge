@@ -1,0 +1,26 @@
+name: river
+description: 'Riverside: flowing water and birds on the bank'
+tags:
+- river
+- stream
+- brook
+- water
+- nature
+- outdoor
+- peaceful
+space: outdoor
+beds:
+- bed: water_stream
+  level_db: 0
+  params:
+    flow: 0.7
+- bed: forest_air
+  level_db: -10
+events:
+- event: bird_chirp
+  rate: 6
+  distance: 0.5
+- event: frog
+  rate: 2
+  distance: 0.6
+  gain_db: -6

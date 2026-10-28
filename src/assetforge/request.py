@@ -7,7 +7,9 @@ Reuse ladder, tried in order (`reuse_policy` = prefer_existing, the default):
      category/genre/theme and the project's art style break ties
 A reused image is *adapted* when the request asks for a size, format or processing preset: a derived
 variant is made (the original is never touched) and its path returned. Then generate: procedural audio
-for `sfx` (recipe and preset inferred from the description), AI images for visual types, or register a
+for `sfx` (a recipe inferred from the description, else a synth patch built from its words), `ambience`
+(a scene plus the layers the words ask for) and `music` (genre, mood, tempo, key, length, stingers, all from
+the words, `sound` options or the project's sound profile), AI images for visual types, or register a
 file the agent made itself (`method: svg|procedural|file`). `dry_run` reports the decision and the cost
 without spending anything.
 `require_existing` stops after step 3 with NOT_FOUND. `always_generate` skips steps 1–3.
@@ -45,11 +47,13 @@ from assetforge.image.generate import ImageRequest, generate_image
 from assetforge.image.prompts import SheetSpec
 
 ReusePolicy = Literal["prefer_existing", "require_existing", "always_generate"]
-AUDIO_TYPES = {AssetType.SFX, AssetType.AUDIO}
+AUDIO_TYPES = {AssetType.SFX, AssetType.AUDIO, AssetType.AMBIENCE, AssetType.MUSIC}
 IMAGE_TYPES = set(VISUAL_TYPES)
 COMPATIBLE: dict[AssetType, list[AssetType]] = {
     AssetType.SFX: [AssetType.SFX, AssetType.AUDIO],
     AssetType.AUDIO: [AssetType.SFX, AssetType.AUDIO],
+    AssetType.AMBIENCE: [AssetType.AMBIENCE],
+    AssetType.MUSIC: [AssetType.MUSIC],
     AssetType.CHARACTER: [AssetType.CHARACTER, AssetType.SPRITE, AssetType.ENEMY],
     AssetType.ENEMY: [AssetType.ENEMY, AssetType.CHARACTER, AssetType.SPRITE],
     AssetType.SPRITE: [AssetType.SPRITE, AssetType.OBJECT, AssetType.CHARACTER, AssetType.ENEMY],
@@ -93,6 +97,10 @@ class AssetRequest(BaseModel):
     reuse_threshold: float | None = Field(None, ge=0, le=1)
     accept_candidates: bool = Field(False, description="Allow reusing unreviewed candidates")
     new_variant: bool = False
+    sound: dict[str, Any] = Field(default_factory=dict, description=(
+        "Engine options for sounds, merged over what the description implies. sfx: design|patch|recipe…; "
+        "ambience: scene, length, intensity, time_of_day, beds, events, stems, intensities; music: genre, mood, "
+        "tempo, key, bars|seconds, form, stinger, energy, instruments, stems, intensity_layers, score, midi"))  # fmt: skip
     # audio
     recipe: str | None = None
     preset: str | None = None
@@ -187,9 +195,60 @@ def media_kind(asset_type: AssetType) -> Literal["audio", "image"]:
         return "audio"
     if asset_type in IMAGE_TYPES:
         return "image"
-    hint = "Import licensed music with `assetforge import`" if asset_type in (AssetType.MUSIC, AssetType.AMBIENCE) else None
-    raise InvalidInputError(f"`request` can't generate {asset_type.value} assets", hint=hint,
+    raise InvalidInputError(f"`request` can't generate {asset_type.value} assets",
                             generatable=sorted(t.value for t in AUDIO_TYPES | IMAGE_TYPES))  # fmt: skip
+
+
+def sound_plan(req: AssetRequest, lib: Library | None = None) -> dict[str, Any]:
+    """Which audio engine a request goes to and with what settings (description inference + `sound` overrides)."""
+    from assetforge.audio import infer
+
+    options = dict(req.sound)
+    if req.type is AssetType.AMBIENCE:
+        return {"engine": "ambience", "settings": infer.ambience_from_words(req.description, lib) | options}
+    if req.type is AssetType.MUSIC:
+        inferred = {} if ("score" in options or "midi" in options) else infer.music_from_words(req.description)
+        return {"engine": "music", "settings": inferred | options}
+    if "design" in options or "patch" in options:
+        return {"engine": "design", "settings": options}
+    recipe_name = options.get("recipe") or req.recipe
+    if recipe_name in RECIPES:
+        recipe = RECIPES[recipe_name]
+    else:
+        try:
+            recipe = infer_recipe(recipe_name or req.description)
+        except InvalidInputError:
+            return {"engine": "design", "settings": {"patch": infer.patch_from_words(req.description)}, "inferred": "patch"}
+    return {"engine": "recipe", "recipe": recipe.name, "preset": options.get("preset") or req.preset or
+            infer_preset(req.description, recipe)}  # fmt: skip
+
+
+def _engine_audio(lib: Library, req: AssetRequest, planned: dict[str, Any], *, seed: int, key: str | None,
+                  project: str | None, style: str | None, scope: Scope) -> dict[str, Any]:  # fmt: skip
+    """Run the design/ambience/music engine for a request; returns the pipeline result."""
+    common = {"variants": min(req.variants, 16), "seed": seed, "new_take": req.new_variant, "name": req.name,
+              "key": key, "description": req.description, "tags": req.tags, "scope": scope, "project": project,
+              "style": style, "status": Status.CANDIDATE, "collection": req.collection, "category": req.category,
+              "subcategory": req.subcategory, "theme": req.theme, "use_profile": req.use_profile}  # fmt: skip
+    if req.format in ("ogg", "mp3", "wav"):
+        common["format"] = req.format
+    settings = dict(planned["settings"])
+    try:
+        if planned["engine"] == "ambience":
+            from assetforge.audio.ambience.engine import AmbienceRequest, generate_ambience
+
+            return generate_ambience(lib, AmbienceRequest(**(settings | common)))
+        if planned["engine"] == "music":
+            from assetforge.audio.music.generate import MusicRequest, generate_music
+
+            return generate_music(lib, MusicRequest(**(settings | common)))
+        from assetforge.audio.design import DesignRequest, generate_design
+
+        kind = "ui" if req.type is AssetType.UI else "sfx"
+        return generate_design(lib, DesignRequest(**({k: settings[k] for k in ("design", "patch") if k in settings}
+                                                     | common | {"type": kind})))  # fmt: skip
+    except ValueError as exc:
+        raise InvalidInputError(f"Invalid sound options: {exc}") from exc
 
 
 def fingerprint(req: AssetRequest) -> str:
@@ -435,9 +494,18 @@ def _generate(lib: Library, job_id: str, req: AssetRequest, fp: str, settings: S
         ))  # fmt: skip
         produced = [added.asset_id]
         generated = {"kind": req.method, "cost_usd": 0.0, "reused_content": not added.created}
+    elif kind == "audio" and (planned := sound_plan(req, lib))["engine"] != "recipe":
+        res = _engine_audio(lib, req, planned, seed=_seed(req, fp), key=key, project=project, style=style, scope=scope)
+        produced = [res["asset_id"]]
+        variants = [{"variant_id": v["variant_id"], "label": v["label"], "path": v["path"], "format": v["format"],
+                     "duration_ms": v["duration_ms"], **({"extras": v["extras"]} if v["extras"] else {})}
+                    for v in res["variants"]]  # fmt: skip
+        generated = {"kind": planned["engine"], "job_id": res["job_id"], "engine": res["engine"],
+                     "reused_content": res["reused"], "audio": res["audio"], "cost_usd": 0.0,
+                     **({"inferred": planned["inferred"]} if planned.get("inferred") else {})}  # fmt: skip
     elif kind == "audio":
-        recipe = RECIPES[req.recipe] if req.recipe in RECIPES else infer_recipe(req.recipe or req.description)
-        preset = req.preset or infer_preset(req.description, recipe)
+        recipe = RECIPES[planned["recipe"]]
+        preset = planned["preset"]
         result = generate_audio(lib, AudioRequest(
             recipe=recipe.name, preset=preset, params=req.params, duration_ms=req.duration_ms, effects=req.effects,
             variants=req.variants, variation=req.variation, seed=_seed(req, fp), format=req.format or "ogg",
@@ -620,10 +688,26 @@ def plan(lib: Library, req: AssetRequest, settings: Settings | None = None) -> R
         return RequestResult(state="dry_run", would="register", alternatives=alternatives,
                              plan={"method": req.method, "file": req.file, "cost_usd": 0.0})  # fmt: skip
     if media_kind(req.type) == "audio":
-        recipe = RECIPES[req.recipe] if req.recipe in RECIPES else infer_recipe(req.recipe or req.description)
+        planned = sound_plan(req, lib)
+        details: dict[str, Any] = dict(planned)
+        if planned["engine"] == "music" and not {"score", "midi"} & set(planned["settings"]):
+            from assetforge.audio import pipeline
+            from assetforge.audio.music import composer
+            from assetforge.audio.music.generate import MusicRequest, build_brief
+
+            settings = planned["settings"]
+            brief, _ = build_brief(lib, MusicRequest(**settings, project=req.project, use_profile=req.use_profile))
+            score = composer.compose(brief, pipeline.take_seed(_seed(req, fingerprint(req)), 1))
+            details["preview"] = score.summary()
+        elif planned["engine"] == "ambience":
+            from assetforge.audio.ambience.engine import AmbienceRequest, resolve_spec
+
+            spec, _ = resolve_spec(lib, AmbienceRequest(**planned["settings"]))
+            details["preview"] = {"scene": spec.scene, "beds": [b.bed for b in spec.beds],
+                                  "events": [e.event for e in spec.events], "length": spec.length,
+                                  "space": spec.space, "intensity": spec.intensity}  # fmt: skip
         return RequestResult(state="dry_run", would="generate", alternatives=alternatives, plan={
-            "method": "procedural_audio", "recipe": recipe.name, "preset": req.preset or infer_preset(
-                req.description, recipe), "variants": req.variants, "cost_usd": 0.0})  # fmt: skip
+            "method": "procedural_audio", **details, "variants": req.variants, "cost_usd": 0.0})  # fmt: skip
     image = generate_image(lib, _image_request(req, key=None, dry_run=True), settings)
     return RequestResult(state="dry_run", would="generate", alternatives=alternatives, plan={
         "method": "ai_image", "provider": image.provider, "model": image.model, "prompt": image.prompt,

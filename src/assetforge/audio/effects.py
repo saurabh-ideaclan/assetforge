@@ -202,6 +202,8 @@ def apply_effects(x: np.ndarray, effects: list[dict[str, Any]], sr: int) -> np.n
         return x
     specs = [(EFFECTS[e["name"]], e["params"]) for e in effects]
     tail = sum(spec.tail(params) for spec, params in specs)
-    padded = np.concatenate([x, np.zeros(int(tail * sr))]).astype(np.float32)
+    padded = np.concatenate([x, np.zeros((int(tail * sr),) + x.shape[1:])]).astype(np.float32)
     board = pb.Pedalboard([spec.build(params) for spec, params in specs])
+    if padded.ndim == 2:  # Pedalboard wants (channels, samples); ours is (samples, channels)
+        return board(np.ascontiguousarray(padded.T), sr).T.astype(np.float64)
     return board(padded, sr).astype(np.float64)

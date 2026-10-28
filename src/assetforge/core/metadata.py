@@ -48,6 +48,7 @@ class FileMeta:
     channels: int | None = None
     extra: dict[str, Any] = field(default_factory=dict)
     visual: dict[str, Any] | None = None  # core.visual features (colours, dhash, ...) for images
+    audio: dict[str, Any] | None = None  # audio.features (loudness, brightness, tempo, key, ...) for sounds
 
 
 def kind_for_ext(ext: str) -> FileKind:
@@ -85,6 +86,9 @@ def extract_metadata(path: Path, ext: str | None = None) -> FileMeta:
         _read_svg(path, meta)
     elif kind is FileKind.AUDIO:
         _read_audio(path, meta)
+        from assetforge.audio.features import from_file
+
+        meta.audio = from_file(path)
     return meta
 
 

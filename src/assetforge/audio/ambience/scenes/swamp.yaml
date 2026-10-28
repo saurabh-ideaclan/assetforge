@@ -1,0 +1,32 @@
+name: swamp
+description: 'Swamp: humid drone, croaking frogs, bubbling mud, buzzing insects'
+tags:
+- swamp
+- marsh
+- bog
+- wetland
+- nature
+- outdoor
+- murky
+space: outdoor
+beds:
+- bed: swamp
+  level_db: 0
+- bed: insects_night
+  level_db: -8
+  params:
+    crickets: 3
+    cicada: 0.5
+events:
+- event: frog
+  rate: 14
+  distance: 0.4
+  pitch_jitter: 4
+- event: bubble
+  rate: 6
+  distance: 0.3
+  gain_db: -4
+- event: crow
+  rate: 0.5
+  distance: 0.8
+  gain_db: -6

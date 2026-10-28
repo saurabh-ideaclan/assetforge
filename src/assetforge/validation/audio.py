@@ -62,21 +62,38 @@ def analyze(samples: np.ndarray, sr: int) -> dict[str, Any]:
 
 
 def loop_seam(samples: np.ndarray, sr: int) -> dict[str, Any]:
-    """How cleanly the end joins the start when the sound loops: a click and/or a level jump."""
+    """How cleanly the end joins the start when the sound loops: a click and/or a level jump.
+
+    Both are judged against the sound itself: a jump counts as a click only when it is larger than
+    any sample-to-sample step near the seam, and the level jump is reported next to how much the level
+    normally changes between neighbouring 250 ms windows (noisy textures move a lot on their own).
+    """
     data = np.asarray(samples, dtype=np.float64)
     if data.ndim == 1:
         data = data[:, None]
     window = max(2, int(0.05 * sr))
     if len(data) < 2 * window:
-        return {"loop_click": False, "loop_level_jump_db": 0.0}
+        return {"loop_click": False, "loop_level_jump_db": 0.0, "level_change_p95_db": 0.0}
     jump = float(np.max(np.abs(data[-1] - data[0])))
-    typical = float(np.median(np.abs(np.diff(np.concatenate([data[-window:], data[:window]]), axis=0))))
-    head = float(np.sqrt(np.mean(data[:window] ** 2)))
-    tail = float(np.sqrt(np.mean(data[-window:] ** 2)))
+    largest_step = max(float(np.max(np.abs(np.diff(data[-window:], axis=0)))),
+                       float(np.max(np.abs(np.diff(data[:window], axis=0)))))  # fmt: skip
+    # Level is judged over 250 ms (what the ear follows), so single crackles or drips don't count as a jump.
+    span = min(len(data) // 2, int(0.25 * sr))
+    head = float(np.sqrt(np.mean(data[:span] ** 2)))
+    tail = float(np.sqrt(np.mean(data[-span:] ** 2)))
+    blocks = data[: len(data) // span * span].reshape(-1, span, data.shape[1])
+    levels = np.array([_db(float(np.sqrt(np.mean(b**2)))) for b in blocks])
+    changes = np.abs(np.diff(levels))
     return {
-        "loop_click": jump > max(0.05, 8 * typical),
-        "loop_level_jump_db": round(abs(_db(head) - _db(tail)), 2),
+        "loop_click": bool(jump > max(0.05, 1.5 * largest_step)),
+        "loop_level_jump_db": round(float(abs(_db(head) - _db(tail))), 2),
+        "level_change_p95_db": round(float(np.percentile(changes, 95)), 2) if changes.size else 0.0,
     }
+
+
+def seam_ok(seam: dict[str, Any]) -> bool:
+    """No click, and the level jump at the seam is within what the sound does anyway."""
+    return bool(not seam["loop_click"] and seam["loop_level_jump_db"] <= max(4.0, seam.get("level_change_p95_db", 0) + 3))
 
 
 def analyze_file(path: Path, *, loopable: bool = False) -> dict[str, Any]:
@@ -99,6 +116,6 @@ def analyze_file(path: Path, *, loopable: bool = False) -> dict[str, Any]:
         report |= seam
         if seam["loop_click"]:
             report["issues"].append("loop_click")
-        if seam["loop_level_jump_db"] > 6:
+        if seam["loop_level_jump_db"] > max(6.0, seam["level_change_p95_db"] + 3):
             report["issues"].append("loop_level_jump")
     return report

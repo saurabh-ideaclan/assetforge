@@ -301,3 +301,28 @@ def test_cli_update_many(capsys, home, stocked):
     assert code == 4
     code, out, _ = run_cli(capsys, "update", stocked["hero"], "--genre", "puzzle", "--json")
     assert code == 0 and out["asset"]["genre"] == "puzzle"
+
+
+def test_sound_tab_endpoints_and_audio_filters(server):
+    _, options = jcall(server, "/api/sound/options")
+    assert {"recipes", "scenes", "layers", "genres", "instruments", "spaces", "soundfont"} <= set(options)
+    assert {r["category"] for r in options["recipes"]} >= {"weapons", "magic", "foley", "ui"}
+    status, design = jcall(server, "/api/generate/design", method="POST",
+                           body={"design": {"layers": [{"recipe": "laser"}]}, "seed": 1})  # fmt: skip
+    assert status == 200 and design["result"]["engine"] == "assetforge-design"
+    status, amb = jcall(server, "/api/generate/ambience", method="POST",
+                        body={"scene": "rain_light", "length": 5, "seed": 1, "stems": True})  # fmt: skip
+    assert status == 200 and amb["result"]["audio"]["loop"]
+    status, music = jcall(server, "/api/generate/music", method="POST",
+                          body={"genre": "chiptune", "bars": 4, "seed": 1, "backend": "synth"})  # fmt: skip
+    assert status == 200 and music["result"]["audio"]["bars"] == 4
+    status, bad = jcall(server, "/api/generate/ambience", method="POST", body={"scene": "rain_light", "length": 1})
+    assert status == 400 and bad["error"]["code"] == "INVALID_INPUT"
+    _, loops = jcall(server, "/api/assets?loopable=true")
+    assert {a["id"] for a in loops["items"]} == {amb["result"]["asset_id"], music["result"]["asset_id"]}
+    _, by_bpm = jcall(server, f"/api/assets?bpm={music['result']['audio']['bpm']}")
+    assert [a["id"] for a in by_bpm["items"]] == [music["result"]["asset_id"]]
+    _, detail = jcall(server, f"/api/assets/{music['result']['asset_id']}")
+    assert detail["sound"]["audio"]["bpm"] == music["result"]["audio"]["bpm"] and "midi" in detail["sound"]["takes"][0]["files"]
+    _, plain = jcall(server, f"/api/assets/{design['result']['asset_id']}")
+    assert plain["sound"]["engine"] == "assetforge-design"

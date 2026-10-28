@@ -1,0 +1,28 @@
+name: ocean_shore
+description: 'Beach: waves rolling onto the shore, sea breeze, birds far off'
+tags:
+- ocean
+- sea
+- beach
+- shore
+- coast
+- waves
+- outdoor
+- water
+space: outdoor
+beds:
+- bed: ocean_waves
+  level_db: 0
+  params:
+    wave_seconds: 8
+    surf: 0.6
+- bed: wind
+  level_db: -12
+  params:
+    strength: 0.35
+events:
+- event: bird_chirp
+  rate: 2
+  distance: 0.8
+  pitch_jitter: 2
+  gain_db: -4

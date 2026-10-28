@@ -1,0 +1,28 @@
+name: factory
+description: 'Factory floor: heavy machinery, steam vents and clanking metal'
+tags:
+- factory
+- industrial
+- machine
+- workshop
+- steampunk
+- indoor
+- plant
+space: hall
+beds:
+- bed: machine_hum
+  level_db: 0
+  params:
+    hum_hz: 48
+    pulse_hz: 1.6
+    grit: 0.6
+- bed: electrical_buzz
+  level_db: -14
+events:
+- event: metal_clank
+  rate: 6
+  distance: 0.4
+- event: steam_hiss
+  rate: 2
+  distance: 0.5
+  gain_db: -4

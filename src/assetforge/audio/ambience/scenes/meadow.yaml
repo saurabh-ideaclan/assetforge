@@ -1,0 +1,33 @@
+name: meadow
+description: 'Open meadow on a calm day: soft wind, birds, distant chimes'
+tags:
+- meadow
+- field
+- grass
+- day
+- nature
+- outdoor
+- peaceful
+- farm
+space: outdoor
+beds:
+- bed: wind
+  level_db: -3
+  params:
+    strength: 0.3
+    howl: 0.0
+- bed: forest_air
+  level_db: -8
+  params:
+    rustle: 0.7
+events:
+- event: bird_chirp
+  rate: 8
+  distance: 0.5
+- event: songbird
+  rate: 2
+  distance: 0.6
+- event: chime
+  rate: 0.8
+  distance: 0.6
+  gain_db: -8

@@ -1,0 +1,36 @@
+name: space_station
+description: 'Space station interior: life-support hum, consoles, distant comms'
+tags:
+- space
+- station
+- scifi
+- spaceship
+- interior
+- futuristic
+- indoor
+space: room
+beds:
+- bed: machine_hum
+  level_db: -2
+  params:
+    hum_hz: 60
+    pulse_hz: 0.25
+    grit: 0.1
+- bed: space_drone
+  level_db: -10
+  params:
+    root_hz: 45
+    shimmer: 0.2
+events:
+- event: computer_beeps
+  rate: 4
+  distance: 0.4
+  gain_db: -6
+- event: radio_chatter
+  rate: 0.8
+  distance: 0.6
+  gain_db: -8
+- event: steam_hiss
+  rate: 0.6
+  distance: 0.6
+  gain_db: -10

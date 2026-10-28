@@ -67,6 +67,10 @@ class ExportRequest(BaseModel):
     layout: Literal["by-type", "flat"] = "by-type"
     image_formats: list[str] = Field(default_factory=lambda: ["webp", "png"])
     audio_formats: list[str] = Field(default_factory=lambda: ["ogg", "mp3"])
+    audio_extras: bool = Field(True, description="Also export stems and intensity versions of ambience/music")
+    audio_takes: bool = Field(False, description="Also export every take (v2, v3…) as round-robin variations")
+    audio_sprite: str | None = Field(None, description="Also pack the short one-shot sounds into one file with "
+                                                       "offsets (NAME.ogg + NAME.json, Howler sprite format)")  # fmt: skip
     max_image_size: int | None = Field(None, ge=16, le=8192)
     atlas: str | None = Field(None, description="Pack sprite-like images into an atlas with this name")
     atlas_max_size: int = Field(2048, ge=64, le=8192)
@@ -187,14 +191,65 @@ def _image_variant(lib: Library, asset: Asset, fmt: str, max_size: int | None) -
     return next(v for v in lib.get_asset(asset.id).variants if v.id == derived.variant_id)
 
 
-def _audio_variant(lib: Library, asset: Asset, fmt: str) -> Variant:
-    primary = asset.primary_variant
+def _audio_variant(lib: Library, asset: Asset, fmt: str, source: Variant | None = None) -> Variant:
+    """`source` (default: the primary) in `fmt`: itself, an existing encoding of it, or a new derived variant."""
+    primary = source or asset.primary_variant
     assert primary is not None
     if primary.file.ext.lstrip(".") == fmt:
         return primary
+    existing = next((v for v in asset.variants if v.label == f"{primary.label}_{fmt}"), None)
+    if existing is not None:
+        return existing
     ops = [{"op": "format", "format": fmt, **({"quality": 0.6} if fmt != "wav" else {})}]
     derived = audio_proc.process_audio_asset(lib, asset.id, ops, variant=primary.id, label=f"{fmt}_of_{primary.label}")
     return next(v for v in lib.get_asset(asset.id).variants if v.id == derived.variant_id)
+
+
+def _audio_parts(asset: Asset) -> tuple[dict[str, Variant], list[Variant]]:
+    """Take 1's extras (stems, intensity versions) as WAV masters, and the masters of takes 2..N."""
+    import re
+
+    by_label = {v.label: v for v in asset.variants}
+    extras = {label: by_label[f"v1_{label}"] for label in (asset.metadata.get("audio") or {}).get("extras", [])
+              if f"v1_{label}" in by_label}  # fmt: skip
+    takes = sorted((v for v in asset.variants if re.fullmatch(r"v([2-9]|\d{2,})", v.label)), key=lambda v: int(v.label[1:]))
+    return extras, takes
+
+
+SPRITE_GAP_S = 0.25
+SPRITE_MAX_S = 6.0
+
+
+def _audio_sprite(name: str, assets: list[Asset], aliases: dict[str, str]) -> dict[str, bytes]:
+    """One-shot sounds (not loops, ≤ 6 s) concatenated with short gaps; offsets in milliseconds."""
+    import io
+
+    import numpy as np
+    import soundfile
+
+    rate = 44100
+    pieces: list[np.ndarray] = []
+    sprite: dict[str, list[float]] = {}
+    position = 0
+    for asset in sorted(assets, key=lambda a: aliases[a.id]):
+        if (asset.metadata.get("audio") or {}).get("loop") or asset.primary_variant is None:
+            continue
+        data, sr = soundfile.read(asset.primary_variant.file.path, dtype="float32", always_2d=True)
+        if len(data) / sr > SPRITE_MAX_S:
+            continue
+        if sr != rate:
+            idx = np.arange(int(len(data) * rate / sr)) * sr / rate
+            data = np.stack([np.interp(idx, np.arange(len(data)), data[:, c]) for c in range(data.shape[1])], axis=1)
+        stereo = data if data.shape[1] == 2 else np.repeat(data[:, :1], 2, axis=1)
+        sprite[aliases[asset.id].split("/")[-1]] = [round(position * 1000 / rate, 1), round(len(stereo) * 1000 / rate, 1)]
+        pieces += [stereo, np.zeros((int(SPRITE_GAP_S * rate), 2), dtype=np.float32)]
+        position += len(stereo) + int(SPRITE_GAP_S * rate)
+    if not sprite:
+        return {}
+    buffer = io.BytesIO()
+    soundfile.write(buffer, np.concatenate(pieces), rate, format="OGG", subtype="VORBIS")
+    meta = {"src": [f"{name}.ogg"], "sprite": sprite}
+    return {f"{name}.ogg": buffer.getvalue(), f"{name}.json": _json_bytes(meta)}
 
 
 # ---------------------------------------------------------------------- writing
@@ -363,12 +418,26 @@ def export(lib: Library, req: ExportRequest) -> ExportResult:
             data = {"scaleMode": "nearest"} if "pixel-art" in asset.tags else None
             textures.append({"alias": alias, "formats": req.image_formats, "data": data})
         elif kind == FileKind.AUDIO:
-            paths = []
-            for fmt in req.audio_formats:
-                variant = primary if req.dry_run else _audio_variant(lib, asset, fmt)
-                emit(f"{alias}.{fmt}", Path(variant.file.path).read_bytes(), asset, variant, "sound")
-                paths.append(f"{alias}.{fmt}")
-            sound_entries.append({"alias": alias, "paths": paths, "asset_id": asset.id})
+
+            def audio_files(name: str, source: Variant | None) -> list[str]:
+                out = []
+                for fmt in req.audio_formats:
+                    variant = (source or primary) if req.dry_run else _audio_variant(lib, asset, fmt, source)
+                    emit(f"{name}.{fmt}", Path(variant.file.path).read_bytes(), asset, variant, "sound")
+                    out.append(f"{name}.{fmt}")
+                return out
+
+            entry: dict[str, Any] = {"alias": alias, "paths": audio_files(alias, None), "asset_id": asset.id}
+            meta = asset.metadata.get("audio") or {}
+            if meta.get("loop"):
+                entry["loop"] = {"start": meta.get("loop_start", 0.0), "end": meta.get("loop_end")}
+            entry["music"] = {k: meta[k] for k in ("bpm", "key", "meter", "bars") if meta.get(k) is not None} or None
+            extras, takes = _audio_parts(asset)
+            if req.audio_extras and extras:
+                entry["extras"] = {label: audio_files(f"{alias}.{label}", v) for label, v in extras.items()}
+            if req.audio_takes and takes:
+                entry["variations"] = [audio_files(f"{alias}_{v.label}", v) for v in takes]
+            sound_entries.append(entry)
         else:
             rel = f"{alias}{primary.file.ext}"
             emit(rel, Path(primary.file.path).read_bytes(), asset, primary, str(kind))
@@ -398,6 +467,13 @@ def export(lib: Library, req: ExportRequest) -> ExportResult:
         writer.write(SOUNDS_FILE, _json_bytes(pixijs.sounds(sound_entries)))
         generated.append(SOUNDS_FILE)
         outputs["sounds"] = SOUNDS_FILE
+    if req.audio_sprite and not req.dry_run:
+        sprite_files = _audio_sprite(req.audio_sprite, [a for a in assets if a.primary_variant and
+                                                        a.primary_variant.file.kind == FileKind.AUDIO], aliases)  # fmt: skip
+        for rel, data in sprite_files.items():
+            writer.write(rel, data)
+            generated.append(rel)
+        outputs["audio_sprite"] = next((r for r in sprite_files if r.endswith(".json")), None)
     if anims := _animations(assets, aliases):
         writer.write(ANIMATIONS_FILE, _json_bytes(anims))
         generated.append(ANIMATIONS_FILE)

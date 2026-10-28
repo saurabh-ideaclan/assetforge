@@ -79,9 +79,9 @@ def test_policies(lib):
     lib.set_status([a.asset_id], Status.APPROVED)
     b = handle(lib, AssetRequest(type="sfx", description="laser zap", reuse_policy="always_generate", new_variant=True))
     assert not b.reused and b.asset_id != a.asset_id
-    with pytest.raises(InvalidInputError) as exc:
-        handle(lib, AssetRequest(type="music", description="calm jungle theme"))
-    assert "import" in exc.value.hint.lower()
+    with pytest.raises(InvalidInputError) as exc:  # music and ambience are generated now; speech is not
+        handle(lib, AssetRequest(type="voice", description="narrator says hello"))
+    assert "music" in exc.value.details["generatable"]
 
 
 def test_audio_post_processing(lib):

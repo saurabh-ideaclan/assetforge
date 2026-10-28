@@ -1,0 +1,23 @@
+name: campfire_night
+description: 'Campfire at night: crackling fire, crickets, an owl in the trees'
+tags:
+- campfire
+- fire
+- night
+- camping
+- outdoor
+- cozy
+- nature
+space: outdoor
+beds:
+- bed: fire_crackle
+  level_db: 0
+  params:
+    size: 0.5
+- bed: insects_night
+  level_db: -8
+events:
+- event: owl
+  rate: 0.8
+  distance: 0.7
+  gain_db: -4

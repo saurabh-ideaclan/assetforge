@@ -1,0 +1,29 @@
+name: cave
+description: 'Cave: resonant air, water drips, a bat now and then'
+tags:
+- cave
+- cavern
+- underground
+- mine
+- dungeon
+- damp
+space: cave
+beds:
+- bed: cave_resonance
+  level_db: 0
+  params:
+    size: 0.6
+- bed: wind
+  level_db: -18
+  params:
+    strength: 0.15
+    howl: 0.4
+events:
+- event: drip
+  rate: 14
+  distance: 0.4
+  pitch_jitter: 3
+- event: bat_squeak
+  rate: 0.8
+  distance: 0.7
+  gain_db: -8

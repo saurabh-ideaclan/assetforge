@@ -308,3 +308,6 @@ a.tile.link:hover { border-color: var(--accent); }
   background: repeating-conic-gradient(var(--checker) 0 25%, var(--surface-1) 0 50%) 50% / 12px 12px; }
 .parts-grid .part:hover img { border-color: var(--accent); }
 .parts-grid .part span { max-width: 76px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.results.wide { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+.player { display: flex; flex-direction: column; gap: 2px; margin: 6px 0; }
+.player audio { width: 100%; }

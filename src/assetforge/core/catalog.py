@@ -382,14 +382,15 @@ class Library:
             """
             INSERT INTO asset_files (sha256, rel_path, ext, mime_type, kind, size_bytes, width, height, has_alpha,
                                      frames, duration_ms, sample_rate, channels, extra, created_at,
-                                     aspect, alpha_fraction, mean_luma, colors, dhash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     aspect, alpha_fraction, mean_luma, colors, dhash, audio)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (sha256) DO UPDATE SET rel_path = excluded.rel_path,
                 aspect = ifnull(asset_files.aspect, excluded.aspect),
                 alpha_fraction = ifnull(asset_files.alpha_fraction, excluded.alpha_fraction),
                 mean_luma = ifnull(asset_files.mean_luma, excluded.mean_luma),
                 colors = ifnull(asset_files.colors, excluded.colors),
-                dhash = ifnull(asset_files.dhash, excluded.dhash)
+                dhash = ifnull(asset_files.dhash, excluded.dhash),
+                audio = ifnull(asset_files.audio, excluded.audio)
             """,
             (
                 sha256, rel_path, ext, meta.mime_type, meta.kind.value, size, meta.width, meta.height,
@@ -397,6 +398,7 @@ class Library:
                 meta.sample_rate, meta.channels, dumps(meta.extra), now,
                 vis.get("aspect"), vis.get("alpha_fraction"), vis.get("mean_luma"),
                 dumps(vis["colors"]) if "colors" in vis else None, vis.get("dhash"),
+                dumps(meta.audio) if meta.audio else None,
             ),
         )  # fmt: skip
 
@@ -832,7 +834,8 @@ class Library:
     def _refresh_fts(self, asset_id: str) -> None:
         row = self.conn.execute(
             "SELECT a.name, a.key, a.description, a.type, a.style, a.category, a.subcategory, a.theme, a.genre, "
-            "f.kind, f.ext, f.has_alpha, f.aspect, f.mean_luma, f.colors FROM assets a "
+            "f.kind, f.ext, f.has_alpha, f.aspect, f.mean_luma, f.colors, f.audio, "
+            "json_extract(a.metadata, '$.audio.loop') AS loop FROM assets a "
             "LEFT JOIN asset_variants v ON v.id = a.primary_variant_id "
             "LEFT JOIN asset_files f ON f.sha256 = v.file_sha256 WHERE a.id = ?",
             (asset_id,),

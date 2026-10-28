@@ -1,83 +1,21 @@
 import { api, h, fmt, errorBox, thumbUrl, fileUrl, toast, badge, chipsInput, paletteInput, swatches, segmented, section, field, pollJob } from "/static/lib.js";
 import { layerName } from "/static/views/art.js";
+import { soundTab } from "/static/views/sound.js";
 
 export async function generate(root, { params }) {
   const tab = params.get("tab") === "sound" ? "sound" : "image";
-  const [audio, image, artData] = await Promise.all([api("/api/audio/recipes"), api("/api/image/options"), api("/api/art")]);
+  const [audio, image, artData] = await Promise.all([tab === "sound" ? api("/api/sound/options") : null,
+    tab === "sound" ? null : api("/api/image/options"), tab === "sound" ? null : api("/api/art")]);
   const body = h("div");
   const seg = h("div.seg",
     h("button", { class: tab === "image" ? "on" : "", onclick: () => (location.hash = "#/generate?tab=image") }, "Image"),
-    h("button", { class: tab === "sound" ? "on" : "", onclick: () => (location.hash = "#/generate?tab=sound") }, "Sound effect"));
+    h("button", { class: tab === "sound" ? "on" : "", onclick: () => (location.hash = "#/generate?tab=sound") }, "Sound"));
   root.append(h("div.page-head", h("div", h("h1", "Generate"),
-    h("div.sub", tab === "sound" ? "Procedural sound effects: free, offline, reproducible with a seed." :
+    h("div.sub", tab === "sound" ? "Sound effects, ambience loops and music, synthesized locally: free, offline, reproducible with a seed." :
       "AI images with your art direction. See the exact prompt and the cost before anything is spent.")), seg), body);
-  if (tab === "sound") soundForm(body, audio);
+  if (tab === "sound") soundTab(body, audio, params);
   else imageForm(body, image, artData, params);
   return {}; // no `update`: switching tabs changes the hash and remounts the view
-}
-
-// ---------------------------------------------------------------------- sound
-
-function soundForm(root, { recipes, presets }) {
-  const byName = Object.fromEntries(recipes.map((r) => [r.name, r]));
-  const recipe = h("select", recipes.map((r) => h("option", { value: r.name }, `${r.name} — ${r.description}`)));
-  const preset = h("select", h("option", { value: "" }, "none"), presets.map((p) => h("option", { value: p.name }, `${p.name} — ${p.description}`)));
-  const duration = h("input", { type: "number", step: "0.05", min: "0.01" });
-  const variants = h("input", { type: "number", min: 1, max: 16, value: 3 });
-  const variation = h("input", { type: "number", min: 0, max: 1, step: 0.05, value: 0.3 });
-  const seed = h("input", { type: "number", min: 0, placeholder: "random" });
-  const format = h("select", ["ogg", "wav", "mp3"].map((f) => h("option", { value: f }, f)));
-  const name = h("input", { type: "text", placeholder: "default: recipe name" });
-  const project = h("input", { type: "text", placeholder: "optional" });
-  const tags = h("input", { type: "text", placeholder: "comma separated" });
-  const help = h("div.help");
-  const syncRecipe = () => {
-    const r = byName[recipe.value];
-    duration.value = r.default_duration;
-    const range = r.params.find((p) => p.name === "duration");
-    duration.min = range.min; duration.max = range.max;
-    help.textContent = `${r.description}. Tags: ${r.tags.join(", ")}. Duration ${range.min}–${range.max}s.`;
-  };
-  recipe.addEventListener("change", syncRecipe);
-  syncRecipe();
-  const out = h("div");
-  const button = h("button.btn.primary", { onclick: run }, "Generate sound");
-
-  root.append(h("div.card",
-    h("div.form",
-      h("label.wide", "Recipe", recipe, help),
-      h("label", "Preset", preset), h("label", "Duration (s)", duration), h("label", "Variants", variants),
-      h("label", "Variation (0–1)", variation), h("label", "Seed", seed), h("label", "Format", format),
-      h("label", "Name", name), h("label", "Project", project), h("label", "Tags", tags)),
-    h("div.actions", button, h("span.help", "Runs locally in about a second. Generated sounds start as candidates."))), out);
-
-  async function run() {
-    button.disabled = true;
-    out.innerHTML = "";
-    out.append(h("p", h("span.spinner"), " Synthesizing…"));
-    const req = {
-      recipe: recipe.value, variants: +variants.value || 1, variation: +variation.value, format: format.value,
-      duration: duration.value ? +duration.value : undefined, preset: preset.value || undefined,
-      seed: seed.value !== "" ? +seed.value : undefined, name: name.value || undefined,
-      project: project.value || undefined, tags: tags.value ? tags.value.split(",").map((t) => t.trim()).filter(Boolean) : [],
-    };
-    try {
-      const { result } = await api("/api/generate/audio", { method: "POST", body: req });
-      out.innerHTML = "";
-      out.append(h("h2", result.reused ? "Already in the library" : "Generated"),
-        h("p", h("a", { href: `#/assets/${result.asset_id}` }, result.asset.name), " ", badge(result.asset.status),
-          result.reused ? h("span.muted", " — this exact sound existed, so it was reused") : null),
-        h("div.results", result.variants.map((v) => h("div.card",
-          h("img", { src: thumbUrl(v.variant_id), style: "width:100%;border-radius:6px;background:#181c28", alt: "" }),
-          h("audio", { controls: true, src: fileUrl(v.variant_id), preload: "metadata" }),
-          h("div.help", `${v.label} · ${(v.duration_ms / 1000).toFixed(2)}s · peak ${v.qc.peak_dbfs} dBFS`)))));
-    } catch (err) {
-      out.innerHTML = "";
-      out.append(errorBox(err));
-    } finally {
-      button.disabled = false;
-    }
-  }
 }
 
 // ---------------------------------------------------------------------- image

@@ -1,0 +1,29 @@
+name: sci_fi_lab
+description: 'Sci-fi lab: humming equipment, buzzing lights, beeping terminals'
+tags:
+- lab
+- laboratory
+- scifi
+- science
+- computer
+- indoor
+- futuristic
+space: room
+beds:
+- bed: electrical_buzz
+  level_db: -6
+  params:
+    flicker: 0.2
+- bed: room_tone
+  level_db: 0
+  params:
+    hum: 0.6
+events:
+- event: computer_beeps
+  rate: 8
+  distance: 0.3
+  gain_db: -2
+- event: bubble
+  rate: 2
+  distance: 0.4
+  gain_db: -8

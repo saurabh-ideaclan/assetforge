@@ -62,6 +62,20 @@
       ],
       "port": 8768,
       "url": "http://localhost:8768"
+    },
+    {
+      "name": "audio-demo",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8769",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        ".dev/audio-demo"
+      ],
+      "port": 8769
     }
   ]
 }

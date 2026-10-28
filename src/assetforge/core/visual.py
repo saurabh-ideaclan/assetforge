@@ -168,6 +168,10 @@ def tech_terms(row: Any) -> str:
     if row["kind"] in ("image", "vector"):
         words.append("transparent" if row["has_alpha"] else "opaque")
         words += [w for w in (orientation(row["aspect"]), tone(row["mean_luma"])) if w]
+    elif row["kind"] == "audio" and "audio" in row.keys():
+        from assetforge.audio.features import tech_terms as audio_terms
+
+        words += audio_terms(row["audio"], loop=bool(row["loop"]))
     return " ".join(w for w in words if w)
 
 

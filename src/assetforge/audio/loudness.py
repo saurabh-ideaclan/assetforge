@@ -22,6 +22,7 @@ SILENCE = -120.0
 def k_weighting(sr: int) -> list[tuple[np.ndarray, np.ndarray]]:
     # Stage 1: high shelf (+4 dB above ~1.7 kHz) modelling the head.
     gain_db, fc, q = 3.999843853973347, 1681.974450955533, 0.7071752369554196
+    fc = min(fc, 0.45 * sr)  # very low sample rates (< 3.7 kHz) would put the shelf above Nyquist
     k = math.tan(math.pi * fc / sr)
     vh = 10 ** (gain_db / 20)
     vb = vh**0.4996667741545416

@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
+from assetforge.audio import pipeline
 from assetforge.audio.effects import EFFECTS
 from assetforge.audio.generate import (
     AudioRequest,
@@ -78,6 +79,62 @@ def recipes(
 
 
 # ---------------------------------------------------------------------- generation
+
+
+def _engine_made(lib: Any, ref: str) -> bool:
+    engines = pipeline.load_engines()
+    return (lib.get_asset(ref).metadata.get("generator") or {}).get("engine") in engines
+
+
+def read_json_file(file: Path | None) -> dict[str, Any]:
+    if file is None:
+        return {}
+    try:
+        data = json.loads(file.read_text())
+    except FileNotFoundError as exc:
+        raise NotFoundError(f"File not found: {file}", path=str(file)) from exc
+    except json.JSONDecodeError as exc:
+        raise InvalidInputError(f"{file} is not valid JSON: {exc}", path=str(file)) from exc
+    if not isinstance(data, dict):
+        raise InvalidInputError(f"{file} must contain a JSON object", path=str(file))
+    return data
+
+
+def render_engine_result(c: Console, res: dict[str, Any], verb: str) -> None:
+    asset = res["asset"]
+    if res["reused"]:
+        why = "same request as" if res["reuse_reason"] == "fingerprint" else "identical sound already in"
+        c.print(f"[yellow]Reused[/yellow] {res['asset_id']} {escape(asset['name'])} ({why} the library)")
+    else:
+        c.print(f"{verb} [bold cyan]{res['asset_id']}[/bold cyan] {escape(asset['name'])}: "
+                f"{len(res['variants'])} take(s) as {res['format']}  [dim]{res.get('job_id') or ''}[/dim]")  # fmt: skip
+    audio = res.get("audio") or {}
+    facts = [f"{k} {audio[k]}" for k in ("bpm", "key", "bars", "intensity") if audio.get(k) is not None]
+    if audio.get("loop"):
+        facts.append("seamless loop")
+    if facts:
+        c.print("[dim]" + " · ".join(facts) + "[/dim]")
+    table = Table(header_style="bold")
+    for column in ("Label", "Variant", "Length", "Peak", "Extras", "Path"):
+        table.add_column(column, overflow="fold" if column == "Path" else "ellipsis")
+    for v in res["variants"]:
+        length = f"{v['duration_ms'] / 1000:.2f}s" if v["duration_ms"] is not None else "-"
+        table.add_row(v["label"], v["variant_id"], length, str((v.get("qc") or {}).get("peak_dbfs", "-")),
+                      ", ".join([*v["extras"], *v["files"]]) or "-", v["path"])  # fmt: skip
+    c.print(table)
+
+
+def common_fields(*, name: str | None, project: str | None, variants: int | None, seed: int | None,
+                  format_: str | None, tag: list[str] | None, key: str | None, description: str | None,
+                  status: Status | None, collection: str | None, new_take: bool) -> dict[str, Any]:  # fmt: skip
+    data: dict[str, Any] = {k: v for k, v in {"name": name, "project": project, "variants": variants, "seed": seed,
+                                               "format": format_, "key": key, "description": description,
+                                               "status": status, "collection": collection}.items() if v is not None}  # fmt: skip
+    if tag:
+        data["tags"] = list(tag)
+    if new_take:
+        data["new_take"] = True
+    return data
 
 
 def _render_result(c: Console, result: AudioResult, verb: str) -> None:
@@ -157,6 +214,73 @@ def generate(
         s.out.emit(result.model_dump(mode="json"), lambda c: _render_result(c, result, "Generated"))
 
 
+@audio_app.command("design")
+def design_(
+    ctx: typer.Context,
+    file: Annotated[Path, typer.Option("--file", "-f", help="JSON design ({\"layers\": [...]}) or a request with `design`.")],
+    name: Annotated[str | None, typer.Option(help="Asset name.")] = None,
+    project: Annotated[str | None, typer.Option(help="Owning project (its sound profile adds the acoustic space).")] = None,
+    variants: Annotated[int | None, typer.Option("--variants", "-n", help="Takes to render (1-16).")] = None,
+    seed: Annotated[int | None, typer.Option(help="Seed for reproducible output.")] = None,
+    format_: Annotated[str | None, typer.Option("--format", help="ogg (default), mp3 or wav.")] = None,
+    tag: Annotated[list[str] | None, typer.Option("--tag", "-t")] = None,
+    key: Annotated[str | None, typer.Option(help="Logical key, e.g. weapons/plasma/fire.")] = None,
+    description: Annotated[str | None, typer.Option()] = None,
+    status: Annotated[Status | None, typer.Option()] = None,
+    collection: Annotated[str | None, typer.Option()] = None,
+    new_take: Annotated[bool, typer.Option("--new-take", help="Render fresh even if this seeded request exists.")] = False,
+    json_: JsonOpt = False,
+) -> None:
+    """Build a sound from layers: recipes and/or synth patches placed in time, panned, with effects. No API calls.
+
+    Layer fields: recipe|patch, preset, params, start, gain_db, pan, pitch, repeat, interval, effects.
+    Design fields: layers, effects (bus), space, width, variation. See `assetforge guide`.
+    """
+    from assetforge.audio.design import DesignRequest, generate_design
+
+    with session(ctx, json_) as s:
+        data = read_json_file(file)
+        if "layers" in data:
+            data = {"design": data}
+        data |= common_fields(name=name, project=project, variants=variants, seed=seed, format_=format_, tag=tag,
+                              key=key, description=description, status=status, collection=collection,
+                              new_take=new_take)  # fmt: skip
+        res = generate_design(s.lib, DesignRequest(**data))
+        s.out.emit(res, lambda c: render_engine_result(c, res, "Designed"))
+
+
+@audio_app.command("patch")
+def patch_(
+    ctx: typer.Context,
+    file: Annotated[Path, typer.Option("--file", "-f", help="JSON synth patch (oscillators, pitch, amp, filter, …).")],
+    name: Annotated[str | None, typer.Option(help="Asset name.")] = None,
+    project: Annotated[str | None, typer.Option()] = None,
+    variants: Annotated[int | None, typer.Option("--variants", "-n")] = None,
+    seed: Annotated[int | None, typer.Option()] = None,
+    format_: Annotated[str | None, typer.Option("--format")] = None,
+    tag: Annotated[list[str] | None, typer.Option("--tag", "-t")] = None,
+    key: Annotated[str | None, typer.Option()] = None,
+    description: Annotated[str | None, typer.Option()] = None,
+    status: Annotated[Status | None, typer.Option()] = None,
+    collection: Annotated[str | None, typer.Option()] = None,
+    new_take: Annotated[bool, typer.Option("--new-take")] = False,
+    json_: JsonOpt = False,
+) -> None:
+    """Synthesize one voice from a patch: oscillators (sine/triangle/square/pulse/saw/noise/pluck/fm), pitch
+    envelope, ADSR or point envelope, filter with cutoff envelope and resonance, vibrato, tremolo, drive, bits."""
+    from assetforge.audio.design import DesignRequest, generate_design
+
+    with session(ctx, json_) as s:
+        data = read_json_file(file)
+        if "patch" not in data:
+            data = {"patch": data}
+        data |= common_fields(name=name, project=project, variants=variants, seed=seed, format_=format_, tag=tag,
+                              key=key, description=description, status=status, collection=collection,
+                              new_take=new_take)  # fmt: skip
+        res = generate_design(s.lib, DesignRequest(**data))
+        s.out.emit(res, lambda c: render_engine_result(c, res, "Synthesized"))
+
+
 @audio_app.command("vary")
 def vary(
     ctx: typer.Context,
@@ -167,8 +291,14 @@ def vary(
     param: Annotated[list[str] | None, typer.Option("--param", "-p", help="Shift a base parameter name=value.")] = None,
     json_: JsonOpt = False,
 ) -> None:
-    """Add more variations to an existing procedural sound (same asset, new variants)."""
+    """Add more variations to an existing procedural sound, design, ambience or track (same asset, new takes)."""
     with session(ctx, json_) as s:
+        if _engine_made(s.lib, ref):
+            if param or variation is not None:
+                raise InvalidInputError("--param/--variation apply to recipe sounds; designs, ambience and music vary by seed")
+            res = pipeline.vary(s.lib, ref, variants=variants, seed=seed)
+            s.out.emit(res, lambda c: render_engine_result(c, res, "Added to"))
+            return
         result = vary_audio(
             s.lib, ref, variants=variants, variation=variation, seed=seed, params=parse_pairs(param or [], "--param")
         )
@@ -181,14 +311,14 @@ def reproduce(
     ref: Annotated[str, typer.Argument(help="Asset or variant to re-render.")],
     json_: JsonOpt = False,
 ) -> None:
-    """Re-render a procedural sound from its stored recipe and confirm it is bit-identical."""
+    """Re-render a procedural sound, design, ambience or music asset from its stored spec; confirm it is bit-identical."""
     with session(ctx, json_) as s:
-        report = reproduce_audio(s.lib, ref)
+        report = pipeline.reproduce(s.lib, ref) if _engine_made(s.lib, ref) else reproduce_audio(s.lib, ref)
 
         def human(c: Console) -> None:
             for v in report["variants"]:
                 mark = "[green]match[/green]" if v["match"] else "[red]DIFFERENT[/red]"
-                note = " (recipe version changed)" if v["recipe_version_changed"] else ""
+                note = " (recipe version changed)" if v.get("recipe_version_changed") or v.get("engine_version_changed") else ""
                 c.print(f"{v['label']:>6} {v['variant_id']}  {mark}{note}")
 
         s.out.emit({"reproduce": report}, human, status="ok" if report["ok"] else "error")
@@ -223,3 +353,68 @@ def analyze(
                     c.print(f"  [dim]{k:>20}[/dim]  {v}")
 
         s.out.emit({"path": str(path), "analysis": report}, human)
+
+
+# ---------------------------------------------------------------------- SoundFonts
+
+soundfont_app = typer.Typer(help="Optional realistic instruments for music: General MIDI SoundFonts via fluidsynth.",
+                            no_args_is_help=True)  # fmt: skip
+audio_app.add_typer(soundfont_app, name="soundfont")
+
+
+@soundfont_app.command("status")
+def soundfont_status(ctx: typer.Context, json_: JsonOpt = False) -> None:
+    """Is the SoundFont backend ready? Shows fluidsynth, the installed SoundFonts and what is missing."""
+    from assetforge.audio.music import soundfont
+
+    with session(ctx, json_) as s:
+        state = soundfont.status(s.lib.paths.home)
+
+        def human(c: Console) -> None:
+            mark = "[green]ready[/green]" if state["ready"] else "[yellow]not ready[/yellow] (music uses synth instruments)"
+            c.print(f"SoundFont backend: {mark}")
+            c.print(f"  fluidsynth: {state['fluidsynth'] or '-'}")
+            for name, font in state["installed"].items():
+                c.print(f"  {name}: {escape(font['title'])}  [dim]{font['license']}[/dim]")
+            for item in state["missing"]:
+                c.print(f"  [yellow]missing[/yellow] {escape(item)}")
+
+        s.out.emit({"soundfont": state}, human)
+
+
+@soundfont_app.command("install")
+def soundfont_install(
+    ctx: typer.Context,
+    name: Annotated[str, typer.Option(help="generaluser (default, ~30 MB) or fluidr3 (MIT), or your own label.")] = "generaluser",
+    url: Annotated[str | None, typer.Option(help="Download from this URL instead.")] = None,
+    file: Annotated[Path | None, typer.Option("--file", help="Use a local .sf2/.sf3 instead of downloading.")] = None,
+    license_: Annotated[str | None, typer.Option("--license", help="License of a --file/--url SoundFont.")] = None,
+    yes: Annotated[bool, typer.Option("--yes", help="Confirm the download (required; commands never prompt).")] = False,
+    json_: JsonOpt = False,
+) -> None:
+    """Install a SoundFont into the library (download needs --yes). It becomes the default for music."""
+    from assetforge.audio.music import soundfont
+
+    with session(ctx, json_) as s:
+        if file is not None:
+            if not file.is_file():
+                raise NotFoundError(f"File not found: {file}")
+            entry = soundfont.register(s.lib.paths.home, name, file.expanduser(), license_=license_ or "see source")
+        else:
+            known = soundfont.KNOWN.get(name, {})
+            if not yes:
+                raise InvalidInputError(f"Downloading {known.get('title', name)} from {url or known.get('url')} needs --yes",
+                                        hint="Re-run with --yes, or use --file with a SoundFont you already have")  # fmt: skip
+            entry = soundfont.install(s.lib.paths.home, name, url=url, license_=license_)
+        s.out.emit({"installed": entry, "status": soundfont.status(s.lib.paths.home)["ready"]},
+                   lambda c: c.print(f"Installed {entry['name']} ({entry['size_bytes'] // 1_000_000} MB) at {entry['path']}"))  # fmt: skip
+
+
+@soundfont_app.command("use")
+def soundfont_use(ctx: typer.Context, name: Annotated[str, typer.Argument()], json_: JsonOpt = False) -> None:
+    """Make an installed SoundFont the default."""
+    from assetforge.audio.music import soundfont
+
+    with session(ctx, json_) as s:
+        soundfont.set_default(s.lib.paths.home, name)
+        s.out.emit({"default": name}, lambda c: c.print(f"Default SoundFont: {name}"))

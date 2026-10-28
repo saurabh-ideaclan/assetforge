@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from assetforge.core import collections as coll
+from assetforge.core import db
 from assetforge.core.catalog import Library
 from assetforge.core.models import AssetPatch, ImportOptions, LineageRelation, NewAsset, Origin, Status
 from assetforge.errors import ConflictError, InvalidInputError, NotFoundError
@@ -19,7 +20,7 @@ def _import(lib, path, **options):
 
 def test_library_creates_layout_and_is_reopenable(home):
     with Library(home) as lib:
-        assert lib.info()["schema_version"] == 5
+        assert lib.info()["schema_version"] == db.SCHEMA_VERSION
     for sub in ("objects/sha256", "previews", "jobs", "styles", "collections", "exports", "tmp"):
         assert (home / sub).is_dir()
     assert (home / "catalog.sqlite3").is_file()

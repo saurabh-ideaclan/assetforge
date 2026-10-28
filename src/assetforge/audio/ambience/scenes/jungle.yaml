@@ -1,0 +1,36 @@
+name: jungle
+description: 'Dense humid jungle: insects, exotic birds, dripping leaves'
+tags:
+- jungle
+- rainforest
+- tropical
+- nature
+- outdoor
+- birds
+- humid
+space: outdoor
+beds:
+- bed: forest_air
+  level_db: -3
+  params:
+    rustle: 0.6
+- bed: insects_night
+  level_db: -6
+  params:
+    crickets: 6
+    cicada: 0.7
+events:
+- event: bird_chirp
+  rate: 20
+  distance: 0.4
+- event: songbird
+  rate: 5
+  distance: 0.4
+  pitch_jitter: 3
+- event: frog
+  rate: 6
+  distance: 0.5
+- event: drip
+  rate: 10
+  distance: 0.3
+  gain_db: -8

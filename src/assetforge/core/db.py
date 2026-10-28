@@ -300,9 +300,22 @@ SCHEMA_V5 = [
     """,
 ]
 
+# Audio features for discovery (audio/features.py) and per-game sound direction (sound.py).
+SCHEMA_V6 = [
+    "ALTER TABLE asset_files ADD COLUMN audio TEXT",
+    """
+    CREATE TABLE sound_profiles (
+        project    TEXT PRIMARY KEY,
+        direction  TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+]
+
 # Append (version, statements) pairs; never edit a migration that has shipped.
 MIGRATIONS: list[tuple[int, list[str]]] = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4),
-                                           (5, SCHEMA_V5)]  # fmt: skip
+                                           (5, SCHEMA_V5), (6, SCHEMA_V6)]  # fmt: skip
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 
 

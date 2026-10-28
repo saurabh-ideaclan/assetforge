@@ -1,0 +1,27 @@
+name: lava_cave
+description: 'Volcanic cave: magma rumble, thick bubbling, hissing vents'
+tags:
+- lava
+- volcano
+- magma
+- cave
+- fire
+- hell
+- underground
+space: cave
+beds:
+- bed: lava_bubble
+  level_db: 0
+- bed: cave_resonance
+  level_db: -8
+  params:
+    size: 0.8
+events:
+- event: steam_hiss
+  rate: 2
+  distance: 0.5
+  gain_db: -4
+- event: distant_boom
+  rate: 0.4
+  distance: 0.8
+  gain_db: -6

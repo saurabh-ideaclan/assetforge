@@ -1,0 +1,30 @@
+name: forest_day
+description: 'Sunny forest: leaves in a light breeze, songbirds near and far'
+tags:
+- forest
+- woods
+- day
+- nature
+- outdoor
+- birds
+- peaceful
+space: outdoor
+beds:
+- bed: forest_air
+  level_db: 0
+- bed: wind
+  level_db: -14
+  params:
+    strength: 0.25
+    howl: 0.0
+events:
+- event: bird_chirp
+  rate: 14
+  distance: 0.35
+- event: songbird
+  rate: 3
+  distance: 0.5
+- event: crow
+  rate: 0.5
+  distance: 0.8
+  gain_db: -4

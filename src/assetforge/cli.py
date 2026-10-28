@@ -27,6 +27,9 @@ from assetforge.cli_ops import register as register_ops_commands
 from assetforge.cli_report import register as register_report_commands
 from assetforge.cli_ui import register as register_ui_commands
 from assetforge.cli_discover import register as register_discover_commands
+from assetforge.cli_sound import sound_app
+from assetforge.cli_ambience import ambience_app
+from assetforge.cli_music import music_app
 from assetforge.cli_create import register as register_create_commands
 from assetforge.cli_process import register as register_process_commands
 from assetforge.cli_common import JsonOpt, parse_pairs, session
@@ -61,6 +64,9 @@ app.add_typer(style_app, name="style")
 app.add_typer(jobs_app, name="jobs")
 app.add_typer(art_app, name="art")
 app.add_typer(sprite_app, name="sprite")
+app.add_typer(sound_app, name="sound")
+app.add_typer(ambience_app, name="ambience")
+app.add_typer(music_app, name="music")
 
 def _version(value: bool) -> None:
     if value:
@@ -195,7 +201,12 @@ def search(
     aspect: Annotated[str | None, typer.Option(help="Aspect ratio W:H, e.g. 16:9 (±5%).")] = None,
     tone: Annotated[str | None, typer.Option(help="Overall brightness: dark, mid or light.")] = None,
     format_: Annotated[list[str] | None, typer.Option("--format", help="Primary file format: png, webp, svg… (repeatable).")] = None,
-    similar: Annotated[str | None, typer.Option(help="Rank by visual similarity to this asset (ignores the text query).")] = None,
+    similar: Annotated[str | None, typer.Option(help="Rank by similarity to this image or sound (ignores the text query).")] = None,
+    bpm: Annotated[float | None, typer.Option(help="Music/loop tempo (±8 bpm, see --bpm-tolerance).")] = None,
+    bpm_tolerance: Annotated[float, typer.Option(help="Allowed tempo difference.")] = 8.0,
+    key: Annotated[str | None, typer.Option(help="Musical key ('A minor') or just 'minor'/'major'.")] = None,
+    loopable: Annotated[bool | None, typer.Option("--loopable/--not-loopable", help="Seamless loops only (or exclude them).")] = None,
+    channels: Annotated[int | None, typer.Option(help="Audio channels: 1 mono, 2 stereo.")] = None,
     all_terms: Annotated[bool, typer.Option("--all-terms", help="Every query word must match.")] = False,
     min_coverage: Annotated[float, typer.Option(help="Drop hits matching less than this share of query words.")] = 0.0,
     limit: Annotated[int, typer.Option(help="Maximum results.")] = 20,
@@ -204,8 +215,10 @@ def search(
     """Find existing assets before generating new ones.
 
     Plain words match names, tags, descriptions, type, style, category, theme, genre, colour names and
-    technical words (transparent/opaque, landscape/portrait/square, dark/light, png/svg), e.g.
-    `search "transparent dark enemy sprite"`. Filters narrow further; `--similar ast_00012` ranks by look.
+    technical words (transparent/opaque, landscape/portrait/square, dark/light, png/svg; for sounds
+    loop, stereo, short/long, bright/dark, calm/busy, major/minor), e.g. `search "transparent dark enemy
+    sprite"` or `search "calm forest ambience loop"`. Filters narrow further (`--bpm 120 --key minor
+    --loopable`); `--similar ast_00012` ranks by look or sound.
     """
     with session(ctx, json_) as s:
         try:
@@ -216,7 +229,8 @@ def search(
                 max_duration_ms=max_duration_ms, min_width=min_width, min_height=min_height, max_width=max_width,
                 max_height=max_height, category=category, subcategory=subcategory, theme=theme, genre=genre,
                 origins=origin or [], colors=color or [], orientation=orientation, aspect=aspect, tone=tone,
-                formats=format_ or [], similar=similar, all_terms=all_terms, min_coverage=min_coverage, limit=limit,
+                formats=format_ or [], similar=similar, bpm=bpm, bpm_tolerance=bpm_tolerance, key=key,
+                loopable=loopable, channels=channels, all_terms=all_terms, min_coverage=min_coverage, limit=limit,
             )  # fmt: skip
         except ValueError as exc:
             raise InvalidInputError(str(exc)) from exc

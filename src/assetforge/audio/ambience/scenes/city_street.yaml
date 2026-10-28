@@ -1,0 +1,30 @@
+name: city_street
+description: 'City street: traffic, passers-by and distant activity'
+tags:
+- city
+- street
+- urban
+- traffic
+- town
+- people
+- outdoor
+- modern
+space: outdoor
+beds:
+- bed: traffic
+  level_db: 0
+  params:
+    cars_per_minute: 14
+- bed: crowd_murmur
+  level_db: -10
+  params:
+    voices: 5
+events:
+- event: footsteps_far
+  rate: 2
+  distance: 0.4
+  gain_db: -4
+- event: bird_chirp
+  rate: 2
+  distance: 0.7
+  gain_db: -8

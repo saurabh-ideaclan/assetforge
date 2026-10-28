@@ -1,0 +1,22 @@
+name: snow_blizzard
+description: 'Blizzard: howling wind and driven snow'
+tags:
+- snow
+- blizzard
+- winter
+- ice
+- arctic
+- storm
+- outdoor
+- cold
+space: outdoor
+beds:
+- bed: blizzard
+  level_db: 0
+  params:
+    strength: 0.8
+events:
+- event: creak
+  rate: 0.5
+  distance: 0.6
+  gain_db: -10

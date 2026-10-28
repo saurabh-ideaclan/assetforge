@@ -8,7 +8,7 @@ const FILTERS = [
   ["style", "styles", "Style"], ["category", "categories", "Category"], ["genre", "genres", "Genre"], ["theme", "themes", "Theme"],
   ["collection", "collections", "Collection"],
 ];
-const LOOK = ["color", "orientation", "tone", "transparent"];
+const LOOK = ["color", "orientation", "tone", "transparent", "loopable", "bpm", "key"];
 const COLORS = { red: "#e53935", orange: "#fb8c00", yellow: "#fdd835", green: "#43a047", teal: "#00897b", blue: "#1e88e5",
   purple: "#8e24aa", pink: "#ec407a", brown: "#795548", black: "#111111", white: "#f5f5f5", gray: "#9e9e9e" };
 const STATUS_TABS = [["", "All"], ["candidate", "To review"], ["approved", "Approved"], ["rejected", "Rejected"], ["archived", "Archive"]];
@@ -51,7 +51,14 @@ export async function assets(root, { rest, params }) {
   const toneSeg = segmented([["", "Any tone"], ["dark", "Dark"], ["mid", "Mid"], ["light", "Light"]], state.filters.tone || "", (v) => setFilter("tone", v));
   const alphaSeg = segmented([["", "Any background"], ["true", "Transparent"], ["false", "Opaque"]], state.filters.transparent || "",
     (v) => setFilter("transparent", v));
-  const panel = h("div.filter-panel", h("div.toolbar", selects), h("div.toolbar", colorRow, orientSeg, toneSeg, alphaSeg));
+  const loopSeg = segmented([["", "Any sound"], ["true", "Loops"], ["false", "One-shots"]], state.filters.loopable || "",
+    (v) => setFilter("loopable", v));
+  const bpmInput = h("input", { type: "number", min: 40, max: 240, placeholder: "BPM ±8", value: state.filters.bpm || "", style: "width:90px",
+    onchange: (e) => setFilter("bpm", e.target.value) });
+  const keyInput = h("input", { type: "text", placeholder: "Key: A minor / minor", value: state.filters.key || "", style: "width:150px",
+    onchange: (e) => setFilter("key", e.target.value.trim()) });
+  const panel = h("div.filter-panel", h("div.toolbar", selects), h("div.toolbar", colorRow, orientSeg, toneSeg, alphaSeg),
+    h("div.toolbar", h("span.lbl", "Sound"), loopSeg, bpmInput, keyInput));
   const activeChips = h("div.active-filters");
   const filterBtn = h("button.btn", { onclick: () => { panel.classList.toggle("open"); } }, "Filters");
   const groupBtn = h("button.btn", { title: "Frames cut from a sheet are shown inside the sheet; switch to see them as separate cards",
@@ -78,7 +85,8 @@ export async function assets(root, { rest, params }) {
     const entries = Object.entries(state.filters).filter(([k]) => k !== "status" && k !== "group");
     filterBtn.textContent = entries.length ? `Filters (${entries.length})` : "Filters";
     for (const [k, v] of entries) {
-      const label = k === "similar" ? `looks like ${v}` : k === "parent" ? `frames of ${v}` : k === "transparent" ? (v === "true" ? "transparent" : "opaque") : `${k}: ${v}`;
+      const label = k === "similar" ? `like ${v}` : k === "parent" ? `frames of ${v}` : k === "transparent" ? (v === "true" ? "transparent" : "opaque")
+        : k === "loopable" ? (v === "true" ? "loops" : "one-shots") : k === "bpm" ? `${v} bpm` : `${k}: ${v}`;
       activeChips.append(h("span.chip", label, h("button", { title: "Remove", onclick: () => setFilter(k, "") }, "×")));
     }
     if (entries.length) activeChips.append(h("button.btn.small", { onclick: () => { state.filters = state.filters.status ? { status: state.filters.status } : {};
@@ -407,7 +415,7 @@ function debounce(fn, ms) {
 
 // ---------------------------------------------------------------------- detail
 
-function renderDetail({ asset, lineage, job, usage, frames, can_regenerate: canRegenerate, siblings, parent_name: parentName }, { onClose, onChanged, onSimilar, onReviewed }) {
+function renderDetail({ asset, lineage, job, usage, frames, can_regenerate: canRegenerate, siblings, parent_name: parentName, sound }, { onClose, onChanged, onSimilar, onReviewed }) {
   let current = asset.primary_variant;
   const preview = h("div.preview");
   const variantList = h("div.variants");
@@ -421,8 +429,11 @@ function renderDetail({ asset, lineage, job, usage, frames, can_regenerate: canR
     if (variant.file.kind === "image") {
       preview.append(h("img", { src: fileUrl(variant.id), alt: asset.name }));
     } else if (variant.file.kind === "audio") {
-      preview.append(h("img", { src: thumbUrl(variant.id, 512), alt: "" }),
-        h("audio", { controls: true, src: fileUrl(variant.id), preload: "metadata" }));
+      const loops = !!asset.metadata.audio?.loop;
+      const player = h("audio", { controls: true, src: fileUrl(variant.id), preload: "metadata", loop: loops });
+      preview.append(h("img", { src: thumbUrl(variant.id, 512), alt: "" }), player,
+        h("label.help", h("input", { type: "checkbox", checked: loops, onchange: (e) => (player.loop = e.target.checked) }),
+          loops ? " loop (seamless: listen to the seam)" : " loop"));
     } else if (variant.file.kind === "vector") {
       preview.append(h("img", { src: thumbUrl(variant.id, 512), alt: asset.name }));
     } else {
@@ -540,6 +551,8 @@ function renderDetail({ asset, lineage, job, usage, frames, can_regenerate: canR
       anim.slice_report?.issues?.length ? h("div", anim.slice_report.issues.map((i) => h("span.issue.warn", i))) : null);
   }
 
+  const soundBlock = sound ? soundSection(sound, asset, dlRows) : [];
+
   const issues = qc ? [...qc.errors.map((e) => h("span.issue.err", e)), ...qc.warnings.map((w) => h("span.issue.warn", w))] : [];
   const nearDupes = qc?.near_duplicates?.length ? h("div.help", "Looks the same as: ", qc.near_duplicates.map((d) =>
     h("a", { href: `#/assets/${d.asset_id}`, style: "margin-right:6px" }, d.asset_id))) : null;
@@ -577,6 +590,7 @@ function renderDetail({ asset, lineage, job, usage, frames, can_regenerate: canR
       h("dl.facts", dlRows(facts)),
       asset.tags.length ? h("div", { style: "margin-top:10px" }, asset.tags.map((t) => h("a.tag", { href: `#/assets?q=${encodeURIComponent(t)}` }, t))) : null,
       animBlock,
+      soundBlock,
       asset.children ? [h("h3", h("span", `Frames (${asset.children})`), " ", h("a", { href: `#/assets?parent=${asset.id}`, style: "font-weight:400" }, "open as a list")), partsGrid] : "",
       qc ? [h("h3", "Quality checks"), issues.length ? issues : h("span.issue", "no issues"), nearDupes] : null,
       section("Edit details", editForm(asset, onChanged), { note: "name, category, genre, theme, tags" }),
@@ -771,6 +785,26 @@ function lineageBlock(graph) {
 }
 
 export { isAudio };
+
+// Designed sounds, ambience and music: musical facts, every take with its stems/versions, and the MIDI score.
+function soundSection(sound, asset, dlRows) {
+  const a = sound.audio || {};
+  const brief = sound.brief || {};
+  const facts = [["Engine", sound.engine.replace("assetforge-", "")], ["Tempo", a.bpm ? `${a.bpm} bpm` : null], ["Key", a.key],
+    ["Meter", a.meter], ["Bars", a.bars], ["Length", a.length_s ? `${(+a.length_s).toFixed(2)} s` : null],
+    ["Loop", a.loop ? `seamless, ${(+a.loop_start || 0).toFixed(2)}–${(+a.loop_end || 0).toFixed(2)} s` : null],
+    ["Scene", a.scene], ["Layers", a.layers?.join(", ")], ["Genre", brief.genre], ["Mood", brief.mood],
+    ["Energy", brief.energy != null ? brief.energy : null], ["Instruments", a.instruments?.join(", ")]];
+  const takes = sound.takes.map((t) => h("div.card.sub-card",
+    h("b", t.label.replace(/_(ogg|mp3|wav)$/, "")), " ", h("span.muted", `${((t.duration_ms || 0) / 1000).toFixed(2)} s`),
+    h("audio", { controls: true, src: fileUrl(t.variant_id), preload: "none", loop: !!a.loop, style: "width:100%" }),
+    Object.entries(t.extras || {}).map(([label, x]) => h("div.player", h("span.help", label.replace("stem_", "stem: ")),
+      h("audio", { controls: true, src: fileUrl(x.variant_id), preload: "none", loop: !!a.loop }))),
+    t.files?.midi ? h("a.help", { href: fileUrl(t.files.midi.variant_id), download: `${asset.name}_${t.label}.mid` }, "Download MIDI score") : null));
+  return [h("h3", asset.type === "music" ? "Music" : asset.type === "ambience" ? "Ambience" : "Sound design"),
+    h("dl.facts", dlRows(facts)), takes,
+    h("div.help", "Agents: `assetforge music edit|vary` or `audio vary` make new versions; `music score` prints the score.")];
+}
 
 function shapeFacts(file) {
   if (!file?.aspect) return null;

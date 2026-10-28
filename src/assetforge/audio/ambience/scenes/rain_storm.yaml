@@ -1,0 +1,25 @@
+name: rain_storm
+description: 'Heavy rainstorm: downpour, gusting wind, rolling thunder'
+tags:
+- rain
+- storm
+- thunder
+- weather
+- outdoor
+- dramatic
+space: outdoor
+beds:
+- bed: rain
+  level_db: 0
+  params:
+    heaviness: 0.9
+- bed: wind
+  level_db: -6
+  params:
+    strength: 0.7
+    howl: 0.3
+events:
+- event: thunder
+  rate: 1.2
+  distance: 0.4
+  pan: 0.6

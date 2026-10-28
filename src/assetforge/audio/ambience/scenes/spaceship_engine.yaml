@@ -1,0 +1,32 @@
+name: spaceship_engine
+description: 'Spaceship engine room: deep reactor drone and pulsing machinery'
+tags:
+- spaceship
+- engine
+- reactor
+- scifi
+- space
+- machine
+- indoor
+space: hall
+beds:
+- bed: machine_hum
+  level_db: 0
+  params:
+    hum_hz: 38
+    pulse_hz: 2.0
+    grit: 0.4
+- bed: space_drone
+  level_db: -4
+  params:
+    root_hz: 38
+    shimmer: 0.1
+events:
+- event: steam_hiss
+  rate: 1.5
+  distance: 0.5
+  gain_db: -6
+- event: metal_clank
+  rate: 1
+  distance: 0.6
+  gain_db: -10

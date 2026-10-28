@@ -1,0 +1,35 @@
+name: dungeon
+description: 'Dungeon: cold stone air, distant chains, drips and something growling
+  below'
+tags:
+- dungeon
+- crypt
+- prison
+- castle
+- underground
+- dark
+- spooky
+space: cave
+beds:
+- bed: cave_resonance
+  level_db: 0
+  params:
+    size: 0.4
+- bed: room_tone
+  level_db: -10
+events:
+- event: drip
+  rate: 6
+  distance: 0.5
+- event: metal_clank
+  rate: 1.2
+  distance: 0.7
+  gain_db: -6
+- event: monster_far
+  rate: 0.5
+  distance: 0.9
+  gain_db: -6
+- event: footsteps_far
+  rate: 0.4
+  distance: 0.8
+  gain_db: -8

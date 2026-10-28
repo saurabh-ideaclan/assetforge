@@ -6,7 +6,9 @@ generating anything new, and get stable IDs and file paths back as JSON.
 > Status: all six v1 phases are implemented: foundation, procedural audio, AI images, processing & QC, PixiJS
 > export, and multi-agent reliability (`request`, job queue, recovery, rate and spend limits). On top of that:
 > visual indexing and similarity search, reuse with automatic adaptation, art-style presets and per-game art
-> profiles, SVG/procedural assets, sprite-sheet slicing into aligned animations, and a capped review loop.
+> profiles, SVG/procedural assets, sprite-sheet slicing into aligned animations, a capped review loop, and
+> fully synthesized game audio: 80 sound-effect recipes plus layered designs and synth patches, seamless ambience
+> loops (24 scenes), and an original-music composer (17 genres, stingers, stems, intensity layers, MIDI).
 >
 > **Agents: run `assetforge guide --json` first.** It returns the workflow, commands, presets and request format.
 
@@ -16,13 +18,17 @@ Agents use the CLI. People can use **AssetForge.app**, a native macOS window wit
 
 - **Overview**: counts, spend, what's waiting for review (tiles link to the filtered views).
 - **Assets**: search plus filters by type, project, style, category, genre, theme, **colour, shape, tone and
-  transparency**, and "find similar". The detail panel has **review** (approve, reject, pick one of a batch),
+  transparency**, **loops/one-shots, BPM and key**, and "find similar" (looks or sounds). Music and ambience show
+  tempo, key, loop range, every take with its stems, and the MIDI score. The detail panel has **review** (approve, reject, pick one of a batch),
   editing of name/category/genre/theme/tags, **regenerate with feedback**, **slice a sheet into frames**, an
   **animation player** for sliced sheets, similar-looking assets, QC, lineage and usage. Keyboard: ← → move,
   A approve, X reject, F find similar, / search, Esc close.
 - **Generate**: images with a game, a style preset and art direction (mood, lighting, palette, avoid…), sprite
   sheets with per-cell poses and automatic slicing, and the exact prompt and cost before anything is spent.
-  Sound effects too.
+  **Sound**: effects (recipes by group with every parameter, or a layered design), **ambience** (scene, length,
+  intensity, day/night, a layer mixer, stems, calm/intense versions) and **music** (genre, mood, tempo, key,
+  length, energy, instruments per role, stems, intensity layers, stingers) with loop playback, stems and a
+  piano roll of the score.
 - **Art direction**: edit each game's art profile (with a live prompt preview and YAML import/export) and browse
   the presets.
 - **Usage & cost** and **Jobs**.
@@ -69,8 +75,9 @@ assetforge request --file ghoul.json --json             # do it
 `request` tries, in order: the project's existing asset under `key`; an identical earlier or in-flight request
 (joined, not repeated); a matching approved asset found by search (category, genre, theme and the game's art
 style break ties). A reused image is **adapted** to the requested `size`/`format`/`process` as a new variant; the
-original never changes. Only then does it generate: procedural audio for sounds (recipe and preset inferred from
-the description), AI images for visual types (with the game's art profile applied), or a file you made yourself
+original never changes. Only then does it generate: synthesized audio for `sfx`, `ambience` and `music` (engine
+settings inferred from the description, overridable with `"sound": {...}` or `--sound key=value`, and filled
+in from the game's sound profile), AI images for visual types (with the game's art profile applied), or a file you made yourself
 (`"method": "svg"`, `"file": "icon.svg"`). The reply has a `state` (`ready`, `needs_review`, `queued`, `dry_run`),
 `reused`/`reuse_reason`, `adapted`, `alternatives` (near misses), `near_duplicates`, the `asset_id` and paths.
 
@@ -148,35 +155,105 @@ assetforge review approve ast_00042 --note "matches style"
 | `report` | Token usage & cost overview for OpenAI/Gemini over a preset or custom date range (+ `--html`, `--csv`) |
 | `pricing show\|update\|set\|unset` | Model prices used for costing: fetched from the internet, overridable |
 
-## Procedural sound effects
+## Game audio: sound effects, ambience and music (all synthesized, free, offline)
 
-21 recipes: `ui_click ui_hover ui_confirm ui_cancel ui_error jump land bounce whoosh cartoon_hit punch crunch
-explosion hurt laser coin pickup power_up power_down victory failure`. Presets: `soft punchy retro cartoon heavy
-bright dark tiny spacious lofi`. Effects (Pedalboard): `reverb delay distortion bitcrush resample lowpass highpass
-chorus phaser compressor pitch_shift gain`.
+Everything is rendered locally with NumPy/SciPy and Pedalboard, seeded (same request + seed = bit-identical PCM;
+`audio reproduce` proves it), mastered to a loudness target per kind (SFX/stingers −14, music −16, ambience −24
+LUFS, −1 dBFS ceiling) and cataloged with searchable audio features (length, brightness, noisiness, busyness,
+estimated tempo and key, loopability). Agents normally just call `request`:
 
 ```bash
-assetforge audio generate --recipe cartoon_hit --preset soft --duration 0.35 --variants 5 --seed 42 --format ogg --json
-assetforge audio generate -r explosion -p size=0.9 -e reverb:room_size=0.6,wet_level=0.3 --key fx/boom
-assetforge audio generate --from ast_00012 -p crunch=0.8          # tweak an earlier sound, linked as derived_from
-assetforge audio generate --file beetle-hit.json --json           # JSON request; flags override its fields
-assetforge audio vary ast_00012 -n 3                              # more variants on the same asset
-assetforge audio reproduce ast_00012
+assetforge request --type sfx -d "heavy wooden door slam" --project crypt-run --json
+assetforge request --type ambience -d "rainy forest at night" --sound length=60 --sound stems=true --json
+assetforge request --type music -d "tense boss fight loop 140bpm in D minor" --sound intensity_layers='[0.3,0.9]' --json
+assetforge request --type music -d "victory jingle" --project crypt-run --json
 ```
 
-- Each request becomes **one asset** with variants `v1…vN`. Every variant has a 16-bit WAV master that stores its
-  recipe, version, parameters, effects and noise seed, plus a `vN_ogg`/`vN_mp3` copy when `--format` asks for it.
-  That copy becomes the primary file.
-- `--preset` sets the sound's character. `--style` is the art direction (e.g. `dark-fantasy`), as everywhere else.
-- **Reuse instead of regenerate.** Repeating a seeded request returns the earlier asset (`"reused": true,
-  "reuse_reason": "fingerprint"`). If a request renders exactly the same sound as an existing asset, that asset is
-  returned (`"identical_content"`). Pass `--new-variant` for a deliberately fresh take.
-- Generated assets start as `candidate`, are licensed as original procedural work (`commercial_use: allowed`),
-  and pass QC (no silence, no clipping, peak normalized to -1 dBFS) before they are stored.
+### Sound effects
 
-JSON request schema (all fields optional except `recipe`): `recipe preset params duration duration_ms effects
-variants variation seed format sample_rate peak_db new_variant name key description tags scope project style
-status collection`.
+80 recipes in 10 groups: UI (`ui_click … notification slider_tick swipe toggle typewriter countdown_tick level_up
+purchase`), rewards, motion, impacts, **weapons** (`gunshot` pistol…sniper/blaster, `reload sword_swing blade_hit
+bow_release arrow_impact shield_block`), **magic** (`spell_cast` by element, `charge_up heal buff debuff shield_up
+teleport sparkle curse freeze fire_burst lightning_zap`), **creatures** (formant voices: `growl roar squeak chirp hiss
+monster_hurt slime insect_buzz`), **machines** (`door lever gear_ratchet engine_rev servo alarm beep_sequence typing
+switch`), **foley** (`footstep` on 10 surfaces, `cloth pickup_item drop glass_break wood_break stone_crack splash
+bubble`) and **world** (`thunder gust water_drop fire_ignite rumble distant_boom`). Presets: `soft punchy retro
+cartoon heavy bright dark tiny spacious lofi realistic magical scifi horror underwater distant metallic organic muffled
+radio huge`. `audio recipes NAME` lists a recipe's parameters.
+
+```bash
+assetforge audio generate -r footstep -p surface=snow --variants 6 --seed 4 --format ogg   # round-robin set
+assetforge audio design -f boom.json      # layers: recipes and synth patches placed in time, panned, with effects
+assetforge audio patch -f zap.json        # one synth voice: oscillators/FM/noise/pluck, pitch + filter envelopes, LFOs
+assetforge audio vary ast_00012 -n 3      # more takes (works for recipes, designs, ambience and music)
+```
+
+A design is `{"layers": [{"recipe": "charge_up"}, {"recipe": "explosion", "start": 0.55, "gain_db": -3},
+{"patch": {...}, "start": 0.6, "pan": 0.3}], "space": "cave"}`. Each layer also takes `preset params pitch repeat
+interval effects`. When no recipe fits a description, `request` builds a patch from its words (low/high,
+rising/falling, metallic, noisy, soft, short/long…) and says so (`"inferred": "patch"`).
+
+### Ambience
+
+24 scenes (`ambience scenes`): forests day/night, jungle, meadow, swamp, light rain, storm, ocean shore, river,
+underwater, desert, blizzard, cave, dungeon, lava cave, haunted house, tavern, city street, factory, space station,
+engine room, sci-fi lab, deep space, campfire. They combine 18 **beds** (continuous textures: wind, rain, water,
+waves, fire, crowds, traffic, machines, drones, insects…) with 25 **events** (birds, owls, frogs, drips, thunder,
+creaks, howls, chimes, bells, radio chatter, footsteps, clanks…) scattered by a seeded Poisson process.
+
+```bash
+assetforge ambience generate forest_day --time night --length 90 --intensity 0.7 --json
+assetforge ambience generate cave --stems --intensity-level 0.2 --intensity-level 0.9 --level drip=-6 --mute bat_squeak
+assetforge ambience generate --layers-file my_layers.yaml --space hall     # fully custom beds/events
+```
+
+Loops are exactly `length` seconds and seamless: beds crossfade past the seam, event tails and reverb wrap around.
+`--stems` stores each layer as its own loop (they sum to the mix), `--intensity-level` adds matched calm/intense
+loops for adaptive mixing. Add scenes by dropping YAML into `$ASSETFORGE_HOME/scenes/`.
+
+### Music
+
+A seeded rule-based composer writes a `Score` (melody from developed motifs over genre progressions, accompaniment,
+bass, drum grooves with fills), then 30 synth instruments and 4 drum kits play it. 17 genres (`music genres`):
+chiptune, synthwave, orchestral_adventure, epic_battle, boss_fight, action, fantasy_village, ambient_drone, lofi,
+puzzle_casual, jazz_lounge, rock, horror, mystery, sci_fi, menu_theme, credits. Forms: `loop` (seamless, exact bars),
+`linear` (intro → A → B → outro) and `stinger` (`victory defeat level_up game_over discovery danger collect`).
+
+```bash
+assetforge music compose --genre synthwave --mood tense --seconds 60 --stems --intensity-layer 0.2 --intensity-layer 0.9
+assetforge music compose --stinger victory --genre chiptune
+assetforge music compose --genre fantasy_village -i melody=flute -i harmony=harp --key "G major" --tempo 96
+assetforge music score ast_00031 --midi theme.mid          # the score as JSON (edit it) and/or MIDI
+assetforge music render --score theme.json | --midi theme.mid [--loop]
+assetforge music edit ast_00031 --tempo 120 --key "E minor" -i melody=brass --mute drums
+assetforge music vary ast_00031 --keep chords              # new melody, same chords (or --keep melody: new arrangement)
+```
+
+`energy` decides how many layers play and how busy they are without changing the tune, which is how matched
+calm/explore/combat versions line up. Every take stores its score (JSON in the take, `.mid` variant).
+
+**Realistic instruments (optional):** `brew install fluid-synth`, then `assetforge audio soundfont install --yes`
+(GeneralUser GS, free for commercial use; or `--name fluidr3`, or `--file my.sf2`). Music then plays through the
+SoundFont (`--backend auto`, the default; `synth` or `soundfont` to force). The SoundFont's hash is part of each
+request, so reproduction notices a different one. `audio soundfont status` says what is missing.
+
+### Sound profiles and search
+
+```bash
+assetforge sound profile set crypt-run --genre horror --mood tense --space cave --key "D minor" --tempo 70 --tempo 110 \
+  --instrument strings --instrument choir --sfx-preset horror
+assetforge search "calm forest ambience loop" --loopable --json
+assetforge search --type music --bpm 120 --key minor --json
+assetforge similar ast_00031          # sounds like this one
+```
+
+A profile can also live under `sound:` in the game's art profile YAML. Export writes `sounds.json` with
+`loop/loopStart/loopEnd`, `bpm/key/meter/bars`, `extras` (stems, intensity versions) and, with `--audio-takes`,
+round-robin `variations`; `--audio-sprite NAME` packs short sounds into one OGG plus a Howler sprite JSON. Use OGG
+for loops (MP3 encoders add padding that breaks gapless looping).
+
+Limits: no speech or vocals (crowds murmur, radios chatter unintelligibly); synthesized, not recorded, so foley
+is close to real rather than identical; the composer writes good game loops, not hit songs.
 
 ### Search semantics
 
@@ -264,7 +341,8 @@ avoid: [childish_shapes, toy_like_objects, generic_cubes]
 `assetforge methods` lists each method with what it suits and its limits: **AI images** (illustration,
 backgrounds, characters; paid, drifts between calls), **edits** (new poses of an existing design), **SVG**
 (icons/UI the agent writes itself; crisp, not painterly), **procedural images** (patterns, particles from the
-agent's own script), **processing** (resize/recolour/crop), **sprite slicing/assembly**, and **procedural audio**.
+agent's own script), **processing** (resize/recolour/crop), **sprite slicing/assembly**, **procedural audio**,
+**sound design** (layers/patches), **ambience**, the **music composer**, **scores/MIDI** and the optional **SoundFont**.
 
 ```bash
 assetforge add heart.svg --method svg --type icon --size 256 -d "red heart health icon" --project crypt-run

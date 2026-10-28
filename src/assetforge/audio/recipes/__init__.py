@@ -1,6 +1,17 @@
 """The SFX recipe registry. Importing this package registers every built-in recipe."""
 
-from assetforge.audio.recipes import impact, motion, reward, ui  # noqa: F401  (registration side effects)
+from assetforge.audio.recipes import (  # noqa: F401  (registration side effects)
+    creatures,
+    foley,
+    impact,
+    magic,
+    mechanical,
+    motion,
+    reward,
+    ui,
+    weapons,
+    world,
+)
 from assetforge.audio.recipes.base import (
     PRESETS,
     RECIPES,

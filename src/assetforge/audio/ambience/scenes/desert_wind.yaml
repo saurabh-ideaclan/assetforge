@@ -1,0 +1,21 @@
+name: desert_wind
+description: 'Open desert: dry wind and blowing sand'
+tags:
+- desert
+- sand
+- dunes
+- dry
+- wasteland
+- outdoor
+- heat
+space: outdoor
+beds:
+- bed: desert_wind
+  level_db: 0
+  params:
+    strength: 0.45
+events:
+- event: crow
+  rate: 0.3
+  distance: 0.9
+  gain_db: -8

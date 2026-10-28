@@ -6,6 +6,7 @@ from typing import Annotated, Any
 
 import typer
 
+from assetforge.audio import features as audio_features
 from assetforge.cli_common import JsonOpt, session
 from assetforge.core import visual
 from assetforge.core.models import SearchHit
@@ -21,10 +22,13 @@ def register(app: typer.Typer) -> None:
         include_rejected: Annotated[bool, typer.Option("--include-rejected", help="Also show rejected/archived.")] = False,
         json_: JsonOpt = False,
     ) -> None:
-        """Assets that look like REF (shape, layout and colour mix), best first. `distance` ≤ 6 is near-identical."""
+        """Assets like REF, best first: images by shape, layout and colour mix (`distance` ≤ 6 is near-identical);
+        sounds by length, brightness, noisiness, busyness, loudness and tempo."""
+        from assetforge.core.search import _similar
+
         with session(ctx, json_) as s:
             where = "1" if include_rejected else "a.status IN ('approved', 'candidate')"
-            ranked = visual.similar(s.lib, ref, limit=limit, where=where)
+            ranked = _similar(s.lib, ref, limit=limit, where=where)
             summaries = {a.id: a for a in s.lib.summaries([i for i, _, _ in ranked])}
             hits = [SearchHit(**summaries[i].model_dump(), score=score) for i, score, _ in ranked]
             results = [{**h.model_dump(mode="json"), "distance": d} for h, (_, _, d) in zip(hits, ranked, strict=True)]
@@ -58,14 +62,19 @@ def register(app: typer.Typer) -> None:
         = True,
         json_: JsonOpt = False,
     ) -> None:
-        """Fill in visual features for older files and rebuild the search index. Safe to run any time."""
+        """Fill in image and sound features for older files and rebuild the search index. Safe to run any time."""
         with session(ctx, json_) as s:
             missing_sql = "SELECT sha256 FROM asset_files WHERE dhash IS NULL AND kind IN ('image', 'vector')"
             missing = [r[0] for r in s.lib.conn.execute(missing_sql)] if visual_ else []
             for sha in missing:
                 visual.ensure_features(s.lib, sha)
             computed = len(missing) - len(s.lib.conn.execute(missing_sql).fetchall()) if missing else 0
+            audio_missing = [r[0] for r in s.lib.conn.execute(
+                "SELECT sha256 FROM asset_files WHERE audio IS NULL AND kind = 'audio'")] if visual_ else []  # fmt: skip
+            audio_computed = sum(audio_features.ensure_features(s.lib, sha) for sha in audio_missing)
             indexed = s.lib.rebuild_fts()
-            data = {"visual_features_computed": computed, "assets_indexed": indexed}
+            data = {"visual_features_computed": computed, "audio_features_computed": audio_computed,
+                    "assets_indexed": indexed}  # fmt: skip
             s.out.emit({"reindex": data},
-                       lambda c: c.print(f"Indexed {indexed} asset(s); computed visual features for {computed} file(s)."))  # fmt: skip
+                       lambda c: c.print(f"Indexed {indexed} asset(s); computed features for {computed} image(s) "
+                                         f"and {audio_computed} sound(s)."))  # fmt: skip

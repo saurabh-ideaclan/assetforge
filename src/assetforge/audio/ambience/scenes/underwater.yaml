@@ -1,0 +1,21 @@
+name: underwater
+description: 'Underwater: muffled pressure, distant movement, rising bubbles'
+tags:
+- underwater
+- ocean
+- sea
+- deep
+- diving
+- aquatic
+space: underwater
+beds:
+- bed: underwater
+  level_db: 0
+events:
+- event: bubble
+  rate: 10
+  distance: 0.2
+- event: metal_clank
+  rate: 0.3
+  distance: 0.9
+  gain_db: -10

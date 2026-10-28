@@ -1,0 +1,29 @@
+name: forest_night
+description: 'Forest at night: crickets, an owl, a far-off howl'
+tags:
+- forest
+- woods
+- night
+- nature
+- outdoor
+- spooky
+space: outdoor
+beds:
+- bed: forest_air
+  level_db: -6
+  params:
+    rustle: 0.3
+- bed: insects_night
+  level_db: -2
+events:
+- event: owl
+  rate: 1.5
+  distance: 0.6
+- event: distant_howl
+  rate: 0.4
+  distance: 0.85
+  gain_db: -3
+- event: creak
+  rate: 0.6
+  distance: 0.5
+  gain_db: -8

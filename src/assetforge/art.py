@@ -252,6 +252,7 @@ def parse_profile_yaml(text: str) -> tuple[str | None, ArtDirection]:
     if not isinstance(data, dict):
         raise InvalidInputError("An art profile must be a YAML mapping")
     project = data.pop("game", None) or data.pop("project", None)
+    data.pop("sound", None)  # a profile file may also carry the game's sound direction (sound.py)
     try:
         return (str(project) if project else None), ArtDirection(**data)
     except ValidationError as exc:

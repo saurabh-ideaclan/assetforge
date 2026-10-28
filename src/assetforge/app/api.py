@@ -98,6 +98,10 @@ def _filters(req: Request) -> BrowseFilters:
         theme=req.arg("theme"), color=req.arg("color"), orientation=req.arg("orientation"), tone=req.arg("tone"),
         transparent={"true": True, "false": False}.get(req.arg("transparent") or ""), similar=req.arg("similar"),
         group=req.arg("group", "true") != "false", parent=req.arg("parent"),
+        bpm=float(req.arg("bpm")) if req.arg("bpm") else None, key=req.arg("key"),
+        loopable={"true": True, "false": False}.get(req.arg("loopable") or ""),
+        channels=req.int_arg("channels", 0) or None,
+        min_duration_ms=req.int_arg("min_duration_ms", 0) or None, max_duration_ms=req.int_arg("max_duration_ms", 0) or None,
     )  # fmt: skip
 
 
@@ -140,8 +144,22 @@ def asset_detail(req: Request, lib: Library) -> dict[str, Any]:
                   and summaries[f["asset_id"]].primary_variant]  # fmt: skip
     return {"asset": _dump(asset), "lineage": lineage.lineage(lib, asset.id), "job": job, "usage": usage,
             "frames": frames, "can_regenerate": generator.get("engine") == "ai-image" and bool(generator.get("job_id")),
-            "siblings": review.siblings(lib, asset.id),
+            "siblings": review.siblings(lib, asset.id), "sound": _sound_detail(lib, asset),
             "parent_name": lib.get_asset(asset.parent_asset_id).name if asset.parent_asset_id else None}  # fmt: skip
+
+
+def _sound_detail(lib: Library, asset: Any) -> dict[str, Any] | None:
+    """Takes, stems/intensity versions, loop facts and the score summary of designed sounds, ambience and music."""
+    from assetforge.audio import pipeline
+
+    engines = pipeline.load_engines()
+    generator = asset.metadata.get("generator") or {}
+    if generator.get("engine") not in engines:
+        return None
+    res = pipeline.result(lib, asset.id, reused=False)
+    spec = generator.get("spec") or {}
+    return {"engine": generator["engine"], "audio": res["audio"], "takes": res["variants"],
+            "brief": spec.get("compose"), "scene": spec.get("scene"), "loop": generator.get("loop", False)}  # fmt: skip
 
 
 # ---------------------------------------------------------------------- asset actions
@@ -429,6 +447,55 @@ def audio_recipes(req: Request, lib: Library) -> dict[str, Any]:
         "presets": [{"name": n, "description": p.get("description", "")} for n, p in sorted(PRESETS.items())],
         "effects": [e.to_dict() for e in EFFECTS.values()],
     }
+
+
+@router.route("GET", "/api/sound/options")
+def sound_options(req: Request, lib: Library) -> dict[str, Any]:
+    """Everything the Sound tab offers: recipes by category, scenes and layers, genres, instruments, spaces."""
+    from assetforge import sound
+    from assetforge.audio.ambience import engine as ambience
+    from assetforge.audio.music import composer, instruments, soundfont
+
+    return {
+        "recipes": [r.to_dict() for r in sorted(RECIPES.values(), key=lambda r: r.name)],
+        "presets": [{"name": n, "description": p.get("description", "")} for n, p in sorted(PRESETS.items())],
+        "effects": [e.to_dict() for e in EFFECTS.values()],
+        "scenes": [ambience.scene_dict(sc) for sc in ambience.scenes(lib).values()],
+        "layers": ambience.catalog(),
+        "genres": composer.catalog(), "stingers": list(composer.STINGERS),
+        "instruments": instruments.catalog(), "spaces": list(sound.SPACES),
+        "profiles": [{"project": p.project, "sound": p.direction.model_dump(mode="json", exclude_defaults=True)}
+                     for p in sound.list_profiles(lib)],
+        "soundfont": {k: v for k, v in soundfont.status(lib.paths.home).items() if k in ("ready", "missing", "soundfont")},
+    }  # fmt: skip
+
+
+def _engine_request(model: Any, body: dict[str, Any]) -> Any:
+    try:
+        return model(**body)
+    except ValueError as exc:
+        raise InvalidInputError(str(exc)) from exc
+
+
+@router.route("POST", "/api/generate/design")
+def generate_design_route(req: Request, lib: Library) -> dict[str, Any]:
+    from assetforge.audio.design import DesignRequest, generate_design
+
+    return {"result": generate_design(lib, _engine_request(DesignRequest, req.body or {}))}
+
+
+@router.route("POST", "/api/generate/ambience")
+def generate_ambience_route(req: Request, lib: Library) -> dict[str, Any]:
+    from assetforge.audio.ambience.engine import AmbienceRequest, generate_ambience
+
+    return {"result": generate_ambience(lib, _engine_request(AmbienceRequest, req.body or {}))}
+
+
+@router.route("POST", "/api/generate/music")
+def generate_music_route(req: Request, lib: Library) -> dict[str, Any]:
+    from assetforge.audio.music.generate import MusicRequest, generate_music
+
+    return {"result": generate_music(lib, _engine_request(MusicRequest, req.body or {}))}
 
 
 @router.route("GET", "/api/image/options")

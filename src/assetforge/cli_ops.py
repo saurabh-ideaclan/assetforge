@@ -73,7 +73,7 @@ def register(app: typer.Typer) -> None:
     def request_command(
         ctx: typer.Context,
         file: Annotated[Path | None, typer.Option("--file", "-f", help="JSON request ('-' reads stdin).")] = None,
-        type_: Annotated[AssetType | None, typer.Option("--type", help="sfx, character, sprite, background, icon…")] = None,
+        type_: Annotated[AssetType | None, typer.Option("--type", help="sfx, ambience, music, character, sprite, background, icon…")] = None,
         description: Annotated[str | None, typer.Option("--description", "-d", help="What you need.")] = None,
         project: Annotated[str | None, typer.Option(help="Your game/project (records usage).")] = None,
         key: Annotated[str | None, typer.Option(help="How your project refers to it, e.g. enemy/beetle/hit.")] = None,
@@ -92,6 +92,8 @@ def register(app: typer.Typer) -> None:
         format_: Annotated[str | None, typer.Option("--format", help="Output format (ogg/mp3/wav, png/webp).")] = None,
         process: Annotated[str | None, typer.Option(help="Post-processing preset, e.g. web-sprite or web-sfx.")] = None,
         provider: Annotated[str | None, typer.Option(help="Image provider (openai, gemini, auto).")] = None,
+        sound: Annotated[list[str] | None, typer.Option("--sound", help="Sound engine option name=value (repeatable; JSON values "
+                                                                        "allowed), e.g. scene=cave, tempo=140, stems=true.")] = None,
         async_: Annotated[bool, typer.Option("--async", help="Queue it for `assetforge worker` and return at once.")] = False,
         wait_seconds: Annotated[float | None, typer.Option(help="Max wait for an identical in-flight request.")] = None,
         json_: JsonOpt = False,
@@ -123,6 +125,17 @@ def register(app: typer.Typer) -> None:
                 from assetforge.art import read_direction_file
 
                 data["art"] = {**data.get("art", {}), **read_direction_file(art_file).model_dump(exclude_defaults=True)}
+            if sound:
+                options = dict(data.get("sound", {}))
+                for pair in sound:
+                    name, sep, value = pair.partition("=")
+                    if not sep:
+                        raise InvalidInputError(f"--sound {pair!r} must look like name=value")
+                    try:
+                        options[name.strip()] = json.loads(value)
+                    except json.JSONDecodeError:
+                        options[name.strip()] = value
+                data["sound"] = options
             for required in ("type", "description"):
                 if required not in data:
                     raise InvalidInputError(f"A request needs `{required}`")

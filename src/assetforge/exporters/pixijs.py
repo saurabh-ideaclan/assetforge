@@ -43,7 +43,21 @@ def manifest(
 
 
 def sounds(entries: list[dict[str, Any]]) -> dict[str, Any]:
-    return {"sounds": [{"alias": s["alias"], "src": s["paths"]} for s in sorted(entries, key=lambda s: s["alias"])]}
+    """Each sound: alias and sources, plus loop points (seconds), music facts, stems/intensity versions
+    (`extras`, same length and timing as the main file) and round-robin `variations` when exported."""
+    out = []
+    for s in sorted(entries, key=lambda s: s["alias"]):
+        item: dict[str, Any] = {"alias": s["alias"], "src": s["paths"]}
+        if s.get("loop"):
+            item |= {"loop": True, "loopStart": s["loop"]["start"], "loopEnd": s["loop"]["end"]}
+        if s.get("music"):
+            item |= s["music"]
+        if s.get("extras"):
+            item["extras"] = s["extras"]
+        if s.get("variations"):
+            item["variations"] = s["variations"]
+        out.append(item)
+    return {"sounds": out}
 
 
 def typescript(bundle: str, *, textures: list[str], frames: list[str], animations: dict[str, list[str]],

@@ -153,7 +153,15 @@ def profile_set(
         if reference:
             data["references"] = [*data.get("references", []), *reference]
         profile = art.set_profile(s.lib, project, art.ArtDirection(**data), replace=replace)
-        s.out.emit({"profile": _profile_dict(profile)}, lambda c: c.print(art.profile_yaml(profile)))
+        out: dict[str, Any] = {"profile": _profile_dict(profile)}
+        if file is not None and "sound" in (text := file.read_text()):
+            from assetforge import sound
+
+            _, sound_direction = sound.parse_profile_yaml(text)
+            if sound_direction is not None and "sound:" in text:
+                saved = sound.set_profile(s.lib, profile.project, sound_direction, replace=replace)
+                out["sound_profile"] = saved.direction.model_dump(mode="json", exclude_defaults=True)
+        s.out.emit(out, lambda c: c.print(art.profile_yaml(profile)))
 
 
 @profile_app.command("show")

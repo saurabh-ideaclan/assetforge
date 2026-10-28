@@ -120,6 +120,7 @@ class Recipe:
             "name": self.name,
             "description": self.description,
             "type": self.type.value,
+            "category": self.render.__module__.rsplit(".", 1)[-1],
             "version": self.version,
             "tags": list(self.tags),
             "default_duration": self.duration,
@@ -150,6 +151,38 @@ PRESETS: dict[str, dict[str, Any]] = {
     "lofi": {"description": "Dull, crunchy, low fidelity", "params": {},
              "effects": [{"name": "lowpass", "params": {"cutoff_hz": 3500}},
                          {"name": "bitcrush", "params": {"bit_depth": 8}}]},  # fmt: skip
+    "realistic": {"description": "Natural, unexaggerated, in a small room", "params": {"wobble": 0.0},
+                  "effects": [{"name": "reverb", "params": {"room_size": 0.2, "damping": 0.6, "wet_level": 0.08,
+                                                            "dry_level": 0.95}}]},  # fmt: skip
+    "magical": {"description": "Shimmering, chorused, airy", "params": {"brightness": 0.2, "sparkle": 0.8},
+                "effects": [{"name": "chorus", "params": {"rate_hz": 0.8, "depth": 0.3, "mix": 0.4}},
+                            {"name": "reverb", "params": {"room_size": 0.6, "wet_level": 0.3}}]},  # fmt: skip
+    "scifi": {"description": "Synthetic, phased, futuristic", "params": {"wave": "saw"},
+              "effects": [{"name": "phaser", "params": {"rate_hz": 2.5, "depth": 0.6, "mix": 0.5}},
+                          {"name": "delay", "params": {"delay_seconds": 0.07, "feedback": 0.3, "mix": 0.2}}]},  # fmt: skip
+    "horror": {"description": "Low, unsettling, cavernous", "params": {"pitch": -5, "brightness": -0.3},
+               "effects": [{"name": "distortion", "params": {"drive_db": 4}},
+                           {"name": "reverb", "params": {"room_size": 0.9, "damping": 0.3, "wet_level": 0.35}}]},  # fmt: skip
+    "underwater": {"description": "Muffled and wobbly, as heard underwater", "params": {},
+                   "effects": [{"name": "lowpass", "params": {"cutoff_hz": 700}},
+                               {"name": "chorus", "params": {"rate_hz": 0.4, "depth": 0.6, "mix": 0.5}}]},  # fmt: skip
+    "distant": {"description": "Far away: duller, quieter, more room", "params": {},
+                "effects": [{"name": "lowpass", "params": {"cutoff_hz": 2500}},
+                            {"name": "reverb", "params": {"room_size": 0.7, "wet_level": 0.4, "dry_level": 0.5}},
+                            {"name": "gain", "params": {"gain_db": -6}}]},  # fmt: skip
+    "metallic": {"description": "Ringing, resonant metal", "params": {"brightness": 0.25},
+                 "effects": [{"name": "delay", "params": {"delay_seconds": 0.012, "feedback": 0.7, "mix": 0.35}}]},  # fmt: skip
+    "organic": {"description": "Soft, natural, unprocessed tone", "params": {"brightness": -0.15, "wave": "sine"},
+                "effects": []},  # fmt: skip
+    "muffled": {"description": "Behind a wall or under a blanket", "params": {},
+                "effects": [{"name": "lowpass", "params": {"cutoff_hz": 1100}}]},  # fmt: skip
+    "radio": {"description": "Through a radio or old speaker", "params": {},
+              "effects": [{"name": "highpass", "params": {"cutoff_hz": 450}},
+                          {"name": "lowpass", "params": {"cutoff_hz": 3200}},
+                          {"name": "distortion", "params": {"drive_db": 10}}]},  # fmt: skip
+    "huge": {"description": "Enormous: lower, heavier, with a long tail", "params": {"pitch": -5, "size": 1.0},
+             "effects": [{"name": "compressor", "params": {"threshold_db": -24, "ratio": 5}},
+                         {"name": "reverb", "params": {"room_size": 0.85, "wet_level": 0.3}}]},  # fmt: skip
 }
 
 RECIPES: dict[str, Recipe] = {}

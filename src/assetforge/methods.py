@@ -69,7 +69,52 @@ METHODS: list[dict[str, Any]] = [
     {
         "name": "audio_procedural",
         "command": "assetforge request --type sfx -d 'soft coin pickup' (or audio generate RECIPE)",
-        "good_for": ["UI clicks, pickups, hits, jumps, explosions, alerts (21 recipes, seeded and free)"],
-        "limits": ["sound effects only, no music or voice; import licensed music instead"],
+        "good_for": ["80 seeded, free sound-effect recipes: UI, pickups, jumps, hits, explosions, weapons, magic, "
+                     "creatures, machines, doors, footsteps on 10 surfaces, foley, weather one-shots"],
+        "limits": ["no speech or vocals", "synthesized, not recorded: close to real foley, not identical"],
+        "tips": "Presets (soft, retro, heavy, magical, scifi, horror, underwater, distant, radio, huge…) change the "
+                "character; `audio vary` adds seeded variations for round-robin playback.",
+    },
+    {
+        "name": "sound_design",
+        "command": "assetforge audio design -f design.json (layers of recipes and synth patches) | audio patch -f patch.json",
+        "good_for": ["any sound no recipe covers: layer recipes in time (charge + impact + debris)",
+                     "custom synth voices: oscillators, FM, noise, plucks, pitch/filter envelopes, vibrato, drive"],
+        "limits": ["you describe the sound as data; `request` builds a simple patch from words when no recipe fits"],
+    },
+    {
+        "name": "audio_ambience",
+        "command": "assetforge ambience generate forest_night --length 60 [--stems --intensity-level 0.2 "
+                   "--intensity-level 1] (or request --type ambience -d 'rainy forest at night')",
+        "good_for": ["seamless environment loops: weather, nature, caves, dungeons, towns, taverns, factories, "
+                     "space stations, underwater (24 scenes, 18 beds, 25 events)",
+                     "stems per layer and matched calm/intense versions for adaptive mixing"],
+        "limits": ["textures and sparse events, not recorded field audio", "no intelligible speech (crowds murmur)"],
+    },
+    {
+        "name": "music_composer",
+        "command": "assetforge music compose --genre synthwave --mood tense --seconds 60 [--stems "
+                   "--intensity-layer 0.2 --intensity-layer 0.9] | music compose --stinger victory "
+                   "(or request --type music -d 'calm fantasy village loop')",
+        "good_for": ["original loops, linear cues and stingers in 17 genres (chiptune, synthwave, orchestral, "
+                     "battle, boss, village, ambient, lo-fi, puzzle, jazz, rock, horror, mystery, sci-fi, menu, credits)",
+                     "stems and matched energy layers sharing tempo, key and tune"],
+        "limits": ["rule-based: memorable loops, not hit songs", "no vocals",
+                   "acoustic instruments sound synthetic unless a SoundFont is installed"],
+        "tips": "Set a sound profile (genre, key, tempo, instruments) so a game's tracks match; `music vary --keep "
+                "chords|melody` and `music edit` refine a piece without starting over.",
+    },
+    {
+        "name": "music_score",
+        "command": "assetforge music render --score score.json | --midi theme.mid",
+        "good_for": ["exact music you (or an agent) wrote note by note", "existing MIDI files",
+                     "editing a composed piece: `music score REF` → edit JSON → render"],
+        "limits": ["you choose every note"],
+    },
+    {
+        "name": "soundfont",
+        "command": "brew install fluid-synth && assetforge audio soundfont install --yes",
+        "good_for": ["realistic piano, strings, brass, guitars, choirs and drum kits for music"],
+        "limits": ["optional system program and a ~30 MB download; without them music uses synth instruments"],
     },
 ]

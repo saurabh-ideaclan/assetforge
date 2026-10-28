@@ -45,6 +45,9 @@ def register(app: typer.Typer) -> None:
         layout: Annotated[str, typer.Option(help="by-type (characters/beetle.png) or flat (beetle.png); keys always win.")] = "by-type",
         image_format: Annotated[list[str] | None, typer.Option("--image-format", help="webp and/or png (default both).")] = None,
         audio_format: Annotated[list[str] | None, typer.Option("--audio-format", help="ogg, mp3, wav (default ogg + mp3).")] = None,
+        no_audio_extras: Annotated[bool, typer.Option("--no-audio-extras", help="Skip stems and intensity versions of ambience/music.")] = False,
+        audio_takes: Annotated[bool, typer.Option("--audio-takes", help="Also export every take (v2, v3…) for round-robin playback.")] = False,
+        audio_sprite: Annotated[str | None, typer.Option("--audio-sprite", help="Also pack short sounds into NAME.ogg + NAME.json (Howler sprite).")] = None,
         max_image_size: Annotated[int | None, typer.Option(help="Downscale larger images to fit this box.")] = None,
         atlas: Annotated[str | None, typer.Option(help="Pack characters/sprites/icons/UI/effects into an atlas with this name.")] = None,
         atlas_max_size: Annotated[int, typer.Option(help="Maximum atlas page size.")] = 2048,
@@ -65,7 +68,7 @@ def register(app: typer.Typer) -> None:
                 out=str(out), refs=refs or [], collection=collection, project=project, query=query, types=type_ or [],
                 include_candidates=include_candidates, allow_restricted=allow_restricted, layout=layout,  # type: ignore[arg-type]
                 image_formats=image_format or ["webp", "png"], audio_formats=audio_format or ["ogg", "mp3"],
-                max_image_size=max_image_size, atlas=atlas, atlas_max_size=atlas_max_size, atlas_padding=atlas_padding,
+                audio_extras=not no_audio_extras, audio_takes=audio_takes, audio_sprite=audio_sprite, max_image_size=max_image_size, atlas=atlas, atlas_max_size=atlas_max_size, atlas_padding=atlas_padding,
                 atlas_power_of_two=pot, pixi=not no_pixi, bundle=bundle, typescript=typescript,
                 record_usage=not no_record_usage, clean=clean, overwrite=overwrite, dry_run=dry_run,
             )  # fmt: skip

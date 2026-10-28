@@ -15,7 +15,7 @@ it to **search for an existing asset before generating a new one**, then receive
 
 ```bash
 uv sync                       # install deps (Python 3.12+, uses .venv)
-uv run pytest                 # full suite (~30s, 499 tests, multi-process concurrency tests, no network)
+uv run pytest                 # full suite (~65s, 2237 tests incl. every recipe × preset; multi-process concurrency tests; no network)
 uv run assetforge --help      # CLI entry point (also: uv run python -m assetforge)
 ```
 
@@ -234,6 +234,43 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
 - CLI modules: `cli_discover.py` (similar, duplicates, reindex), `cli_art.py`, `cli_sprite.py`, `cli_create.py`
   (add, regenerate, guide, methods).
 
+### Game audio: designs, ambience, music (post-v1)
+
+- Schema v6: `asset_files.audio` (features from `audio/features.py`: duration, channels, LUFS, centroid, rolloff,
+  flatness, onset rate, estimated bpm/key, `loop_seam_ok`) and `sound_profiles`. Search/browse filters
+  `bpm key loopable channels` (`core/search.audio_filters`) prefer exact `metadata.audio` (generated) over estimates;
+  FTS `tech` gets loop/stereo/short/long/bright/dark/noisy/tonal/calm/busy/major/minor; `similar` dispatches on file
+  kind; `reindex` fills audio features.
+- `sound.py`: `SoundDirection` (genre, mood, era, space, key, tempo range, instruments, sfx_preset, loudness…),
+  `SPACES` (effect chains), project profiles (`sound profile …`, or `sound:` in an art profile YAML), `resolve`.
+- Shared DSP: `audio/dsp.py` (stereo helpers, RBJ biquads, `sweep_filter`, `drift(period=)`, FM, Karplus-Strong,
+  echoes), `audio/looping.py` (`crossfade_loop` for textures, `fold_loop` for decays, `circular_effects` for
+  reverb in steady state), `audio/master.py` (LUFS target per kind, stateless soft limiter, no trim for loops).
+  `validation/audio.loop_seam/seam_ok` judge clicks and level jumps relative to the sound's own variation.
+- `audio/pipeline.py`: engines register `render(spec, index, seed, sr) -> Take(mix, extras, files, info)`;
+  `produce` does fingerprint reuse (only when the caller fixed the seed), mastering (extras get the mix's gain so
+  stems sum), QC, and cataloging (`vN` WAV masters, `vN_<fmt>` delivery, `vN_<extra>`, `vN_midi`); `vary` and
+  `reproduce` work for every engine. `active_home` tells engines which library is rendering (SoundFonts).
+  The original SFX engine (`audio/generate.py`, `assetforge-synth`) is untouched, so old sounds still reproduce.
+- `audio/recipes/`: 80 recipes in 10 modules (ui, reward, motion, impact, weapons, magic, creatures, mechanical,
+  foley, world); `Recipe.to_dict` reports `category` (module). New presets don't change old ones.
+  `audio/design.py` (`assetforge-design`): `Patch` (oscillators/FM/noise/pluck, envelopes, filter, LFOs) and
+  layered `Design`.
+- `audio/ambience/` (`assetforge-ambience`): `beds.py` (18), `events.py` (25, many reuse recipes via
+  `from_recipe`), `scenes/*.yaml` (24, plus `$ASSETFORGE_HOME/scenes`), `engine.py` (resolve scene + request into a
+  stored `AmbienceSpec`; intensity = bed level ±6 dB and event density; stems, intensity versions).
+- `audio/music/` (`assetforge-music`): `theory.py` (keys/modes, roman numerals, voicing, meter), `score.py`
+  (`Score`/`Track`/`Note`, beats), `instruments.py` (30 synths, GM programs, aliases), `drums.py` (4 kits, GM drum
+  map), `midi.py` (mido), `composer.py` (17 genre templates, `Brief`, aspect seeds so `energy` and `fixed` keep the
+  tune), `render.py` (per-role stems, loops wrap), `generate.py` (`MusicRequest`, profile → brief, edit/vary),
+  `soundfont.py` (fluidsynth CLI per track; `auto` resolves at request time and the SoundFont sha is in the spec).
+- `audio/infer.py`: description → recipe/patch, scene + extra layers, or music brief. `request` routes `sfx`,
+  `ambience`, `music` through `sound_plan` (`sound` dict / `--sound k=v` overrides). Export: `sounds.json` loop
+  points, music facts, `extras`, `--audio-takes` variations, `--audio-sprite`.
+- CLI: `cli_sound.py` (sound profile, spaces), `cli_ambience.py`, `cli_music.py`, `cli_audio.py` (design, patch,
+  soundfont). App: `/api/sound/options`, `/api/generate/{design,ambience,music}`, asset detail `sound`,
+  `views/sound.js`.
+
 Data model: **Asset** (logical item) → **Variant** (labelled rendering) → **File** (content by SHA-256).
 Identical bytes are stored once and resolve to the asset that first registered them. Generation jobs, lineage,
 project usage, style profiles and an asset event history all have tables already (schema v1).
@@ -253,9 +290,9 @@ collections are kebab-case. Keys look like `enemy/beetle/hit`.
 | 05 Export | `export` (named files, web formats, incremental/clean), atlas packing + animations, PixiJS manifest, sounds.json, TS constants, credits | **done** |
 | 06 Reliability | `request` (reuse ladder), durable queue + `worker`, leases/recovery, provider slots + RPM, budgets, structured errors | **done** |
 
-All six phases of the v1 plan are done, plus discovery/art-direction/sprites (above) and the Mac app.
-Possible next steps (not started): semantic/vector search, MIDI music, in-app review and export.
+All six phases of the v1 plan are done, plus discovery/art-direction/sprites, synthesized game audio (above) and the Mac app.
+Possible next steps (not started): semantic/vector search, speech/voice, in-app export.
 
 Generators should call `Library.register_file(path, NewAsset(origin=..., status="candidate", metadata={recipe/prompt}), params=...)`
 and use `add_variant` / `add_lineage` for derivatives, so search, dedupe and provenance work automatically.
-Out of scope for v1: game engine, visual editor, cloud backend, vector search, full AI music composer, web UI.
+Out of scope for v1: game engine, visual editor, cloud backend, vector search, AI (model-generated) music, web UI.

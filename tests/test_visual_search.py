@@ -120,7 +120,7 @@ def test_cli_search_similar_duplicates_reindex(capsys, home, lib, stocked, tmp_p
     assert code == 0 and out["count"] == 0
     lib.conn.execute("UPDATE asset_files SET dhash = NULL, colors = NULL")
     code, out, _ = run_cli(capsys, "reindex", "--json")
-    assert code == 0 and out["reindex"] == {"visual_features_computed": 5, "assets_indexed": 5}
+    assert code == 0 and out["reindex"] == {"visual_features_computed": 5, "audio_features_computed": 0, "assets_indexed": 5}
     code, out, _ = run_cli(capsys, "update", stocked["slime"], "--category", "Creature", "--genre", "puzzle", "--json")
     assert out["asset"]["category"] == "creature" and out["asset"]["genre"] == "puzzle"
 
