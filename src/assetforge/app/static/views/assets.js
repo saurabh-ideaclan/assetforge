@@ -595,6 +595,8 @@ function renderDetail({ asset, lineage, job, usage, frames, can_regenerate: canR
       qc ? [h("h3", "Quality checks"), issues.length ? issues : h("span.issue", "no issues"), nearDupes] : null,
       section("Edit details", editForm(asset, onChanged), { note: "name, category, genre, theme, tags" }),
       canRegenerate ? section("Ask for another version", regenerateForm(asset), { note: "with review feedback" }) : null,
+      isProcedural(asset) ? section("More versions", soundVaryForm(asset), { note: asset.type === "music" ? "new takes, melody or arrangement" : "new seeded takes" }) : null,
+      sound?.engine === "assetforge-music" ? section("Edit music", musicEditForm(asset, sound), { note: "tempo, key, instruments, parts" }) : null,
       isImage && asset.primary_variant?.file?.kind === "image" ? section("Slice into frames", sliceForm(asset),
         { open: ["spritesheet", "animation"].includes(asset.type) && !anim, note: "sprite sheet → aligned frames" }) : null,
       isImage ? [h("h3", "Looks similar"), similarStrip] : null,
@@ -640,6 +642,84 @@ function editForm(asset, onChanged) {
     field("Theme", inputs.theme), field("Style", inputs.style),
     h("label.wide", h("span.lbl", "Tags"), tags),
     h("div.wide", h("button.btn.primary.small", { onclick: save }, "Save"), out));
+}
+
+function isProcedural(asset) {
+  const engine = asset.metadata.generator?.engine || "";
+  return ["assetforge-synth", "assetforge-design", "assetforge-ambience", "assetforge-music"].includes(engine);
+}
+
+function takeCards(result) {
+  const loop = !!result.audio?.loop;
+  return h("div.results", (result.variants || []).map((v) => h("div.card",
+    h("b", (v.label || "").replace(/_(ogg|mp3|wav)$/, "")),
+    h("audio", { controls: true, src: fileUrl(v.variant_id), preload: "metadata", loop, style: "width:100%" }))));
+}
+
+function soundVaryForm(asset) {
+  const music = asset.metadata.generator?.engine === "assetforge-music" && asset.metadata.generator?.spec?.compose;
+  const n = h("input", { type: "number", min: 1, max: 8, value: 2 });
+  const out = h("div");
+  async function run(keep) {
+    out.innerHTML = "";
+    out.append(h("p.help", h("span.spinner"), " Rendering…"));
+    try {
+      const { result } = await api(`/api/assets/${asset.id}/sound/vary`, { method: "POST", body: { variants: +n.value || 1, keep } });
+      out.innerHTML = "";
+      if (result.asset_id !== asset.id) {
+        out.append(h("p", "New piece: ", h("a", { href: `#/assets/${result.asset_id}` }, result.asset.name), h("span.muted", " (linked to this one)")), takeCards(result));
+      } else {
+        out.append(h("p.help", `Added ${result.variants.length} take(s) to this asset (reopen it to see them in the list).`), takeCards(result));
+      }
+    } catch (err) { out.innerHTML = ""; out.append(errorBox(err)); }
+  }
+  return h("div",
+    h("div.form.compact", field("How many", n)),
+    h("div.actions",
+      h("button.btn.small.primary", { onclick: () => run("nothing") }, music ? "New takes (new pieces)" : "More takes"),
+      music ? h("button.btn.small", { onclick: () => run("chords"), title: "Same key, tempo and chords; a new melody" }, "New melody, same chords") : null,
+      music ? h("button.btn.small", { onclick: () => run("melody"), title: "Same tune; new accompaniment, bass and drums" }, "New arrangement, same melody") : null),
+    h("p.help", "Free and local. Every take is reproducible from its seed."), out);
+}
+
+function musicEditForm(asset, sound) {
+  const a = sound.audio || {};
+  const tempo = h("input", { type: "number", min: 40, max: 240, placeholder: `${a.bpm ?? ""}` });
+  const key = h("input", { type: "text", placeholder: a.key || "e.g. E minor" });
+  const transpose = h("input", { type: "number", min: -12, max: 12, value: 0 });
+  const roles = ["melody", "harmony", "bass", "drums", "arp", "counter"];
+  const mutes = Object.fromEntries(roles.map((r) => [r, h("input", { type: "checkbox" })]));
+  const picks = {};
+  const pickBox = h("div.form.compact");
+  api("/api/sound/options").then(({ instruments }) => {
+    for (const r of roles) {
+      const list = instruments.filter((i) => (r === "drums") === (i.family === "drums"));
+      picks[r] = h("select", h("option", { value: "" }, "keep"), list.map((i) => h("option", { value: i.name }, i.name)));
+      pickBox.append(field(r, picks[r]));
+    }
+  }).catch(() => {});
+  const loop = h("select", [["", "keep"], ["true", "seamless loop"], ["false", "not a loop"]].map(([v, l]) => h("option", { value: v }, l)));
+  const out = h("div");
+  async function run() {
+    const instruments = Object.fromEntries(Object.entries(picks).filter(([, el]) => el.value).map(([r, el]) => [r, el.value]));
+    const body = { tempo: tempo.value ? +tempo.value : undefined, key: key.value.trim() || undefined, transpose: +transpose.value || 0,
+      instruments, mute: roles.filter((r) => mutes[r].checked), loop: loop.value ? loop.value === "true" : undefined,
+      project: asset.project || undefined };
+    out.innerHTML = "";
+    out.append(h("p.help", h("span.spinner"), " Re-rendering the score…"));
+    try {
+      const { result } = await api(`/api/assets/${asset.id}/music/edit`, { method: "POST", body });
+      out.innerHTML = "";
+      out.append(h("p", "Saved as ", h("a", { href: `#/assets/${result.asset_id}` }, result.asset.name),
+        h("span.muted", ` · ${result.audio.bpm} bpm · ${result.audio.key || ""}`)), takeCards(result));
+    } catch (err) { out.innerHTML = ""; out.append(errorBox(err)); }
+  }
+  return h("div",
+    h("div.form.compact", field("Tempo", tempo), field("Key", key), field("Transpose", transpose, "semitones"), field("Loop", loop)),
+    h("h4", "Instruments"), pickBox,
+    h("h4", "Leave out"), h("div.toolbar", roles.map((r) => h("label.help", mutes[r], ` ${r}`))),
+    h("div.actions", h("button.btn.small.primary", { onclick: run }, "Render edited version")),
+    h("p.help", "Plays the same score with your changes and saves it as a new asset linked to this one."), out);
 }
 
 function regenerateForm(asset) {

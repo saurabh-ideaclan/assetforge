@@ -19,13 +19,16 @@ Agents use the CLI. People can use **AssetForge.app**, a native macOS window wit
 - **Overview**: counts, spend, what's waiting for review (tiles link to the filtered views).
 - **Assets**: search plus filters by type, project, style, category, genre, theme, **colour, shape, tone and
   transparency**, **loops/one-shots, BPM and key**, and "find similar" (looks or sounds). Music and ambience show
-  tempo, key, loop range, every take with its stems, and the MIDI score. The detail panel has **review** (approve, reject, pick one of a batch),
+  tempo, key, loop range, every take with its stems, and the MIDI score; any generated sound can get **more takes**,
+  music a **new melody over the same chords** or a **new arrangement**, and **Edit music** re-renders it with a new
+  tempo, key, instruments or muted parts. The detail panel has **review** (approve, reject, pick one of a batch),
   editing of name/category/genre/theme/tags, **regenerate with feedback**, **slice a sheet into frames**, an
   **animation player** for sliced sheets, similar-looking assets, QC, lineage and usage. Keyboard: ← → move,
   A approve, X reject, F find similar, / search, Esc close.
 - **Generate**: images with a game, a style preset and art direction (mood, lighting, palette, avoid…), sprite
   sheets with per-cell poses and automatic slicing, and the exact prompt and cost before anything is spent.
-  **Sound**: effects (recipes by group with every parameter, or a layered design), **ambience** (scene, length,
+  **Sound**: **describe it** (type what you need; it reuses a match or synthesizes it, with a preview of what it
+  would do), **game sound profiles**, effects (recipes by group with every parameter, or a layered design), **ambience** (scene, length,
   intensity, day/night, a layer mixer, stems, calm/intense versions) and **music** (genre, mood, tempo, key,
   length, energy, instruments per role, stems, intensity layers, stingers) with loop playback, stems and a
   piano roll of the score.

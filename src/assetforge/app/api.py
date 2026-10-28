@@ -498,6 +498,76 @@ def generate_music_route(req: Request, lib: Library) -> dict[str, Any]:
     return {"result": generate_music(lib, _engine_request(MusicRequest, req.body or {}))}
 
 
+@router.route("POST", r"/api/assets/(?P<ref>[^/]+)/sound/vary")
+def sound_vary(req: Request, lib: Library) -> dict[str, Any]:
+    """More takes of any procedural sound; music can also keep its chords (new melody) or melody (new arrangement)."""
+    from assetforge.audio import pipeline
+    from assetforge.audio.generate import vary_audio
+    from assetforge.audio.music.generate import vary_music
+
+    body = req.body or {}
+    asset = lib.get_asset(req.match["ref"])
+    engine = (asset.metadata.get("generator") or {}).get("engine")
+    variants, seed, keep = int(body.get("variants", 1)), body.get("seed"), body.get("keep", "nothing")
+    if engine == "assetforge-music":
+        return {"result": vary_music(lib, asset.id, keep=keep, variants=variants, seed=seed)}
+    if engine in pipeline.load_engines():
+        return {"result": pipeline.vary(lib, asset.id, variants=variants, seed=seed)}
+    result = vary_audio(lib, asset.id, variants=variants, seed=seed)
+    return {"result": _dump(result) | {"engine": "assetforge-synth"}}
+
+
+@router.route("POST", r"/api/assets/(?P<ref>[^/]+)/music/edit")
+def music_edit(req: Request, lib: Library) -> dict[str, Any]:
+    from assetforge.audio.music.generate import MusicRequest, edit_music
+
+    body = dict(req.body or {})
+    changes = {k: body.pop(k) for k in ("tempo", "key", "transpose", "instruments", "mute", "loop", "space")
+               if body.get(k) not in (None, "", [], {})}  # fmt: skip
+    take = int(body.pop("take", 1))
+    return {"result": edit_music(lib, req.match["ref"], _engine_request(MusicRequest, body), take=take, **changes)}
+
+
+@router.route("GET", r"/api/sound/profiles/(?P<project>[^/]+)")
+def sound_profile_get(req: Request, lib: Library) -> dict[str, Any]:
+    from assetforge import sound
+
+    p = sound.find_profile(lib, req.match["project"])
+    return {"profile": {"project": p.project, "sound": p.direction.model_dump(mode="json", exclude_defaults=True),
+                        "updated_at": p.updated_at} if p else None}  # fmt: skip
+
+
+@router.route("POST", r"/api/sound/profiles/(?P<project>[^/]+)")
+def sound_profile_set(req: Request, lib: Library) -> dict[str, Any]:
+    from assetforge import sound
+
+    body = req.body or {}
+    direction = _engine_request(sound.SoundDirection, body.get("sound") or {})
+    p = sound.set_profile(lib, req.match["project"], direction, replace=bool(body.get("replace", True)))
+    return {"profile": {"project": p.project, "sound": p.direction.model_dump(mode="json", exclude_defaults=True),
+                        "updated_at": p.updated_at}}  # fmt: skip
+
+
+@router.route("POST", r"/api/sound/profiles/(?P<project>[^/]+)/delete")
+def sound_profile_delete(req: Request, lib: Library) -> dict[str, Any]:
+    from assetforge import sound
+
+    sound.delete_profile(lib, req.match["project"])
+    return {"deleted": req.match["project"]}
+
+
+@router.route("POST", "/api/sound/request")
+def sound_request(req: Request, lib: Library) -> dict[str, Any]:
+    """Describe a sound in words: reuse a match or make it (the same `request` agents use). `dry_run` previews."""
+    from assetforge.request import AssetRequest, handle
+
+    body = dict(req.body or {})
+    if body.get("type") not in ("sfx", "ambience", "music"):
+        raise InvalidInputError("type must be sfx, ambience or music")
+    result = handle(lib, _engine_request(AssetRequest, {k: v for k, v in body.items() if v not in (None, "")}))
+    return {"result": _dump(result)}
+
+
 @router.route("GET", "/api/image/options")
 def image_options(req: Request, lib: Library) -> dict[str, Any]:
     settings = settings_for(lib)

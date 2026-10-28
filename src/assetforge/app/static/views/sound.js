@@ -1,14 +1,16 @@
-import { api, h, errorBox, thumbUrl, fileUrl, badge, segmented, field } from "/static/lib.js";
+import { api, h, errorBox, thumbUrl, fileUrl, badge, segmented, field, chipsInput, toast } from "/static/lib.js";
 
 // Generate → Sound: effects (recipes or layered designs), ambience loops, and music (compose or stingers).
 export function soundTab(root, data, params) {
-  const mode = ["effects", "ambience", "music"].includes(params.get("mode")) ? params.get("mode") : "effects";
+  const MODES = ["describe", "effects", "ambience", "music", "profiles"];
+  const mode = MODES.includes(params.get("mode")) ? params.get("mode") : "describe";
   const body = h("div");
-  root.append(h("div.toolbar", segmented([["effects", "Effects"], ["ambience", "Ambience"], ["music", "Music"]], mode,
+  root.append(h("div.toolbar", segmented([["describe", "Describe it"], ["effects", "Effects"], ["ambience", "Ambience"],
+    ["music", "Music"], ["profiles", "Game sound profiles"]], mode,
     (v) => (location.hash = `#/generate?tab=sound&mode=${v}`))), body);
   const profiles = h("datalist", { id: "sound-projects" }, data.profiles.map((p) => h("option", { value: p.project }, describeProfile(p.sound))));
   body.append(profiles);
-  ({ effects: effectsForm, ambience: ambienceForm, music: musicForm })[mode](body, data);
+  ({ describe: describeForm, effects: effectsForm, ambience: ambienceForm, music: musicForm, profiles: profilesForm })[mode](body, data);
 }
 
 function describeProfile(s) {
@@ -315,4 +317,119 @@ function musicForm(root, { genres, stingers, instruments, soundfont }) {
         stems: stems.checked, intensity_layers: layersBox.checked ? [0.2, 0.9] : [] };
     submit(button, out, "/api/generate/music", req, (r) => engineResult(r, { pianoRoll: true }));
   }
+}
+
+// ---------------------------------------------------------------------- describe (the agents' `request`)
+
+function describeForm(root) {
+  let type = "sfx";
+  const typeSeg = segmented([["sfx", "Sound effect"], ["ambience", "Ambience"], ["music", "Music"]], type, (v) => { type = v; hint(); });
+  const text = h("textarea", { rows: 3 });
+  const project = h("input", { type: "text", list: "sound-projects", placeholder: "optional: applies its sound profile" });
+  const takes = h("input", { type: "number", min: 1, max: 8, value: 1 });
+  const stems = h("input", { type: "checkbox" });
+  const fresh = h("input", { type: "checkbox" });
+  const hint = () => (text.placeholder = { sfx: "e.g. heavy wooden door slam · deep rising alien wobble · footsteps on snow",
+    ambience: "e.g. rainy forest at night, 60s · busy tavern with a fire · creepy cave", music: "e.g. tense boss fight loop 140bpm in D minor · calm fantasy village · victory jingle" }[type]);
+  hint();
+  const out = h("div");
+  const body = (dry) => ({ type, description: text.value.trim(), project: project.value || undefined, dry_run: dry,
+    reuse_policy: fresh.checked ? "always_generate" : undefined, new_variant: fresh.checked || undefined,
+    sound: { variants: +takes.value || 1, ...(stems.checked ? { stems: true } : {}) } });
+  async function run(dry, button) {
+    if (text.value.trim().length < 3) { toast("Describe the sound first"); text.focus(); return; }
+    button.disabled = true;
+    out.innerHTML = "";
+    out.append(h("p", h("span.spinner"), dry ? " Working out what it would do…" : " Finding or making it…"));
+    try {
+      const { result: r } = await api("/api/sound/request", { method: "POST", body: body(dry) });
+      out.innerHTML = "";
+      if (dry) {
+        const plan = r.plan || {};
+        out.append(h("h3", r.would === "reuse" ? "Would reuse an existing sound" : "Would make a new sound (free)"),
+          r.asset_id ? h("p", h("a", { href: `#/assets/${r.asset_id}` }, r.asset?.name || r.asset_id)) : "",
+          h("pre.mono", JSON.stringify({ engine: plan.engine, recipe: plan.recipe, preset: plan.preset, settings: plan.settings,
+            preview: plan.preview, inferred: plan.inferred }, (k, v) => (v == null ? undefined : v), 2)));
+      } else {
+        out.append(h("h3", r.reused ? `Reused (${r.reuse_reason})` : "Made"),
+          h("p", h("a", { href: `#/assets/${r.asset_id}` }, r.asset?.name || r.asset_id), " ", r.asset ? badge(r.asset.status) : null),
+          takeList(r));
+      }
+    } catch (err) { out.innerHTML = ""; out.append(errorBox(err)); }
+    finally { button.disabled = false; }
+  }
+  const preview = h("button.btn", { onclick: (e) => run(true, e.currentTarget) }, "What would it do?");
+  const make = h("button.btn.primary", { onclick: (e) => run(false, e.currentTarget) }, "Get it");
+  root.append(h("div.card",
+    h("div.toolbar", typeSeg),
+    h("label.wide", "Describe what you need", text),
+    h("div.form", field("Project", project), field("Takes", takes), field("Stems", h("span", stems, " ambience/music layers")),
+      field("Always new", h("span", fresh, " don't reuse an existing sound"))),
+    h("div.actions", make, preview, h("span.help", "The same call agents make: reuse a good match first, otherwise synthesize it."))), out);
+}
+
+function takeList(r) {
+  const loop = !!r.generated?.audio?.loop || !!r.asset?.tags?.includes("loop");
+  return h("div.results.wide", (r.variants || []).map((v) => h("div.card",
+    h("b", (v.label || "").replace(/_(ogg|mp3|wav)$/, "")), loopPlayer(v.variant_id, { loop }),
+    v.extras && Object.keys(v.extras).length ? h("details", h("summary.help", `${Object.keys(v.extras).length} stems / versions`),
+      Object.entries(v.extras).map(([label, x]) => loopPlayer(x.variant_id, { loop, label }))) : null)));
+}
+
+// ---------------------------------------------------------------------- game sound profiles
+
+function profilesForm(root, data) {
+  const byProject = Object.fromEntries(data.profiles.map((p) => [p.project, p.sound]));
+  const project = h("input", { type: "text", list: "sound-projects", placeholder: "game name, e.g. crypt-run" });
+  const genre = h("select", h("option", { value: "" }, "not set"), data.genres.map((g) => h("option", { value: g.name }, g.name)));
+  const mood = h("input", { type: "text", placeholder: "tense, cosy, heroic…" });
+  const era = h("input", { type: "text", placeholder: "8-bit, 80s, medieval…" });
+  const style = h("input", { type: "text", placeholder: "overall sonic style" });
+  const space = h("select", h("option", { value: "" }, "not set"), data.spaces.map((s) => h("option", { value: s }, s)));
+  const key = h("input", { type: "text", placeholder: "e.g. D minor" });
+  const tmin = h("input", { type: "number", min: 30, max: 300, placeholder: "min" });
+  const tmax = h("input", { type: "number", min: 30, max: 300, placeholder: "max" });
+  const sfx = h("select", h("option", { value: "" }, "not set"), data.presets.map((p) => h("option", { value: p.name }, p.name)));
+  const instruments = chipsInput([], { placeholder: "e.g. strings, choir, drums_orchestral" });
+  const avoid = chipsInput([], { placeholder: "e.g. chiptune" });
+  const notes = h("input", { type: "text" });
+  const list = h("div.toolbar", data.profiles.length ? data.profiles.map((p) => h("button.btn.small", { onclick: () => load(p.project) }, p.project))
+    : h("span.muted", "No sound profiles yet."));
+  const out = h("div");
+  function load(name) {
+    const s = byProject[name] || {};
+    project.value = name;
+    genre.value = s.genre || ""; mood.value = s.mood || ""; era.value = s.era || ""; style.value = s.style || "";
+    space.value = s.space || ""; key.value = s.key || ""; tmin.value = s.tempo?.[0] ?? ""; tmax.value = s.tempo?.[1] ?? s.tempo?.[0] ?? "";
+    sfx.value = s.sfx_preset || ""; instruments.set(s.instruments || []); avoid.set(s.avoid || []); notes.value = s.notes || "";
+  }
+  async function save() {
+    const name = project.value.trim();
+    if (!name) { toast("Name the game"); return; }
+    const tempo = [tmin.value, tmax.value].filter((v) => v !== "").map(Number);
+    const sound = Object.fromEntries(Object.entries({ genre: genre.value, mood: mood.value.trim(), era: era.value.trim(),
+      style: style.value.trim(), space: space.value, key: key.value.trim(), sfx_preset: sfx.value, notes: notes.value.trim(),
+      tempo: [...new Set(tempo)], instruments: instruments.values(), avoid: avoid.values() })
+      .filter(([, v]) => (Array.isArray(v) ? v.length : v)));
+    try {
+      const { profile } = await api(`/api/sound/profiles/${encodeURIComponent(name)}`, { method: "POST", body: { sound, replace: true } });
+      byProject[profile.project] = profile.sound;
+      toast(`Saved the sound profile of ${profile.project}`);
+      out.innerHTML = "";
+      out.append(h("pre.mono", JSON.stringify(profile.sound, null, 2)));
+    } catch (err) { out.innerHTML = ""; out.append(errorBox(err)); }
+  }
+  async function remove() {
+    const name = project.value.trim();
+    if (!name || !confirm(`Delete the sound profile of ${name}? Its sounds are not touched.`)) return;
+    try { await api(`/api/sound/profiles/${encodeURIComponent(name)}/delete`, { method: "POST" }); toast("Deleted"); delete byProject[name]; }
+    catch (err) { out.innerHTML = ""; out.append(errorBox(err)); }
+  }
+  root.append(h("div.card",
+    h("p.help", "How a game sounds. Every sound, ambience and track made for that project follows it (requests can still override)."),
+    list,
+    h("div.form", field("Game", project), field("Music genre", genre), field("Mood", mood), field("Era", era), field("Style", style),
+      field("Acoustic space", space), field("Key", key), field("Tempo from", tmin), field("Tempo to", tmax), field("SFX preset", sfx),
+      h("label.wide", h("span.lbl", "Instruments"), instruments), h("label.wide", h("span.lbl", "Avoid"), avoid), h("label.wide", "Notes", notes)),
+    h("div.actions", h("button.btn.primary", { onclick: save }, "Save profile"), h("button.btn.danger", { onclick: remove }, "Delete"))), out);
 }

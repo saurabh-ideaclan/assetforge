@@ -15,7 +15,7 @@ it to **search for an existing asset before generating a new one**, then receive
 
 ```bash
 uv sync                       # install deps (Python 3.12+, uses .venv)
-uv run pytest                 # full suite (~65s, 2237 tests incl. every recipe × preset; multi-process concurrency tests; no network)
+uv run pytest                 # full suite (~65s, 2238 tests incl. every recipe × preset; multi-process concurrency tests; no network)
 uv run assetforge --help      # CLI entry point (also: uv run python -m assetforge)
 ```
 
@@ -268,8 +268,9 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   `ambience`, `music` through `sound_plan` (`sound` dict / `--sound k=v` overrides). Export: `sounds.json` loop
   points, music facts, `extras`, `--audio-takes` variations, `--audio-sprite`.
 - CLI: `cli_sound.py` (sound profile, spaces), `cli_ambience.py`, `cli_music.py`, `cli_audio.py` (design, patch,
-  soundfont). App: `/api/sound/options`, `/api/generate/{design,ambience,music}`, asset detail `sound`,
-  `views/sound.js`.
+  soundfont). App: `/api/sound/options`, `/api/generate/{design,ambience,music}`, `/api/sound/request` (the
+  agents' `request`), `/api/sound/profiles/{project}[/delete]`, `/api/assets/{id}/sound/vary` (keep=chords|melody
+  for music), `/api/assets/{id}/music/edit`, asset detail `sound`, `views/sound.js`.
 
 Data model: **Asset** (logical item) → **Variant** (labelled rendering) → **File** (content by SHA-256).
 Identical bytes are stored once and resolve to the asset that first registered them. Generation jobs, lineage,

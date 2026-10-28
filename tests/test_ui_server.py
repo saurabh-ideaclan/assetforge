@@ -326,3 +326,31 @@ def test_sound_tab_endpoints_and_audio_filters(server):
     assert detail["sound"]["audio"]["bpm"] == music["result"]["audio"]["bpm"] and "midi" in detail["sound"]["takes"][0]["files"]
     _, plain = jcall(server, f"/api/assets/{design['result']['asset_id']}")
     assert plain["sound"]["engine"] == "assetforge-design"
+
+
+def test_sound_actions_profiles_and_describe(server):
+    status, made = jcall(server, "/api/sound/request", method="POST",
+                         body={"type": "music", "description": "calm fantasy village loop, 4 bars", "sound": {"backend": "synth"}})  # fmt: skip
+    assert status == 200 and made["result"]["generated"]["kind"] == "music"
+    piece = made["result"]["asset_id"]
+    status, plan = jcall(server, "/api/sound/request", method="POST",
+                         body={"type": "ambience", "description": "rainy forest at night", "dry_run": True})  # fmt: skip
+    assert status == 200 and plan["result"]["plan"]["settings"]["scene"] == "forest_night"
+    assert jcall(server, "/api/sound/request", method="POST", body={"type": "image", "description": "x y z"})[0] == 400
+    status, more = jcall(server, f"/api/assets/{piece}/sound/vary", method="POST", body={"variants": 1, "seed": 3})
+    assert status == 200 and more["result"]["variants"][0]["label"] == "v2_ogg"
+    status, melody = jcall(server, f"/api/assets/{piece}/sound/vary", method="POST", body={"keep": "chords", "seed": 4})
+    assert status == 200 and melody["result"]["asset_id"] != piece
+    status, edited = jcall(server, f"/api/assets/{piece}/music/edit", method="POST",
+                           body={"tempo": 100, "instruments": {"melody": "flute"}, "mute": ["drums"]})  # fmt: skip
+    assert status == 200 and edited["result"]["audio"]["bpm"] == 100
+    status, sfx = jcall(server, "/api/sound/request", method="POST", body={"type": "sfx", "description": "coin pickup"})
+    status, varied = jcall(server, f"/api/assets/{sfx['result']['asset_id']}/sound/vary", method="POST", body={"variants": 2})
+    assert status == 200 and len(varied["result"]["variants"]) == 2
+    status, prof = jcall(server, "/api/sound/profiles/crypt-run", method="POST",
+                         body={"sound": {"genre": "horror", "space": "cave", "tempo": [70, 90]}})  # fmt: skip
+    assert status == 200 and prof["profile"]["sound"]["space"] == "cave"
+    assert jcall(server, "/api/sound/profiles/crypt-run")[1]["profile"]["sound"]["genre"] == "horror"
+    assert jcall(server, "/api/sound/profiles/x", method="POST", body={"sound": {"space": "attic"}})[0] == 400
+    assert jcall(server, "/api/sound/profiles/crypt-run/delete", method="POST")[0] == 200
+    assert jcall(server, "/api/sound/profiles/crypt-run")[1]["profile"] is None
