@@ -255,6 +255,10 @@ A profile can also live under `sound:` in the game's art profile YAML. Export wr
 round-robin `variations`; `--audio-sprite NAME` packs short sounds into one OGG plus a Howler sprite JSON. Use OGG
 for loops (MP3 encoders add padding that breaks gapless looping).
 
+**Checked against reality.** Thunder, roar, growl, engine, explosion (`blast`), lightning and the rain and
+night-forest scenes are tuned to measurements of real field recordings (Wikimedia Commons and Freesound CC0;
+only the numbers are kept, in `audio/references.json`), and the test suite fails if they drift.
+
 Limits: no speech or vocals (crowds murmur, radios chatter unintelligibly); synthesized, not recorded, so foley
 is close to real rather than identical; the composer writes good game loops, not hit songs.
 

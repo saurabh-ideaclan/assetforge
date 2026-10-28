@@ -103,6 +103,46 @@ SOUND_EXAMPLES = [
     {"type": "music", "description": "victory jingle", "project": "crypt-run"},
 ]
 
+# How a game agent picks sound settings from the game's feel and story, without being an audio expert.
+SOUND_BY_FEEL = [
+    {"feel": "cosy / cute / casual mobile", "profile": {"genre": "puzzle_casual", "mood": "playful", "space": "room",
+     "sfx_preset": "soft", "tempo": [100, 124]}, "ambience": ["meadow", "forest_day", "rain_light (cosy)"]},
+    {"feel": "retro / arcade / pixel", "profile": {"genre": "chiptune", "space": "dry", "sfx_preset": "retro",
+     "tempo": [130, 160]}, "ambience": ["usually none; short loops"]},
+    {"feel": "heroic fantasy / RPG", "profile": {"genre": "orchestral_adventure", "mood": "heroic", "space": "hall",
+     "sfx_preset": "realistic"}, "ambience": ["forest_day", "tavern", "dungeon", "cave"]},
+    {"feel": "dark fantasy / horror", "profile": {"genre": "horror", "mood": "tense", "space": "cave",
+     "sfx_preset": "horror", "tempo": [60, 80]}, "ambience": ["forest_night", "haunted_house", "dungeon"]},
+    {"feel": "sci-fi / space", "profile": {"genre": "sci_fi", "space": "room", "sfx_preset": "scifi"},
+     "ambience": ["space_station", "spaceship_engine", "sci_fi_lab", "deep_space"]},
+    {"feel": "action / racing / shooter", "profile": {"genre": "action", "mood": "intense", "space": "outdoor",
+     "sfx_preset": "punchy", "tempo": [138, 162]}, "ambience": ["city_street", "factory"]},
+    {"feel": "calm / meditative / puzzle-zen", "profile": {"genre": "ambient_drone", "mood": "calm", "space": "hall",
+     "sfx_preset": "soft"}, "ambience": ["river", "rain_light", "ocean_shore"]},
+]
+SOUND_BY_MOMENT = [
+    {"moment": "player gets hit", "request": {"type": "sfx", "description": "hurt"}},
+    {"moment": "enemy dies / beast attacks", "request": {"type": "sfx", "description": "monster roar",
+     "sound": {"params": {"size": 0.8}}}, "notes": "growl for idle threat, roar for attack, monster_hurt for damage"},
+    {"moment": "explosion / grenade", "request": {"type": "sfx", "description": "realistic explosion blast"}},
+    {"moment": "weather turns", "request": {"type": "ambience", "description": "rain storm with thunder",
+     "sound": {"intensities": [0.2, 0.9], "stems": True}}, "notes": "crossfade calm↔intense versions in game"},
+    {"moment": "level complete", "request": {"type": "music", "description": "victory jingle"}},
+    {"moment": "combat starts", "request": {"type": "music", "description": "battle loop",
+     "sound": {"intensity_layers": [0.3, 0.9]}}, "notes": "same tune at two energies: fade between them"},
+    {"moment": "walking", "request": {"type": "sfx", "description": "footstep on stone", "sound": {"variants": 6}},
+     "notes": "play a random take each step (round-robin); surfaces: grass stone wood metal snow water sand gravel"},
+]
+SOUND_RULES = [
+    "Set the game's sound profile once (genre, mood, space, sfx_preset); every request then fits the world.",
+    "Describe the thing, not the synthesis: 'heavy wooden door slam', 'distant thunder', 'tense boss loop 140bpm'.",
+    "Use --dry-run to see the recipe/scene/genre it picked; override with --sound key=value if needed.",
+    "Ask for variants (takes) for anything repeated (steps, hits, shots) and play them round-robin.",
+    "Loops: ambience and music loops are exact-length and seamless; ship them as OGG.",
+    "Reference-matched (spectra checked against real field recordings in the tests): thunder, roar, growl, "
+    "engine_rev, blast, lightning_zap, and the rain_light, rain_storm and forest_night scenes.",
+]
+
 
 def guide_document(presets: list[str], home: str) -> dict[str, Any]:
     return {
@@ -122,7 +162,8 @@ def guide_document(presets: list[str], home: str) -> dict[str, Any]:
                 "profile_yaml_example": PROFILE_EXAMPLE,
                 "merge_order": "preset of the profile < project profile < requested preset < request art"},
         "request_example": REQUEST_EXAMPLE,
-        "sound": {"profile_yaml_example": SOUND_PROFILE_EXAMPLE, "request_examples": SOUND_EXAMPLES,
+        "sound": {"rules": SOUND_RULES, "by_feel": SOUND_BY_FEEL, "by_moment": SOUND_BY_MOMENT,
+                  "profile_yaml_example": SOUND_PROFILE_EXAMPLE, "request_examples": SOUND_EXAMPLES,
                   "loudness_lufs": {"sfx": -14, "stinger": -14, "music": -16, "ambience": -24},
                   "notes": ["Loops (ambience, music form loop) are exact-length and seamless; use OGG for them",
                             "Each music take stores its score (JSON + MIDI) for `music edit`",

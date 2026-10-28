@@ -109,15 +109,16 @@ def rain(n, sr, rng, intensity, p, period):
         # drops, each a bubble "plink" at its own pitch with a small upward chirp. No fixed resonances:
         # those read as a whistle running through the rain.
         wash = dsp.filt(dsp.filt(s.noise(n, r, "pink"), "lowpass", 900 + 700 * heavy, sr), "highpass", 120, sr)
-        wash = wash * (0.85 + 0.15 * dsp.drift(n, sr, 0.3, r, period=period))
-        hits = impulses(n, 1500 + 7000 * heavy, sr, r, shape=2.5)
-        grain = np.hanning(max(4, int(0.0012 * sr)))
+        hits = impulses(n, 4000 + 10000 * heavy, sr, r, shape=3.0)
+        grain = np.hanning(5)  # ~0.1 ms: wider grains would low-pass away the sizzle real rain has
         patter = np.convolve(hits, grain, mode="same")
-        tone = 2200 + 1800 * p["surface"]
-        patter = dsp.filt(dsp.filt(patter, "bandpass", tone, sr, q=0.6), "lowpass", 7000, sr)
-        patter = dsp.filt(patter, "lowpass", 7000, sr)
-        drops = grains(n, sr, r, 4 + 25 * heavy, 1400, 4200, 0.012, sweep=0.18)
-        return _rms_norm(wash) * (0.5 + 0.5 * heavy) + 0.55 * _rms_norm(patter) + 0.18 * _rms_norm(drops)
+        tone = 3000 + 1500 * p["surface"]
+        # heavy rain is mostly wash: its patter is denser but duller (drops merge, the air fills with spray)
+        patter = dsp.filt(dsp.filt(patter, "bandpass", tone, sr, q=0.35), "lowpass", 12000 - 7000 * min(heavy, 1.0), sr)
+        drops = grains(n, sr, r, 2 + 6 * heavy, 1400, 4200, 0.012, sweep=0.18)
+        gusts = 10 ** ((2 + 4 * heavy) * dsp.drift(n, sr, 0.15, r, period=period) / 20)  # downpours swell and ease
+        mix = _rms_norm(wash) * (0.2 + 1.1 * heavy) + 0.75 * (1 - 0.35 * min(heavy, 1.0)) * _rms_norm(patter) + 0.05 * _rms_norm(drops)
+        return mix * gusts
 
     return stereo(one, rng)
 
@@ -184,10 +185,10 @@ def insects_night(n, sr, rng, intensity, p, period):
     out = np.zeros((n, 2))
     t = np.arange(n) / sr
     for _ in range(int(p["crickets"] * (0.5 + intensity))):
-        f, rate = rng.uniform(3800, 5200), rng.uniform(2.5, 4.5)
+        f, rate = rng.uniform(2600, 3600), rng.uniform(2.5, 4.5)  # field crickets: ~3 kHz
         pulses = (np.sin(2 * np.pi * 30 * t) > 0.2) * ((t * rate + rng.uniform()) % 1.0 < 0.3)
         voice = np.sin(2 * np.pi * f * t) * dsp.one_pole_lowpass(pulses.astype(float), 400, sr) * rng.uniform(0.3, 1)
-        out += dsp.pan(voice * 0.6, rng.uniform(-0.9, 0.9))
+        out += dsp.pan(voice, rng.uniform(-0.9, 0.9))
     # A cicada is a tonal buzz (a tymbal ringing ~4-5 kHz, pulsed ~90 times a second), not hiss.
     cicada = stereo(lambda r: dsp.fm(r.uniform(4200, 5000), 0.02, 2.0, n, sr) * np.clip(np.sin(2 * np.pi * 90 * t), 0, 1) ** 2
                     * (0.6 + 0.4 * dsp.drift(n, sr, 0.3, r, period=period)), rng)  # fmt: skip

@@ -15,7 +15,7 @@ it to **search for an existing asset before generating a new one**, then receive
 
 ```bash
 uv sync                       # install deps (Python 3.12+, uses .venv)
-uv run pytest                 # full suite (~65s, 2238 tests incl. every recipe × preset; multi-process concurrency tests; no network)
+uv run pytest                 # full suite (~70s, 2248 tests incl. every recipe × preset; multi-process concurrency tests; no network)
 uv run assetforge --help      # CLI entry point (also: uv run python -m assetforge)
 ```
 
@@ -264,6 +264,12 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   map), `midi.py` (mido), `composer.py` (17 genre templates, `Brief`, aspect seeds so `energy` and `fixed` keep the
   tune), `render.py` (per-role stems, loops wrap), `generate.py` (`MusicRequest`, profile → brief, edit/vary),
   `soundfont.py` (fluidsynth CLI per track; `auto` resolves at request time and the SoundFont sha is in the spec).
+- `audio/references.py` + `references.json`: numeric targets (third-octave shape, noisiness, flutter) measured
+  from freely licensed field recordings (Wikimedia Commons, Freesound CC0; recordings not shipped, kept in
+  `.dev/references` with `.dev/compare.py` / `make_targets.py` for analysis). `REFERENCE_FOR` maps recipes/scenes
+  to targets; `tests/test_audio_references.py` keeps each within 4.5 dB mean. When reworking a natural sound,
+  compare against a real recording first (spectrogram, spectrum, envelope) instead of tuning by guesswork.
+- `audio/recipes/physical.py`: modal resonances, smooth strikes, N-wave shocks, windowed crackle, flame, `fade_tail`.
 - `audio/infer.py`: description → recipe/patch, scene + extra layers, or music brief. `request` routes `sfx`,
   `ambience`, `music` through `sound_plan` (`sound` dict / `--sound k=v` overrides). Export: `sounds.json` loop
   points, music facts, `extras`, `--audio-takes` variations, `--audio-sprite`.

@@ -136,13 +136,15 @@ def engine_rev(ctx: RenderContext, p: dict) -> np.ndarray:
     from scipy.signal import lfilter
 
     exhaust = lfilter([1.0], a, pulse)  # the pipe: a resonant comb
-    cutoff = (500 + 1400 * curve) * (1.4 if kind == "motorbike" else 1.0)
+    cutoff = (900 + 2200 * curve) * (1.4 if kind == "motorbike" else 1.0)
     body = dsp.sweep_filter(dsp.sweep_filter(exhaust, "lowpass", cutoff, sr, q=0.7), "lowpass", cutoff, sr, q=0.7)  # 4th order
     body = dsp.filt(body, "peak", 2.5 * pipe_hz, sr, q=1.2, gain_db=4)  # the pipe's bark
     # exhaust breath: noise puffed out with each firing, low-passed (what makes it sound like air, not a synth)
     puff_env = np.sin(np.pi * np.minimum(frac / 0.35, 1.0)) * (frac < 0.35)  # smooth puff per firing: no step, no click
-    puff = dsp.sweep_filter(s.noise(n, ctx.rng, "pink") * puff_env, "lowpass", 900 + 900 * curve, sr)
-    out = rms_norm(dsp.filt(body, "highpass", 70, sr)) + 0.25 * rms_norm(puff)
+    puff = dsp.sweep_filter(s.noise(n, ctx.rng, "pink") * puff_env, "lowpass", 2500 + 2500 * curve, sr)
+    # mechanical clatter (valves, chain) and intake hiss: what real engines carry up to ~5 kHz
+    clatter = dsp.filt(s.noise(n, ctx.rng, "pink"), "bandpass", 2500, sr, q=0.5) * (0.6 + 0.4 * curve)
+    out = rms_norm(dsp.filt(body, "highpass", 90, sr)) + 0.3 * rms_norm(puff) + 0.06 * rms_norm(clatter)
     env = s.adsr(n, sr, attack=0.04, decay=0.01, sustain=1, release=0.3)
     out = out * env
     return fade_tail(out / (np.max(np.abs(out)) + 1e-12), sr)

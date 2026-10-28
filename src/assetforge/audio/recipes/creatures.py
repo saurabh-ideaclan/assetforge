@@ -8,7 +8,7 @@ from assetforge.audio import dsp
 from assetforge.audio import synth as s
 from assetforge.audio.recipes.base import RenderContext, choice, num, recipe
 from assetforge.audio.recipes.music import norm
-from assetforge.audio.recipes.physical import fade_tail
+from assetforge.audio.recipes.physical import fade_tail, rms_norm
 
 # Vowel formants (Hz) of an adult voice; creatures scale them by body size.
 VOWELS = {"a": (800, 1150, 2900), "o": (450, 800, 2830), "u": (325, 700, 2530), "e": (400, 1600, 2700),
@@ -59,6 +59,32 @@ def voice(ctx: RenderContext, f0: np.ndarray, vowel: str, size: float, rough: fl
     return out
 
 
+def beast(ctx: RenderContext, size: float, rough: float, *, pulse_hz: np.ndarray, f0: np.ndarray,
+          opening: np.ndarray, vowel: str = "a", chest: float = 1.0) -> np.ndarray:  # fmt: skip
+    """A big animal's roar or growl, matched to recordings (bear, tiger): mostly pulsed turbulence, not a
+    clean voice. Bursts of breath noise at ~20-45 per second (each a little different in strength), a
+    weaker voiced component under them, through broad mouth resonances near 0.6-1 kHz and 1.8-2.2 kHz,
+    on a broadband floor that reaches well into the highs."""
+    n, sr, rng = ctx.n, ctx.sr, ctx.rng
+    cycles = dsp.phase_osc(pulse_hz * (1 + 0.08 * dsp.drift(n, sr, 6, rng)), n, sr)
+    index = cycles.astype(int)
+    frac = cycles - index
+    strength = rng.lognormal(0, 0.5 + 0.3 * rough, index.max() + 2)[index]
+    bursts = (np.minimum(frac / 0.06, 1.0) * (1 - frac) ** (4.0 - rough)) * strength
+    turbulence = s.noise(n, rng, "pink") * bursts
+    voiced = voice(ctx, f0, vowel, size, rough, 0.2, opening=opening)
+    source = rms_norm(turbulence) + (0.25 - 0.15 * rough) * rms_norm(voiced) * bursts ** 0.5
+    scale = (1.25 - 0.45 * size) * opening
+    out = 0.7 * source  # the broadband floor real roars have
+    chest_level = chest
+    chest = dsp.filt(source, "lowpass", 260 * (1.3 - 0.4 * size), sr, q=0.9)  # body resonance: the weight
+    out += (1.6 + 0.8 * size) * chest_level * chest
+    for formant, gain, q in ((700, 0.6, 1.6), (1300, 0.5, 2.0), (2100, 0.3, 3.0), (3100, 0.1, 4.0)):
+        out += gain * dsp.sweep_filter(source, "bandpass", formant * scale, sr, q=q, block=128)
+    out = dsp.filt(dsp.filt(out, "highpass", 65, sr), "lowpass", 7000, sr)
+    return out
+
+
 VOWEL_CHOICES = tuple(VOWELS)
 
 
@@ -76,12 +102,13 @@ VOWEL_CHOICES = tuple(VOWELS)
 )
 def growl(ctx: RenderContext, p: dict) -> np.ndarray:
     n, sr = ctx.n, ctx.sr
-    f0 = (130 - 60 * p["size"]) * ctx.pitch * (1 + 0.08 * dsp.drift(n, sr, 2.5, ctx.rng))
     surge = 0.75 + 0.25 * dsp.drift(n, sr, 1.5, ctx.rng)  # the growl swells and eases
-    v = voice(ctx, f0, p["vowel"], p["size"], 0.5 + 0.5 * p["rough"], 0.3, opening=0.85 + 0.15 * surge)
+    pulse = (30 - 10 * p["size"]) * surge
+    f0 = (120 - 55 * p["size"]) * ctx.pitch * (1 + 0.06 * dsp.drift(n, sr, 2.5, ctx.rng))
+    v = beast(ctx, p["size"], 0.5 + 0.5 * p["rough"], pulse_hz=pulse, f0=f0, opening=0.75 + 0.15 * surge,
+              vowel=p["vowel"], chest=0.45)  # fmt: skip
     env = s.adsr(n, sr, attack=0.12, decay=0.2, sustain=0.85, release=n / sr * 0.3) * surge
     return fade_tail(norm(v) * env, sr)
-
 
 @recipe(
     "roar",
@@ -99,11 +126,12 @@ def roar(ctx: RenderContext, p: dict) -> np.ndarray:
     n, sr = ctx.n, ctx.sr
     x = np.linspace(0, 1, n)
     swell = np.sin(np.pi * np.clip(x / 0.85, 0, 1)) ** 0.6  # rises, holds, falls
-    f0 = (210 - 110 * p["size"]) * ctx.pitch * s.semitones(5 * swell - 4 * x)
-    v = voice(ctx, f0, "a", p["size"], 0.6 + 0.4 * p["rough"], p["breath"], opening=0.7 + 0.55 * swell)
+    pulse = (40 - 14 * p["size"]) * (0.8 + 0.3 * swell)
+    f0 = (170 - 90 * p["size"]) * ctx.pitch * s.semitones(4 * swell - 4 * x)
+    v = beast(ctx, p["size"], 0.5 + 0.5 * p["rough"], pulse_hz=pulse * ctx.pitch ** 0.5, f0=f0,
+              opening=0.75 + 0.45 * swell)  # fmt: skip
     env = np.minimum(1, x * 8) * (1 - x) ** 0.5 * (0.35 + 0.65 * swell)
-    return fade_tail(s.soft_clip(norm(v) * env, 0.1 * p["rough"]), sr)
-
+    return fade_tail(norm(v) * env, sr)
 
 @recipe(
     "squeak",

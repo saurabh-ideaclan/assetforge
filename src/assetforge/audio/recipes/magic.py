@@ -249,19 +249,30 @@ def fire_burst(ctx: RenderContext, p: dict) -> np.ndarray:
     tags=("lightning", "zap", "electric", "shock", "spark", "thunderbolt", "tesla", "electricity", "magic"),
 )
 def lightning_zap(ctx: RenderContext, p: dict) -> np.ndarray:
-    """An electric arc: a crack, then a strong mains-like buzz (the arc itself) that flickers in intensity,
-    with occasional sharp spark pops on top. Smooth flicker (no hard gating clicks), sparse band-limited sparks."""
-    n, sr = ctx.n, ctx.sr
+    """Matched to recordings of electric sparks/arcs: a storm of discrete crackles, broadband (roughly flat from
+    a few hundred Hz to 10 kHz) and very impulsive (peaks ~16 dB over the average), arriving in bursts as the
+    arc strikes and breaks, over a faint mains buzz. Crackle, not hiss: every pop is a separate tiny grain."""
+    n, sr, rng = ctx.n, ctx.sr, ctx.rng
     x = np.linspace(0, 1, n)
-    env = np.minimum(1, x * 80) * (1 - x) ** 0.8
-    flicker = dsp.one_pole_lowpass(np.clip(dsp.drift(n, sr, 25, ctx.rng) * 1.2 + 0.6, 0.25, 1.0), 60, sr)
-    f = p["buzz_hz"] * ctx.pitch * (1 + 0.03 * dsp.drift(n, sr, 12, ctx.rng))
-    buzz = sum(s.osc("saw", f * k, n, sr) / k for k in (1, 2))
-    buzz = dsp.filt(dsp.filt(buzz, "peak", 700, sr, q=1.2, gain_db=9), "lowpass", 3500, sr)
-    buzz = dsp.filt(buzz, "lowpass", 3500, sr)
-    sparks = crackle(ctx, n, 40 + 120 * p["crackle"], lo=1200, hi=4500, envelope=flicker)
-    sparks = dsp.filt(sparks, "lowpass", 5000, sr)
-    crack = dsp.filt(n_wave(ctx, n, ms=1.5, tone_hz=5000), "lowpass", 6000, sr)
+    env = np.minimum(1, x * 200) * (1 - x) ** 0.6
+    # bursts: the arc strikes, holds a few tens of ms, breaks, re-strikes
+    gate = np.zeros(n)
+    t = 0
+    while t < n:
+        on = int(rng.uniform(0.02, 0.09) * sr)
+        gate[t : t + on] = rng.uniform(0.5, 1.0)
+        t += on + int(rng.uniform(0.005, 0.05) * sr * (1.3 - p["crackle"]))
+    gate = dsp.one_pole_lowpass(gate, 400, sr)  # 1-2 ms edges: no click from the gate itself
+    pops = np.zeros(n)
+    count = rng.poisson((2500 + 6000 * p["crackle"]) * n / sr)
+    where = rng.integers(0, n, count)
+    np.add.at(pops, where, rng.pareto(2.2, count).clip(0, 6) * rng.choice([-1.0, 1.0], count))
+    grain = np.hanning(max(3, int(0.0003 * sr)))
+    crackle_ = np.convolve(pops * gate, grain, mode="same")
+    crackle_ = dsp.filt(dsp.filt(crackle_, "highpass", 250, sr), "lowpass", 11000, sr)
+    f = p["buzz_hz"] * ctx.pitch
+    buzz = dsp.filt(sum(s.osc("saw", f * k, n, sr) / k for k in (1, 2, 3)), "bandpass", 600, sr, q=0.8) * gate
+    crack = n_wave(ctx, n, ms=1.0, tone_hz=9000)
     peak = lambda v: v / (np.max(np.abs(v)) + 1e-12)  # noqa: E731
-    out = peak(buzz) * flicker * env * 0.8 + p["crackle"] * 0.45 * peak(sparks) * env + 0.8 * peak(crack)
+    out = peak(crackle_) * env + 0.12 * rms_norm(buzz) * env * np.max(np.abs(peak(crackle_))) / 3 + 0.25 * peak(crack)
     return fade_tail(peak(out), sr)
