@@ -216,6 +216,7 @@ export function assetCard(asset, { onclick, selected } = {}) {
   const audio = isAudio(asset);
   const thumb = h("div.thumb", { class: audio ? "audio" : "" },
     v ? h("img", { src: thumbUrl(v.id), loading: "lazy", alt: "" }) : h("span.muted", "no file"));
+  if (asset.children) thumb.append(h("span.parts-badge", { title: `${asset.children} frames cut from this sheet` }, `▦ ${asset.children}`));
   if (audio && v) {
     const btn = h("button.play", { title: "Play", onclick: (e) => { e.stopPropagation(); playVariant(v.id, btn); } }, "▶");
     thumb.append(btn);
@@ -223,7 +224,8 @@ export function assetCard(asset, { onclick, selected } = {}) {
   return h("div.asset", { onclick, class: selected ? "selected" : "", dataset: { id: asset.id } },
     thumb,
     h("div.meta", h("div.name", { title: asset.name }, asset.name),
-      h("div.line", badge(asset.status), h("span", asset.type), h("span", fmt.file(v?.file)))));
+      h("div.line", badge(asset.status), h("span", asset.type), h("span", fmt.file(v?.file)),
+        asset.parent_asset_id ? h("span.part-of", { title: `Cut from ${asset.parent_asset_id}` }, "◱ frame") : "")));
 }
 
 const RANGE_LABELS = {
@@ -329,13 +331,15 @@ export function swatches(colors, size = 14) {
 /** Segmented control. options: [[value, label]]; returns the element with .value */
 export function segmented(options, value, onchange) {
   const el = h("div.seg");
+  el.options = options;
   const render = () => {
     el.innerHTML = "";
-    for (const [v, label] of options) {
+    for (const [v, label] of el.options) {
       el.append(h("button", { type: "button", class: v === el.value ? "on" : "", onclick: () => { el.value = v; render(); onchange(v); } }, label));
     }
   };
   el.value = value;
+  el.setLabels = (labels) => { el.options = el.options.map(([v], i) => [v, labels[i]]); render(); };
   render();
   return el;
 }

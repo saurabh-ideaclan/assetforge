@@ -16,7 +16,7 @@ const STATUS_TABS = [["", "All"], ["candidate", "To review"], ["approved", "Appr
 export async function assets(root, { rest, params }) {
   const state = { q: params.get("q") || "", sort: params.get("sort") || "newest", filters: {}, offset: 0, total: 0,
                   loading: false, selected: rest[0] || null, items: [] };
-  for (const key of [...FILTERS.map(([k]) => k), ...LOOK, "status", "similar"]) if (params.get(key)) state.filters[key] = params.get(key);
+  for (const key of [...FILTERS.map(([k]) => k), ...LOOK, "status", "similar", "parent", "group"]) if (params.get(key)) state.filters[key] = params.get(key);
   const { facets } = await api("/api/facets");
   const candidates = (facets.statuses || []).find((s) => s.value === "candidate")?.count || 0;
 
@@ -54,12 +54,18 @@ export async function assets(root, { rest, params }) {
   const panel = h("div.filter-panel", h("div.toolbar", selects), h("div.toolbar", colorRow, orientSeg, toneSeg, alphaSeg));
   const activeChips = h("div.active-filters");
   const filterBtn = h("button.btn", { onclick: () => { panel.classList.toggle("open"); } }, "Filters");
+  const groupBtn = h("button.btn", { title: "Frames cut from a sheet are shown inside the sheet; switch to see them as separate cards",
+    onclick: () => setFilter("group", state.filters.group === "false" ? "" : "false") });
+  const syncGroupBtn = () => (groupBtn.textContent = state.filters.group === "false" ? "Frames: separate" : "Frames: in their sheet");
+  const selectBtn = h("button.btn", { title: "Pick several assets to approve, archive or edit together (or ⌘-click cards)",
+    onclick: () => setSelectMode(!selectMode) }, "Select");
+  let selectMode = false;
 
   root.append(
     h("div.page-head", h("div", h("h1", "Assets"), h("div.sub", count)), statusSeg),
-    h("div.toolbar", search, sort, filterBtn),
+    h("div.toolbar", search, sort, filterBtn, groupBtn, selectBtn),
     panel, activeChips, layout,
-    h("div.kbd-hint", "Keys: ← → move · A approve · X reject · E archive/restore · F find similar · Esc close · / search · ⌘/⇧-click to select several"));
+    h("div.kbd-hint", "Keys: ← → move · A approve · X reject · E archive/restore · F find similar · S select mode · ⌘A select all shown · ⌘/⇧-click to add to the selection · Esc clear/close · / search"));
 
   function setFilter(key, value) {
     if (value) state.filters[key] = value; else delete state.filters[key];
@@ -68,10 +74,11 @@ export async function assets(root, { rest, params }) {
 
   function renderChips() {
     activeChips.innerHTML = "";
-    const entries = Object.entries(state.filters).filter(([k]) => k !== "status");
+    syncGroupBtn();
+    const entries = Object.entries(state.filters).filter(([k]) => k !== "status" && k !== "group");
     filterBtn.textContent = entries.length ? `Filters (${entries.length})` : "Filters";
     for (const [k, v] of entries) {
-      const label = k === "similar" ? `looks like ${v}` : k === "transparent" ? (v === "true" ? "transparent" : "opaque") : `${k}: ${v}`;
+      const label = k === "similar" ? `looks like ${v}` : k === "parent" ? `frames of ${v}` : k === "transparent" ? (v === "true" ? "transparent" : "opaque") : `${k}: ${v}`;
       activeChips.append(h("span.chip", label, h("button", { title: "Remove", onclick: () => setFilter(k, "") }, "×")));
     }
     if (entries.length) activeChips.append(h("button.btn.small", { onclick: () => { state.filters = state.filters.status ? { status: state.filters.status } : {};
@@ -109,6 +116,7 @@ export async function assets(root, { rest, params }) {
   }
 
   function reload() {
+    renderStatusActions();
     state.offset = 0;
     state.total = 0;
     state.items = [];
@@ -146,10 +154,11 @@ export async function assets(root, { rest, params }) {
 
   function card(a) {
     const el = assetCard(a, { selected: a.id === state.selected, onclick: (e) => {
-      if (e.metaKey || e.ctrlKey || e.shiftKey) { togglePick(a.id, e.shiftKey); return; }
-      if (picked.size) { picked.clear(); renderPicked(); }
+      if (selectMode || e.metaKey || e.ctrlKey || e.shiftKey) { togglePick(a.id, e.shiftKey); return; }
       select(a.id);
     } });
+    el.prepend(h("button.pick", { type: "button", title: "Select", "aria-label": "Select",
+      onclick: (e) => { e.stopPropagation(); togglePick(a.id, e.shiftKey); } }, "✓"));
     el.classList.toggle("picked", picked.has(a.id));
     return el;
   }
@@ -163,40 +172,157 @@ export async function assets(root, { rest, params }) {
   const picked = new Set();
   let lastPicked = null;
   const bulkCount = h("b");
-  const bulkBar = h("div.bulk-bar", bulkCount,
-    h("button.btn.small.primary", { onclick: () => bulk("approve") }, "Approve"),
-    h("button.btn.small", { onclick: () => bulk("reject") }, "Reject"),
-    h("button.btn.small", { onclick: () => bulk("archive") }, "Archive"),
-    h("button.btn.small", { onclick: () => bulk("restore") }, "Restore"),
-    h("button.btn.small", { onclick: () => { [...grid.querySelectorAll(".asset")].forEach((c) => picked.add(c.dataset.id)); renderPicked(); } }, "Select all shown"),
-    h("button.btn.small", { onclick: () => { picked.clear(); renderPicked(); } }, "Clear"));
+  const editPanel = h("div.bulk-edit");
+  const statusActions = h("span.bulk-group");
+  const bulkBar = h("div.bulk-bar",
+    h("div.bulk-row",
+      bulkCount,
+      h("button.btn.small", { onclick: selectAllShown }, "All shown"),
+      h("button.btn.small", { title: "Every asset matching the current search and filters, not just the loaded ones", onclick: selectAllMatching }, "All matching"),
+      h("span.sep"),
+      statusActions,
+      h("span.sep"),
+      h("button.btn.small", { onclick: () => toggleEdit("edit") }, "Edit details…"),
+      h("button.btn.small", { onclick: () => toggleEdit("collection") }, "Add to collection…"),
+      h("span.sep"),
+      h("button.btn.small", { title: "Clear the selection (Esc)", onclick: clearPicked }, "Done")),
+    editPanel);
   root.append(bulkBar);
+
+  async function refreshCounts() {
+    try {
+      const { facets: f } = await api("/api/facets");
+      const n = (v) => (f.statuses || []).find((x) => x.value === v)?.count || 0;
+      const labels = STATUS_TABS.map(([v, l]) => (v === "candidate" || v === "archived") && n(v) ? `${l} (${n(v)})` : l);
+      statusSeg.setLabels(labels);
+    } catch { /* counts are cosmetic */ }
+  }
+
+  function renderStatusActions() {
+    statusActions.innerHTML = "";
+    const inArchive = state.filters.status === "archived";
+    statusActions.append(
+      inArchive ? h("button.btn.small.primary", { onclick: () => bulk("restore") }, "Restore") : h("button.btn.small.primary", { onclick: () => bulk("approve") }, "Approve"),
+      inArchive ? "" : h("button.btn.small", { onclick: () => bulk("reject") }, "Reject"),
+      inArchive ? "" : h("button.btn.small", { onclick: () => bulk("archive") }, "Archive"),
+      h("button.btn.small", { title: "Back to the review queue", onclick: () => bulk("candidate") }, "To review"));
+  }
+  renderStatusActions();
+
+  function setSelectMode(on) {
+    selectMode = on;
+    selectBtn.classList.toggle("primary", on);
+    selectBtn.textContent = on ? "Selecting… (click cards)" : "Select";
+    grid.classList.toggle("selecting", on);
+    if (!on && !picked.size) bulkBar.classList.remove("show");
+    if (on) bulkBar.classList.add("show");
+    renderPicked();
+  }
 
   function togglePick(id, range) {
     const ids = [...grid.querySelectorAll(".asset")].map((c) => c.dataset.id);
+    if (!picked.size && state.selected && state.selected !== id && !selectMode) picked.add(state.selected);
     if (range && lastPicked && ids.includes(lastPicked)) {
       const [a, b] = [ids.indexOf(lastPicked), ids.indexOf(id)].sort((x, y) => x - y);
       ids.slice(a, b + 1).forEach((i) => picked.add(i));
     } else if (picked.has(id)) picked.delete(id);
     else picked.add(id);
-    if (state.selected && !picked.size) picked.add(state.selected);
     lastPicked = id;
     renderPicked();
   }
 
+  function selectAllShown() {
+    grid.querySelectorAll(".asset").forEach((c) => picked.add(c.dataset.id));
+    renderPicked();
+  }
+
+  async function selectAllMatching() {
+    try {
+      const { ids, total } = await api("/api/asset-ids" + qs({ q: state.q, sort: state.sort, ...state.filters }));
+      ids.forEach((i) => picked.add(i));
+      renderPicked();
+      if (total > ids.length) toast(`Selected the first ${ids.length} of ${total}`);
+    } catch (err) { toast(err.message); }
+  }
+
+  function clearPicked() {
+    picked.clear();
+    editPanel.innerHTML = "";
+    setSelectMode(false);
+  }
+
   function renderPicked() {
     grid.querySelectorAll(".asset").forEach((c) => c.classList.toggle("picked", picked.has(c.dataset.id)));
-    bulkCount.textContent = `${picked.size} selected`;
-    bulkBar.classList.toggle("show", picked.size > 0);
+    bulkCount.textContent = picked.size ? `${picked.size} selected` : "Click cards to select";
+    bulkBar.classList.toggle("show", picked.size > 0 || selectMode);
+    bulkBar.querySelectorAll(".bulk-row button").forEach((b) => {
+      if (!["All shown", "All matching", "Done"].includes(b.textContent)) b.disabled = !picked.size;
+    });
+  }
+
+  function toggleEdit(kind) {
+    if (editPanel.dataset.kind === kind && editPanel.childElementCount) { editPanel.innerHTML = ""; editPanel.dataset.kind = ""; return; }
+    editPanel.innerHTML = "";
+    editPanel.dataset.kind = kind;
+    const out = h("div");
+    if (kind === "collection") {
+      const name = h("input", { type: "text", list: "bulk-collections", placeholder: "collection name (new or existing)" });
+      const list = h("datalist", { id: "bulk-collections" }, (facets.collections || []).map((c) => h("option", { value: c.value })));
+      const go = async () => {
+        if (!name.value.trim()) { name.focus(); return; }
+        try {
+          const r = await api("/api/collections/add", { method: "POST", body: { collection: name.value.trim(), ids: [...picked] } });
+          toast(`Added ${r.added} to ${r.collection.name} (${r.collection.asset_count} in it now)`);
+          editPanel.innerHTML = "";
+        } catch (err) { out.innerHTML = ""; out.append(errorBox(err)); }
+      };
+      name.addEventListener("keydown", (e) => e.key === "Enter" && go());
+      editPanel.append(h("div.toolbar", name, list, h("button.btn.small.primary", { onclick: go }, `Add ${picked.size}`)), out);
+      name.focus();
+      return;
+    }
+    const inputs = Object.fromEntries(["project", "category", "subcategory", "genre", "theme", "style"].map((k) =>
+      [k, h("input", { type: "text", placeholder: "keep as is" })]));
+    const type = h("select", h("option", { value: "" }, "keep as is"), (facets.types || []).map((t) => h("option", { value: t.value }, t.value)),
+      ["character", "enemy", "object", "sprite", "icon", "ui", "background", "tile", "texture", "effect", "spritesheet", "animation"]
+        .filter((t) => !(facets.types || []).some((x) => x.value === t)).map((t) => h("option", { value: t }, t)));
+    const addTags = chipsInput([], { placeholder: "tags to add" });
+    const removeTags = chipsInput([], { placeholder: "tags to remove" });
+    const apply = async () => {
+      const set = {};
+      for (const [k, el] of Object.entries(inputs)) {
+        const v = el.value.trim();
+        if (v === "-") set[k] = ""; else if (v) set[k] = v;
+      }
+      if (type.value) set.type = type.value;
+      const body = { ids: [...picked], set, add_tags: addTags.values(), remove_tags: removeTags.values() };
+      try {
+        const r = await api("/api/assets/bulk-update", { method: "POST", body });
+        toast(`Updated ${r.count} asset${r.count === 1 ? "" : "s"}`);
+        editPanel.innerHTML = "";
+        reload();
+        if (state.selected && picked.has(state.selected)) select(state.selected);
+      } catch (err) { out.innerHTML = ""; out.append(errorBox(err)); }
+    };
+    editPanel.append(h("div.form.compact",
+      ...Object.entries(inputs).map(([k, el]) => field(k[0].toUpperCase() + k.slice(1), el)), field("Type", type),
+      h("label.wide", h("span.lbl", "Add tags"), addTags), h("label.wide", h("span.lbl", "Remove tags"), removeTags)),
+      h("div.actions", h("button.btn.small.primary", { onclick: apply }, `Apply to ${picked.size}`),
+        h("span.help", "Empty fields stay as they are; type - to clear a field.")), out);
   }
 
   async function bulk(action, force = false) {
     const ids = [...picked];
+    if (!ids.length) return;
+    if (ids.length >= 20 && ["reject", "archive"].includes(action) && !confirm(`${action === "archive" ? "Archive" : "Reject"} ${ids.length} assets?`)) return;
     try {
       const { review: r } = await api("/api/review/bulk", { method: "POST", body: { ids, action, force } });
       const n = action === "restore" ? Object.keys(r.restored || {}).length : ids.length;
-      toast(`${n} asset${n === 1 ? "" : "s"} ${action === "restore" ? "restored" : r.status || action}`);
+      const verb = { approve: "approved", reject: "rejected", archive: "moved to the archive", restore: "restored", candidate: "sent back to review" }[action];
+      toast(`${n} asset${n === 1 ? "" : "s"} ${verb}`);
+      refreshCounts();
       picked.clear();
+      editPanel.innerHTML = "";
       renderPicked();
       reload();
     } catch (err) {
@@ -210,6 +336,7 @@ export async function assets(root, { rest, params }) {
     try {
       const { review: r } = await api(`/api/assets/${state.selected}/review`, { method: "POST", body: { action, force } });
       toast(`${state.selected} ${r.status === "archived" ? "moved to the archive" : r.status}`);
+      refreshCounts();
       const reviewed = state.selected;
       const next = neighbour(1) !== reviewed ? neighbour(1) : neighbour(-1);
       const { asset } = await api(`/api/assets/${reviewed}`);
@@ -238,12 +365,14 @@ export async function assets(root, { rest, params }) {
   const onKey = (e) => {
     if (e.target.closest?.("input, textarea, select") || e.metaKey || e.ctrlKey || e.altKey) {
       if ((e.metaKey || e.ctrlKey) && e.key === "f") { e.preventDefault(); search.focus(); search.select(); }
+      if ((e.metaKey || e.ctrlKey) && e.key === "a" && !e.target.closest?.("input, textarea, select")) { e.preventDefault(); selectAllShown(); }
       return;
     }
     if (e.key === "/") { e.preventDefault(); search.focus(); search.select(); }
     else if (e.key === "ArrowRight" || e.key === "j") { e.preventDefault(); select(neighbour(1)); }
     else if (e.key === "ArrowLeft" || e.key === "k") { e.preventDefault(); select(neighbour(-1)); }
-    else if (e.key === "Escape") select(null);
+    else if (e.key === "Escape") { if (picked.size || selectMode) clearPicked(); else select(null); }
+    else if (e.key === "s" && !e.repeat) setSelectMode(!selectMode);
     else if (e.key === "a" && state.selected) review("approve");
     else if (e.key === "x" && state.selected) review("reject");
     else if (e.key === "e" && state.selected) review(state.filters.status === "archived" ? "restore" : "archive");
@@ -278,7 +407,7 @@ function debounce(fn, ms) {
 
 // ---------------------------------------------------------------------- detail
 
-function renderDetail({ asset, lineage, job, usage, frames, can_regenerate: canRegenerate, siblings }, { onClose, onChanged, onSimilar, onReviewed }) {
+function renderDetail({ asset, lineage, job, usage, frames, can_regenerate: canRegenerate, siblings, parent_name: parentName }, { onClose, onChanged, onSimilar, onReviewed }) {
   let current = asset.primary_variant;
   const preview = h("div.preview");
   const variantList = h("div.variants");
@@ -416,6 +545,13 @@ function renderDetail({ asset, lineage, job, usage, frames, can_regenerate: canR
     h("a", { href: `#/assets/${d.asset_id}`, style: "margin-right:6px" }, d.asset_id))) : null;
 
   const similarStrip = h("div.mini-strip");
+  const partsGrid = h("div.parts-grid");
+  if (asset.children) {
+    api(`/api/assets?parent=${asset.id}&limit=200&sort=name`).then(({ items }) => {
+      for (const part of items) partsGrid.append(h("a.part", { href: `#/assets/${part.id}`, title: `${part.name} (${part.status})` },
+        h("img", { src: thumbUrl(part.primary_variant.id, 128), alt: "" }), h("span", part.name.replace(`${asset.name.replace(/_?sheet.*$/, "")}_`, ""))));
+    }).catch(() => partsGrid.append(h("span.muted", "Couldn't load the frames.")));
+  }
   if (isImage) {
     api(`/api/assets/${asset.id}/similar?limit=6`).then(({ items }) => {
       if (!items.length) { similarStrip.append(h("span.muted", "Nothing similar yet.")); return; }
@@ -428,6 +564,8 @@ function renderDetail({ asset, lineage, job, usage, frames, can_regenerate: canR
   return h("div",
     preview,
     h("div.body",
+      asset.parent_asset_id ? h("div.part-of-line", "◱ Frame of ", h("a", { href: `#/assets/${asset.parent_asset_id}` }, parentName || asset.parent_asset_id),
+        " · ", h("a", { href: `#/assets?parent=${asset.parent_asset_id}` }, "all its frames")) : "",
       h("div.title", h("h1", asset.name), h("button.close", { title: "Close (Esc)", onclick: onClose }, "×")),
       reviewBar,
       asset.description && asset.description !== gen.prompt ? h("p.muted", asset.description) : null,
@@ -439,6 +577,7 @@ function renderDetail({ asset, lineage, job, usage, frames, can_regenerate: canR
       h("dl.facts", dlRows(facts)),
       asset.tags.length ? h("div", { style: "margin-top:10px" }, asset.tags.map((t) => h("a.tag", { href: `#/assets?q=${encodeURIComponent(t)}` }, t))) : null,
       animBlock,
+      asset.children ? [h("h3", h("span", `Frames (${asset.children})`), " ", h("a", { href: `#/assets?parent=${asset.id}`, style: "font-weight:400" }, "open as a list")), partsGrid] : "",
       qc ? [h("h3", "Quality checks"), issues.length ? issues : h("span.issue", "no issues"), nearDupes] : null,
       section("Edit details", editForm(asset, onChanged), { note: "name, category, genre, theme, tags" }),
       canRegenerate ? section("Ask for another version", regenerateForm(asset), { note: "with review feedback" }) : null,

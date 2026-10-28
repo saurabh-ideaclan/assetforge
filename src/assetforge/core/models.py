@@ -155,6 +155,8 @@ class AssetSummary(BaseModel):
     subcategory: str | None = None
     theme: str | None = None
     genre: str | None = None
+    parent_asset_id: str | None = None  # the sheet this frame was cut from
+    children: int = 0  # frames cut from this asset
     status: Status
     origin: Origin
     license: str | None = None
@@ -210,6 +212,7 @@ class NewAsset(BaseModel):
     subcategory: str | None = None
     theme: str | None = None
     genre: str | None = None
+    parent_asset_id: str | None = None
     status: Status = Status.APPROVED
     origin: Origin = Origin.IMPORT
     license: str | None = None

@@ -65,7 +65,7 @@ def overview(req: Request, lib: Library) -> dict[str, Any]:
         "SELECT pf.kind, count(*) FROM assets a LEFT JOIN asset_variants pv ON pv.id = a.primary_variant_id "
         "LEFT JOIN asset_files pf ON pf.sha256 = pv.file_sha256 GROUP BY pf.kind")}  # fmt: skip
     job_counts = {r[0]: r[1] for r in lib.conn.execute("SELECT status, count(*) FROM generation_jobs GROUP BY status")}
-    total, newest = browse(lib, BrowseFilters(), sort="newest", limit=12)
+    total, newest = browse(lib, BrowseFilters(group=True), sort="newest", limit=12)
     price = pricing.table(lib)
     default_home = resolve_home(None)  # where agents write unless they pass --home or set ASSETFORGE_HOME
     return {
@@ -97,6 +97,7 @@ def _filters(req: Request) -> BrowseFilters:
         collection=req.arg("collection"), tag=req.arg("tag"), category=req.arg("category"), genre=req.arg("genre"),
         theme=req.arg("theme"), color=req.arg("color"), orientation=req.arg("orientation"), tone=req.arg("tone"),
         transparent={"true": True, "false": False}.get(req.arg("transparent") or ""), similar=req.arg("similar"),
+        group=req.arg("group", "true") != "false", parent=req.arg("parent"),
     )  # fmt: skip
 
 
@@ -139,7 +140,8 @@ def asset_detail(req: Request, lib: Library) -> dict[str, Any]:
                   and summaries[f["asset_id"]].primary_variant]  # fmt: skip
     return {"asset": _dump(asset), "lineage": lineage.lineage(lib, asset.id), "job": job, "usage": usage,
             "frames": frames, "can_regenerate": generator.get("engine") == "ai-image" and bool(generator.get("job_id")),
-            "siblings": review.siblings(lib, asset.id)}  # fmt: skip
+            "siblings": review.siblings(lib, asset.id),
+            "parent_name": lib.get_asset(asset.parent_asset_id).name if asset.parent_asset_id else None}  # fmt: skip
 
 
 # ---------------------------------------------------------------------- asset actions
@@ -166,6 +168,8 @@ def review_asset(req: Request, lib: Library) -> dict[str, Any]:
         return {"review": review.approve(lib, [req.match["ref"]], note=note, force=bool(body.get("force")))}
     if action == "pick":
         return {"review": review.pick(lib, req.match["ref"], note=note, force=bool(body.get("force")))}
+    if action == "archive":
+        return {"review": review.archive(lib, [req.match["ref"]], note=note)}
     if action == "restore":
         restored = review.restore(lib, [req.match["ref"]], note=note)["restored"]
         return {"review": {"status": next(iter(restored.values()), "unchanged"), "asset_ids": list(restored)}}
@@ -189,10 +193,62 @@ def bulk_review(req: Request, lib: Library) -> dict[str, Any]:
         return {"review": review.approve(lib, ids, note=note, force=bool(body.get("force")))}
     if action == "restore":
         return {"review": review.restore(lib, ids, note=note)}
+    if action == "archive":
+        return {"review": review.archive(lib, ids, note=note)}
     statuses = {"reject": Status.REJECTED, "archive": Status.ARCHIVED, "candidate": Status.CANDIDATE}
     if action not in statuses:
         raise InvalidInputError("action must be approve, reject, archive, restore or candidate")
     return {"review": {"status": statuses[action].value, "asset_ids": lib.set_status(ids, statuses[action], note=note)}}
+
+
+BULK_FIELDS = ("project", "category", "subcategory", "genre", "theme", "style", "type", "scope", "description")
+
+
+@router.route("POST", "/api/assets/bulk-update")
+def bulk_update(req: Request, lib: Library) -> dict[str, Any]:
+    """Set the same fields / add or remove tags on many assets. Empty strings clear a field; omitted fields stay."""
+    body = req.body or {}
+    ids = [str(i) for i in body.get("ids") or []]
+    if not ids:
+        raise InvalidInputError("Select at least one asset")
+    fields = {k: v for k, v in (body.get("set") or {}).items() if k in BULK_FIELDS and v is not None}
+    unknown = set(body.get("set") or {}) - set(BULK_FIELDS)
+    if unknown:
+        raise InvalidInputError(f"Can't bulk-edit {', '.join(sorted(unknown))}", allowed=list(BULK_FIELDS))
+    patch = AssetPatch(**fields, add_tags=body.get("add_tags") or [], remove_tags=body.get("remove_tags") or [])
+    if not patch.model_dump(exclude_unset=True, exclude_defaults=True):
+        raise InvalidInputError("Nothing to change")
+    for asset_id in ids:  # validate every id first so a typo doesn't leave a half-applied batch
+        lib.resolve_asset_id(asset_id)
+    updated = [lib.update_asset(asset_id, patch).id for asset_id in ids]
+    if body.get("collection"):
+        collection = coll.ensure_collection(lib, str(body["collection"]))
+        coll.add_asset_ids(lib, collection.id, updated)
+    return {"updated": updated, "count": len(updated)}
+
+
+@router.route("POST", "/api/collections/add")
+def collection_add(req: Request, lib: Library) -> dict[str, Any]:
+    body = req.body or {}
+    ids = [lib.resolve_asset_id(str(i)) for i in body.get("ids") or []]
+    if not ids or not body.get("collection"):
+        raise InvalidInputError("Give a collection name and at least one asset")
+    collection = coll.ensure_collection(lib, str(body["collection"]))
+    added = coll.add_asset_ids(lib, collection.id, ids)
+    return {"collection": _dump(coll.get_collection(lib, collection.id)), "added": added}
+
+
+@router.route("GET", "/api/asset-ids")
+def asset_ids(req: Request, lib: Library) -> dict[str, Any]:
+    """Every asset id matching the browse filters (for "select all matching"), capped at 5000."""
+    filters, ids, offset = _filters(req), [], 0
+    while len(ids) < 5000:
+        total, page = browse(lib, filters, sort=req.arg("sort", "newest") or "newest", offset=offset, limit=500)
+        ids += [a.id for a in page]
+        offset += len(page)
+        if not page or offset >= total:
+            break
+    return {"ids": ids[:5000], "total": total}
 
 
 @router.route("GET", r"/api/assets/(?P<ref>[^/]+)/similar")

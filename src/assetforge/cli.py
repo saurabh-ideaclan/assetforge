@@ -244,7 +244,7 @@ def get(
 @app.command()
 def update(
     ctx: typer.Context,
-    ref: Annotated[str, typer.Argument(help="Asset ID, variant ID, key, or project:key.")],
+    refs: Annotated[list[str], typer.Argument(help="One or more assets: ID, variant ID, key, or project:key.")],
     name: Annotated[str | None, typer.Option()] = None,
     key: Annotated[str | None, typer.Option(help="New key ('' clears it).")] = None,
     type_: Annotated[AssetType | None, typer.Option("--type")] = None,
@@ -264,7 +264,11 @@ def update(
     meta: Annotated[list[str] | None, typer.Option("--meta", help="key=value (JSON values allowed); repeatable.")] = None,
     json_: JsonOpt = False,
 ) -> None:
-    """Edit an asset's descriptive metadata. Files are never modified."""
+    """Edit descriptive metadata of one or more assets (the same change to each). Files are never modified.
+
+    Several assets: `assetforge update ast_00010 ast_00011 --project space-survivor --add-tag enemy`.
+    `--name` and `--key` must be unique, so they only work on a single asset.
+    """
     with session(ctx, json_) as s:
         given = {
             "name": name, "key": key, "type": type_, "description": description, "scope": scope,
@@ -278,8 +282,15 @@ def update(
             remove_tags=remove_tag or [],
             metadata=parse_pairs(meta or [], "--meta"),
         )
-        asset = s.lib.update_asset(ref, patch)
-        s.out.emit({"asset": _dump(asset)}, lambda c: render_asset(c, asset))
+        if len(refs) > 1 and (name is not None or key is not None):
+            raise InvalidInputError("--name and --key apply to one asset; leave them out when updating several")
+        ids = [s.lib.resolve_asset_id(r) for r in refs]  # all valid before anything changes
+        assets = [s.lib.update_asset(asset_id, patch) for asset_id in ids]
+        if len(assets) == 1:
+            s.out.emit({"asset": _dump(assets[0])}, lambda c: render_asset(c, assets[0]))
+        else:
+            s.out.emit({"count": len(assets), "assets": [_dump(a) for a in assets]},
+                       lambda c: render_assets(c, assets, title=f"Updated {len(assets)} assets"))  # fmt: skip
 
 
 @app.command()

@@ -290,8 +290,19 @@ SCHEMA_V4 = [
     """,
 ]
 
+# Parts of a larger asset (frames cut from a sprite sheet) point at it, so browsing can show them under it.
+SCHEMA_V5 = [
+    "ALTER TABLE assets ADD COLUMN parent_asset_id TEXT",
+    "CREATE INDEX idx_assets_parent ON assets (parent_asset_id)",
+    """
+    UPDATE assets SET parent_asset_id = json_extract(metadata, '$.frame.sheet')
+    WHERE json_extract(metadata, '$.frame.sheet') IN (SELECT id FROM assets)
+    """,
+]
+
 # Append (version, statements) pairs; never edit a migration that has shipped.
-MIGRATIONS: list[tuple[int, list[str]]] = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4)]
+MIGRATIONS: list[tuple[int, list[str]]] = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4),
+                                           (5, SCHEMA_V5)]  # fmt: skip
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 
 

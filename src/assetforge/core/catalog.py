@@ -299,14 +299,16 @@ class Library:
                 """
                 INSERT INTO assets (id, key, name, type, description, scope, project, style, status, origin,
                                     license, commercial_use, attribution, source_uri, primary_variant_id,
-                                    metadata, created_at, updated_at, category, subcategory, theme, genre)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    metadata, created_at, updated_at, category, subcategory, theme, genre,
+                                    parent_asset_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     asset_id, key, name, spec.type.value, spec.description, spec.scope.value, project, style,
                     spec.status.value, spec.origin.value, spec.license, spec.commercial_use.value,
                     spec.attribution, spec.source_uri, variant_id, dumps(spec.metadata), now, now,
                     *(normalize_optional_slug(getattr(spec, f), f) for f in DISCOVERY_FIELDS),
+                    spec.parent_asset_id,
                 ),
             )  # fmt: skip
             self.conn.execute(
@@ -451,7 +453,8 @@ class Library:
     def get_asset(self, ref: str, *, project: str | None = None) -> Asset:
         asset_id = self.resolve_asset_id(ref, project=project)
         row = self.conn.execute("SELECT * FROM assets WHERE id = ?", (asset_id,)).fetchone()
-        base = self._summary_from_row(row, self._tags_for([asset_id]).get(asset_id, []), None)
+        base = self._summary_from_row(row, self._tags_for([asset_id]).get(asset_id, []), None,
+                                      self._child_counts([asset_id]).get(asset_id, 0))
         variants = self._variants("v.asset_id = ?", [asset_id])
         primary = next((v for v in variants if v.id == row["primary_variant_id"]), None)
         collections = [
@@ -493,15 +496,42 @@ class Library:
             for row in self.conn.execute(f"SELECT * FROM assets WHERE id IN ({qmarks(len(batch))})", batch):
                 rows[row["id"]] = row
         tags = self._tags_for(asset_ids)
+        children = self._child_counts(asset_ids)
         primary_ids = [r["primary_variant_id"] for r in rows.values() if r["primary_variant_id"]]
         primaries = {v.id: v for v in self._variants_by_ids(primary_ids)}
         return [
-            self._summary_from_row(rows[i], tags.get(i, []), primaries.get(rows[i]["primary_variant_id"]))
+            self._summary_from_row(rows[i], tags.get(i, []), primaries.get(rows[i]["primary_variant_id"]), children.get(i, 0))
             for i in asset_ids
             if i in rows
         ]
 
-    def _summary_from_row(self, row: sqlite3.Row, tags: list[str], primary: Variant | None) -> AssetSummary:
+    def _child_counts(self, asset_ids: list[str]) -> dict[str, int]:
+        """How many non-archived parts (sliced frames) each asset has."""
+        counts: dict[str, int] = {}
+        for batch in chunks(asset_ids):
+            for row in self.conn.execute(
+                f"SELECT parent_asset_id, count(*) FROM assets WHERE parent_asset_id IN ({qmarks(len(batch))}) "
+                "AND status != 'archived' GROUP BY parent_asset_id",
+                batch,
+            ):
+                counts[row[0]] = row[1]
+        return counts
+
+    def children(self, ref: str, *, include_archived: bool = False) -> list[str]:
+        asset_id = self.resolve_asset_id(ref)
+        sql = "SELECT id FROM assets WHERE parent_asset_id = ?" + ("" if include_archived else " AND status != 'archived'")
+        return [r[0] for r in self.conn.execute(sql + " ORDER BY id", (asset_id,))]
+
+    def set_parent(self, ref: str, parent_ref: str | None) -> None:
+        asset_id = self.resolve_asset_id(ref)
+        parent = self.resolve_asset_id(parent_ref) if parent_ref else None
+        if parent == asset_id:
+            raise InvalidInputError("An asset cannot be its own parent")
+        with db.transaction(self.conn):
+            self.conn.execute("UPDATE assets SET parent_asset_id = ? WHERE id = ?", (parent, asset_id))
+
+    def _summary_from_row(self, row: sqlite3.Row, tags: list[str], primary: Variant | None,
+                          children: int = 0) -> AssetSummary:  # fmt: skip
         return AssetSummary(
             id=row["id"],
             key=row["key"],
@@ -515,6 +545,8 @@ class Library:
             subcategory=row["subcategory"],
             theme=row["theme"],
             genre=row["genre"],
+            parent_asset_id=row["parent_asset_id"],
+            children=children,
             status=row["status"],
             origin=row["origin"],
             license=row["license"],

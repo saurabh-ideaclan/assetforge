@@ -271,3 +271,33 @@ def test_archive_view_bulk_and_restore(server, stocked):
     status, d = jcall(server, "/api/review/bulk", method="POST", body={"ids": [coin], "action": "restore"})
     assert d["review"]["restored"] == {coin: "approved"}
     assert jcall(server, "/api/review/bulk", method="POST", body={"ids": [], "action": "archive"})[0] == 400
+
+
+def test_bulk_edit_collection_and_select_all(server, stocked):
+    hero, tree, coin = stocked["hero"], stocked["tree"], stocked["coin"]
+    body = {"ids": [hero, coin], "set": {"project": "crypt-run", "genre": "Roguelike", "category": ""},
+            "add_tags": ["batch-1"], "remove_tags": ["player"]}  # fmt: skip
+    status, d = jcall(server, "/api/assets/bulk-update", method="POST", body=body)
+    assert status == 200 and d["count"] == 2
+    hero_asset = jcall(server, f"/api/assets/{hero}")[1]["asset"]
+    assert (hero_asset["project"], hero_asset["genre"]) == ("crypt-run", "roguelike")
+    assert "batch-1" in hero_asset["tags"] and "player" not in hero_asset["tags"]
+    assert jcall(server, "/api/assets/bulk-update", method="POST", body={"ids": [hero], "set": {"name": "x"}})[0] == 400
+    assert jcall(server, "/api/assets/bulk-update", method="POST", body={"ids": [hero, "ast_99999"], "set": {"genre": "x"}})[0] == 404
+    assert jcall(server, f"/api/assets/{hero}")[1]["asset"]["genre"] == "roguelike"  # nothing half-applied
+    status, d = jcall(server, "/api/collections/add", method="POST", body={"collection": "Keepers", "ids": [hero, tree]})
+    assert status == 200 and d["added"] == 2 and d["collection"]["name"] == "keepers"
+    status, d = jcall(server, "/api/asset-ids?genre=roguelike")
+    assert status == 200 and sorted(d["ids"]) == sorted([hero, coin]) and d["total"] == 2
+
+
+def test_cli_update_many(capsys, home, stocked):
+    from conftest import run_cli
+
+    code, out, _ = run_cli(capsys, "update", stocked["hero"], stocked["tree"], "--theme", "crypt", "--add-tag", "batch",
+                           "--json")  # fmt: skip
+    assert code == 0 and out["count"] == 2 and all(a["theme"] == "crypt" and "batch" in a["tags"] for a in out["assets"])
+    code, out, _ = run_cli(capsys, "update", stocked["hero"], stocked["tree"], "--name", "same", "--json")
+    assert code == 4
+    code, out, _ = run_cli(capsys, "update", stocked["hero"], "--genre", "puzzle", "--json")
+    assert code == 0 and out["asset"]["genre"] == "puzzle"

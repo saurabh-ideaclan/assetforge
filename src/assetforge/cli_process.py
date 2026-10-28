@@ -433,7 +433,18 @@ def _review_simple(status: Status, verb: str) -> Any:
 
 
 review_app.command("reject")(_review_simple(Status.REJECTED, "Reject assets (hidden from default search)."))
-review_app.command("archive")(_review_simple(Status.ARCHIVED, "Archive assets (hidden from default search)."))
+@review_app.command("archive")
+def review_archive(
+    ctx: typer.Context,
+    refs: Annotated[list[str], typer.Argument(help="Assets to archive.")],
+    note: Annotated[str | None, typer.Option(help="Reason, kept in the asset's history.")] = None,
+    json_: JsonOpt = False,
+) -> None:
+    """Archive assets (hidden from views and default search; nothing is deleted). A sheet's frames go with it."""
+    with session(ctx, json_) as s:
+        result = review_mod.archive(s.lib, refs, note=note)
+        s.out.emit({"review": result}, lambda c: c.print(
+            f"Archived {', '.join(result['asset_ids'])}" + (f" and {len(result['parts'])} part(s)" if result["parts"] else "")))
 review_app.command("candidate")(_review_simple(Status.CANDIDATE, "Send assets back to candidate status."))
 
 

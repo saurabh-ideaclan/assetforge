@@ -46,6 +46,8 @@ class BrowseFilters(BaseModel):
     tone: str | None = None
     transparent: bool | None = None
     similar: str | None = None  # rank by visual similarity to this asset
+    group: bool = False  # show parts (sliced frames) as their parent sheet instead of separately
+    parent: str | None = None  # only the parts of this asset
 
 
 def _where(lib: Library, f: BrowseFilters) -> tuple[list[str], list[Any]]:
@@ -75,6 +77,9 @@ def _where(lib: Library, f: BrowseFilters) -> tuple[list[str], list[Any]]:
         where.append("EXISTS (SELECT 1 FROM asset_tags at JOIN tags t ON t.id = at.tag_id "
                      "WHERE at.asset_id = a.id AND t.name = ?)")  # fmt: skip
         params.append(normalize_slug(f.tag, "tag"))
+    if f.parent:
+        where.append("a.parent_asset_id = ?")
+        params.append(lib.resolve_asset_id(f.parent))
     if f.transparent is not None:
         where.append("pf.has_alpha = ?")
         params.append(int(f.transparent))
@@ -109,13 +114,27 @@ def browse(lib: Library, f: BrowseFilters, *, sort: str = "newest", offset: int 
         raise InvalidInputError(f"Unknown sort {sort!r}", allowed=list(SORTS))
     if not 1 <= limit <= 500 or offset < 0:
         raise InvalidInputError("limit must be 1-500 and offset >= 0")
+    ids = _matching_ids(lib, f, sort, None if (f.group and not f.parent) else offset + limit)
+    if f.group and not f.parent:
+        ids = _group_under_parents(lib, ids, archived_view=Status.ARCHIVED in f.statuses)
+    total = len(ids) if (f.group and not f.parent) or f.similar or f.q.strip() else _count(lib, f)
+    return total, lib.summaries(ids[offset : offset + limit])
+
+
+def _count(lib: Library, f: BrowseFilters) -> int:
+    where, params = _where(lib, f)
+    clause = f"WHERE {' AND '.join(where)}" if where else ""
+    return lib.conn.execute(f"SELECT count(*) {_FROM} {clause}", params).fetchone()[0]
+
+
+def _matching_ids(lib: Library, f: BrowseFilters, sort: str, upto: int | None) -> list[str]:
+    """Ids of every match in display order (`upto` caps the plain SQL listing when nothing is regrouped)."""
     where, params = _where(lib, f)
     if f.similar:
         from assetforge.core import visual
 
         ranked = visual.similar(lib, f.similar, limit=SEARCH_POOL, where=" AND ".join(where) or "1", params=params)
-        ids = [asset_id for asset_id, _, _ in ranked]
-        return len(ids), lib.summaries(ids[offset : offset + limit])
+        return [asset_id for asset_id, _, _ in ranked]
     if f.q.strip():
         # Text: rank with the search engine, then apply browse's exact filters to the ranked ids.
         hits = search(lib, SearchQuery(text=f.q, statuses=list(Status), include_restricted=True,
@@ -125,12 +144,34 @@ def browse(lib: Library, f: BrowseFilters, *, sort: str = "newest", offset: int 
             allowed = {r[0] for r in lib.conn.execute(
                 f"SELECT a.id {_FROM} WHERE a.id IN ({qmarks(len(ids))}) AND {' AND '.join(where)}", [*ids, *params])}  # fmt: skip
             ids = [i for i in ids if i in allowed]
-        return len(ids), lib.summaries(ids[offset : offset + limit])
+        return ids
     clause = f"WHERE {' AND '.join(where)}" if where else ""
-    total = lib.conn.execute(f"SELECT count(*) {_FROM} {clause}", params).fetchone()[0]
-    rows = lib.conn.execute(f"SELECT a.id {_FROM} {clause} ORDER BY {SORTS[sort]} LIMIT ? OFFSET ?",
-                            [*params, limit, offset]).fetchall()  # fmt: skip
-    return total, lib.summaries([r[0] for r in rows])
+    limit = "" if upto is None else f" LIMIT {int(upto)}"
+    return [r[0] for r in lib.conn.execute(f"SELECT a.id {_FROM} {clause} ORDER BY {SORTS[sort]}{limit}", params)]
+
+
+def _group_under_parents(lib: Library, ids: list[str], *, archived_view: bool) -> list[str]:
+    """Replace each part by its parent (when the parent is visible in this view), keeping first-seen order.
+
+    A search that only matches a frame still surfaces it, as its sheet; the frame itself is one click away.
+    """
+    parents: dict[str, str] = {}
+    for start in range(0, len(ids), 500):
+        batch = ids[start : start + 500]
+        for row in lib.conn.execute(
+            f"SELECT a.id, a.parent_asset_id, p.status FROM assets a JOIN assets p ON p.id = a.parent_asset_id "
+            f"WHERE a.id IN ({qmarks(len(batch))})", batch,
+        ):  # fmt: skip
+            if archived_view or row[2] != Status.ARCHIVED.value:
+                parents[row[0]] = row[1]
+    seen: set[str] = set()
+    out: list[str] = []
+    for asset_id in ids:
+        shown = parents.get(asset_id, asset_id)
+        if shown not in seen:
+            seen.add(shown)
+            out.append(shown)
+    return out
 
 
 def facets(lib: Library) -> dict[str, list[dict[str, Any]]]:

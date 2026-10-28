@@ -194,3 +194,34 @@ def test_reslicing_archives_the_old_frames_and_restore_brings_them_back(lib, tmp
     assert list(restored.values()) == ["approved"]  # the status it had before
     third = slice_asset(lib, asset_id, columns=3, rows=2, cell=96, replace_previous=False)
     assert third.archived == []
+
+
+def test_frames_live_under_their_sheet(lib, tmp_path):
+    from assetforge.core import review
+    from assetforge.core.browse import BrowseFilters, browse
+    from assetforge.core.search import SearchQuery, search
+
+    sheet_id = lib.import_paths([icon_sheet(tmp_path / "loot_sheet.png", columns=3, rows=2)],
+                                ImportOptions(type=AssetType.SPRITESHEET)).items[0].asset_id  # fmt: skip
+    other = lib.import_paths([icon_sheet(tmp_path / "solo.png", columns=1, rows=1)]).items[0].asset_id
+    outcome = slice_asset(lib, sheet_id, names=["sword", "shield", "potion", "key", "map", "bow"])
+    frame_ids = [f["asset_id"] for f in outcome.frames]
+    assert all(lib.get_asset(f).parent_asset_id == sheet_id for f in frame_ids)
+    assert lib.get_asset(sheet_id).children == 6 and lib.summaries([sheet_id])[0].children == 6
+
+    total, items = browse(lib, BrowseFilters(group=True))
+    assert {a.id for a in items} == {sheet_id, other} and total == 2  # frames tucked inside the sheet
+    assert browse(lib, BrowseFilters())[0] == 8  # ungrouped: everything
+    assert [a.id for a in browse(lib, BrowseFilters(group=True, q="potion"))[1]] == [sheet_id]  # found via its frame
+    assert len(browse(lib, BrowseFilters(parent=sheet_id))[1]) == 6
+    # agents still find frames on their own, with the link to the sheet
+    hits = search(lib, SearchQuery(text="potion")).results
+    assert hits[0].id == frame_ids[2] and hits[0].parent_asset_id == sheet_id
+
+    # archiving the sheet takes its frames along; restoring brings back only those
+    review.archive(lib, [frame_ids[5]], note="not needed")
+    result = review.archive(lib, [sheet_id])
+    assert sorted(result["parts"]) == sorted(frame_ids[:5])
+    assert browse(lib, BrowseFilters(group=True))[0] == 1
+    restored = review.restore(lib, [sheet_id])["restored"]
+    assert set(restored) == {sheet_id, *frame_ids[:5]} and lib.get_asset(frame_ids[5]).status == "archived"

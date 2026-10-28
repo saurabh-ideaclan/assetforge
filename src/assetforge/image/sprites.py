@@ -412,8 +412,10 @@ def _register_frames(lib: Library, sheet_id: str, frames: list[Image.Image | Non
                 subcategory=sheet.subcategory, theme=sheet.theme, genre=sheet.genre, status=sheet.status,
                 origin=Origin.DERIVED, license=sheet.license, commercial_use=sheet.commercial_use,
                 tags=[*[t for t in sheet.tags if t != "spritesheet"], "frame", *([anim] if anim else [])],
-                metadata={"frame": info},
+                metadata={"frame": info}, parent_asset_id=sheet_id,
             ), label="original", params={"frame_of": sheet_id, "cell": index}, collection_id=collection_id)  # fmt: skip
+            if not reg.created:
+                lib.set_parent(reg.asset_id, sheet_id)  # the same pixels cut again: keep it under this sheet
             if reg.created:
                 lib.add_lineage(reg.asset_id, (sources or [None] * len(frames))[index] or sheet_id,
                                 LineageRelation.DERIVED_FROM)  # fmt: skip

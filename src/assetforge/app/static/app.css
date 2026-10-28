@@ -283,3 +283,28 @@ a.tile.link:hover { border-color: var(--accent); }
 .slice-preview svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .slice-preview .grid-line { stroke: var(--accent); stroke-width: 3; vector-effect: non-scaling-stroke; stroke-dasharray: 5 4; }
 .slice-preview .subject-box { fill: none; stroke: #ff7a32; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+/* bulk selection */
+.asset .pick { position: absolute; top: 6px; left: 6px; z-index: 2; width: 22px; height: 22px; border-radius: 50%;
+  border: 2px solid #fff; background: rgba(0, 0, 0, .35); color: transparent; font-size: 12px; cursor: pointer;
+  display: grid; place-items: center; opacity: 0; transition: opacity .12s; padding: 0; }
+.asset:hover .pick, .grid.selecting .pick, .asset.picked .pick { opacity: 1; }
+.asset.picked .pick { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.asset.picked::after { content: none; }
+.grid.selecting .asset { cursor: copy; }
+.bulk-bar { flex-direction: column; align-items: stretch; max-width: min(1100px, calc(100vw - 260px)); }
+.bulk-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.bulk-group { display: inline-flex; gap: 6px; }
+.bulk-bar .sep { width: 1px; height: 20px; background: var(--border); margin: 0 2px; }
+.bulk-edit:empty { display: none; }
+.bulk-edit { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 10px; max-height: 50vh; overflow: auto; }
+/* parts (sliced frames) */
+.parts-badge { position: absolute; right: 6px; bottom: 6px; background: var(--surface-1); border: 1px solid var(--border); border-radius: 6px;
+  padding: 0 6px; font-size: 11.5px; font-weight: 600; color: var(--text-secondary); }
+.part-of { color: var(--accent); }
+.part-of-line { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+.parts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px; }
+.parts-grid .part { display: grid; gap: 2px; justify-items: center; font-size: 10.5px; color: var(--text-secondary); text-align: center; }
+.parts-grid .part img { width: 76px; height: 76px; object-fit: contain; border-radius: 8px; border: 1px solid var(--border);
+  background: repeating-conic-gradient(var(--checker) 0 25%, var(--surface-1) 0 50%) 50% / 12px 12px; }
+.parts-grid .part:hover img { border-color: var(--accent); }
+.parts-grid .part span { max-width: 76px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

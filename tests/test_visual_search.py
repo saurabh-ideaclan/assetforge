@@ -146,7 +146,7 @@ def test_v3_library_migrates_and_reindexes(home, tmp_path):
     conn.close()
 
     with Library(home) as lib:
-        assert lib.schema_version == 4
+        assert lib.schema_version == db.SCHEMA_VERSION
         assert ids(search(lib, SearchQuery(text="beetle"))) == ["ast_00001"]
         assert lib.get_asset("ast_00001").primary_variant.file.dhash is None
         visual.ensure_features(lib, stored.sha256)

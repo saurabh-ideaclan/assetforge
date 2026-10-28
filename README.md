@@ -293,6 +293,12 @@ subject by alpha (key-colour spill and enclosed key-colour holes removed), then 
 by one factor** so a character never changes size (animations), while `--fit each` fills each cell (icon/item
 sets; `auto` picks), and pads them into equal cells on a common baseline (`--anchor bottom`) or centre.
 Re-slicing archives the frames of the earlier slice (`--keep-previous` to keep them).
+
+Frames are **parts of their sheet** (`parent_asset_id`): each is still its own searchable, reviewable,
+exportable asset (agents see it in `search` with the link to its sheet), but the app shows it inside the sheet: one
+card with a frame count, a Frames gallery in its panel, and a "Frame of …" link on each frame. A search or filter
+that only matches a frame shows its sheet. "Frames: separate" in the toolbar lists them individually. Archiving a
+sheet archives its frames, and restoring it brings back only the frames archived with it.
 Frames become assets named `knight_walk_01…` in a `knight-frames` collection (linked `derived_from` the sheet),
 the sheet gets an aligned variant, and `metadata.animation` stores the grid, cell size, anchor, fps and loop.
 A report flags missing or extra frames, captions the model added, and frames whose heights differ by more than 25%.
@@ -322,8 +328,12 @@ assetforge lineage ast_00031
 - Resizing never stretches: `contain` fits, `cover` fills and crops, `pad` fits then pads to the exact size.
 - Loudness normalization uses ITU-R BS.1770 LUFS, and the peak ceiling is respected by lowering gain, never by clipping.
 - **Archive** hides assets from every view and search without deleting anything: `review archive REF…`,
-  `review restore REF…` (back to its previous status). In the app: the Archive tab, `E`, or ⌘/⇧-click to select
-  several and use the bulk bar.
+  `review restore REF…` (back to its previous status). In the app: the Archive tab or `E`.
+- **Bulk actions.** In the app, press **Select** (or `S`), click cards (or ⌘/⇧-click, ⌘A for all shown, "All
+  matching" for everything the search and filters match), then approve, reject, archive, restore, send back to
+  review, **edit details** (project, category, genre, theme, style, type; add/remove tags) or **add to a
+  collection** in one go. From the CLI, `review …` and `collection add` take many assets, and
+  `update REF REF… --project P --add-tag t` applies one change to each.
 - `review approve` runs QC first. Blank/empty images, silent/clipped audio and missing files block approval
   (exit 7, `POLICY_VIOLATION`) unless `--force`.
 - QC also checks what was asked for: `size_mismatch`/`aspect_mismatch`/`format_mismatch` against the request,

@@ -35,6 +35,22 @@ def approve(
                    for r in reports]}  # fmt: skip
 
 
+CASCADE_NOTE = "archived with its sheet {}"
+
+
+def archive(lib: Library, refs: list[str], *, note: str | None = None) -> dict[str, Any]:
+    """Archive assets and, with them, their parts (frames cut from a sheet), so nothing is left orphaned."""
+    asset_ids = [lib.resolve_asset_id(r) for r in refs]
+    lib.set_status(asset_ids, Status.ARCHIVED, note=note)
+    parts: list[str] = []
+    for asset_id in asset_ids:
+        children = [c for c in lib.children(asset_id) if c not in asset_ids]
+        if children:
+            lib.set_status(children, Status.ARCHIVED, note=CASCADE_NOTE.format(asset_id))
+            parts += children
+    return {"status": Status.ARCHIVED.value, "asset_ids": asset_ids, "parts": parts}
+
+
 def restore(lib: Library, refs: list[str], *, note: str | None = None) -> dict[str, Any]:
     """Un-archive assets: each goes back to the status it had before it was archived (candidate if unknown)."""
     import json
@@ -55,7 +71,24 @@ def restore(lib: Library, refs: list[str], *, note: str | None = None) -> dict[s
                 break
         lib.set_status([asset_id], Status(previous), note=note or "restored from the archive")
         restored[asset_id] = previous
+        # parts that went into the archive with it come back too (not ones archived for their own reasons)
+        cascaded = [
+            c for c in lib.children(asset_id, include_archived=True)
+            if c not in restored and _last_archive_note(lib, c) == CASCADE_NOTE.format(asset_id)
+        ]  # fmt: skip
+        if cascaded:
+            restored |= restore(lib, cascaded, note=note)["restored"]
     return {"restored": restored}
+
+
+def _last_archive_note(lib: Library, asset_id: str) -> str | None:
+    import json
+
+    row = lib.conn.execute(
+        "SELECT data FROM asset_events WHERE asset_id = ? AND event = 'reviewed' ORDER BY id DESC LIMIT 1", (asset_id,)
+    ).fetchone()
+    data = json.loads(row[0] or "{}") if row else {}
+    return data.get("note") if data.get("to") == Status.ARCHIVED.value else None
 
 
 def siblings(lib: Library, asset_id: str) -> list[str]:
