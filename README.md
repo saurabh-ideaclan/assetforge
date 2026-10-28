@@ -286,8 +286,13 @@ assetforge sprite slice ast_00051 --grid 4x2 -a walk=0-3@8 -a idle=4-5@3 -a atta
 assetforge sprite assemble ast_00060 ast_00061 ast_00062 --name torch_flicker --fps 12   # normalize loose frames
 ```
 
-Slicing finds each subject by alpha (key-colour spill removed), scales **all frames by one factor** so the
-character never changes size, and pads them into equal cells on a common baseline (`--anchor bottom`) or centre.
+Leave `--grid` out and the grid is read from how the sheet was generated, its prompt ("6 columns and 3 rows"), or
+the image itself; frame names come from the prompt's numbered cells. A grid that would put two separate subjects
+in one cell is refused with the grid the sheet really has (`--dry-run` shows the plan first). Slicing finds each
+subject by alpha (key-colour spill and enclosed key-colour holes removed), then `--fit shared` scales **all frames
+by one factor** so a character never changes size (animations), while `--fit each` fills each cell (icon/item
+sets; `auto` picks), and pads them into equal cells on a common baseline (`--anchor bottom`) or centre.
+Re-slicing archives the frames of the earlier slice (`--keep-previous` to keep them).
 Frames become assets named `knight_walk_01…` in a `knight-frames` collection (linked `derived_from` the sheet),
 the sheet gets an aligned variant, and `metadata.animation` stores the grid, cell size, anchor, fps and loop.
 A report flags missing or extra frames, captions the model added, and frames whose heights differ by more than 25%.
@@ -316,6 +321,9 @@ assetforge lineage ast_00031
   `web-sfx`, `web-music`, `game-wav`, `loop`. Any op sequence can also come from `--ops-file ops.json`.
 - Resizing never stretches: `contain` fits, `cover` fills and crops, `pad` fits then pads to the exact size.
 - Loudness normalization uses ITU-R BS.1770 LUFS, and the peak ceiling is respected by lowering gain, never by clipping.
+- **Archive** hides assets from every view and search without deleting anything: `review archive REF…`,
+  `review restore REF…` (back to its previous status). In the app: the Archive tab, `E`, or ⌘/⇧-click to select
+  several and use the bulk bar.
 - `review approve` runs QC first. Blank/empty images, silent/clipped audio and missing files block approval
   (exit 7, `POLICY_VIOLATION`) unless `--force`.
 - QC also checks what was asked for: `size_mismatch`/`aspect_mismatch`/`format_mismatch` against the request,

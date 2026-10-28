@@ -166,11 +166,33 @@ def review_asset(req: Request, lib: Library) -> dict[str, Any]:
         return {"review": review.approve(lib, [req.match["ref"]], note=note, force=bool(body.get("force")))}
     if action == "pick":
         return {"review": review.pick(lib, req.match["ref"], note=note, force=bool(body.get("force")))}
+    if action == "restore":
+        restored = review.restore(lib, [req.match["ref"]], note=note)["restored"]
+        return {"review": {"status": next(iter(restored.values()), "unchanged"), "asset_ids": list(restored)}}
     statuses = {"reject": Status.REJECTED, "archive": Status.ARCHIVED, "candidate": Status.CANDIDATE}
     if action not in statuses:
         raise InvalidInputError("action must be approve, pick, reject, archive or candidate")
     return {"review": {"status": statuses[action].value, "asset_ids": lib.set_status([req.match["ref"]],
                                                                                      statuses[action], note=note)}}  # fmt: skip
+
+
+@router.route("POST", "/api/review/bulk")
+def bulk_review(req: Request, lib: Library) -> dict[str, Any]:
+    """One action on many assets (from the browser's multi-select): approve, reject, archive, restore, candidate."""
+    body = req.body or {}
+    ids = [str(i) for i in body.get("ids") or []]
+    action = body.get("action")
+    if not ids:
+        raise InvalidInputError("Select at least one asset")
+    note = body.get("note") or None
+    if action == "approve":
+        return {"review": review.approve(lib, ids, note=note, force=bool(body.get("force")))}
+    if action == "restore":
+        return {"review": review.restore(lib, ids, note=note)}
+    statuses = {"reject": Status.REJECTED, "archive": Status.ARCHIVED, "candidate": Status.CANDIDATE}
+    if action not in statuses:
+        raise InvalidInputError("action must be approve, reject, archive, restore or candidate")
+    return {"review": {"status": statuses[action].value, "asset_ids": lib.set_status(ids, statuses[action], note=note)}}
 
 
 @router.route("GET", r"/api/assets/(?P<ref>[^/]+)/similar")
@@ -195,15 +217,21 @@ def regenerate_asset(req: Request, lib: Library) -> dict[str, Any]:
 
 @router.route("POST", r"/api/assets/(?P<ref>[^/]+)/slice")
 def slice_sheet(req: Request, lib: Library) -> dict[str, Any]:
-    from assetforge.image.sprites import parse_animation, slice_asset
+    """Slice a sheet (or, with `dry_run`, return the grid, subject boxes, names and issues it would use)."""
+    from assetforge.image.sprites import parse_animation, plan_slice, slice_asset
 
     body = req.body or {}
     animations = dict(parse_animation(a) for a in body.get("animations") or [] if str(a).strip())
     names = [n.strip() for n in body.get("names") or [] if n.strip()] or None
-    outcome = slice_asset(lib, req.match["ref"], columns=int(body.get("columns") or 1), rows=int(body.get("rows") or 1),
-                          names=names, animations=animations, cell=int(body["cell"]) if body.get("cell") else None,
-                          anchor=body.get("anchor") or "bottom", margin=int(body.get("margin") or 4),
-                          base=body.get("base") or None)  # fmt: skip
+    columns = int(body["columns"]) if body.get("columns") else None
+    rows = int(body["rows"]) if body.get("rows") else None
+    common = {"columns": columns, "rows": rows, "names": names, "animations": animations,
+              "cell": int(body["cell"]) if body.get("cell") else None, "anchor": body.get("anchor") or "bottom",
+              "margin": int(body.get("margin") or 4), "base": body.get("base") or None, "fit": body.get("fit") or "auto"}  # fmt: skip
+    if body.get("dry_run"):
+        return {"plan": _dump(plan_slice(lib, req.match["ref"], **common))}
+    outcome = slice_asset(lib, req.match["ref"], **common, allow_crowded=bool(body.get("allow_crowded")),
+                          replace_previous=body.get("replace_previous", True) is not False)  # fmt: skip
     return {"slice": _dump(outcome)}
 
 

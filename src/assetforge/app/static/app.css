@@ -268,3 +268,18 @@ a.tile.link:hover { border-color: var(--accent); }
 .palette-add { display: inline-flex; gap: 4px; align-items: center; padding-left: 8px; border-left: 1px solid var(--border); }
 .tips { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 12.5px; color: var(--text-secondary); }
 .gen-side .estimate { margin-top: 0; }
+.asset.picked { outline: 2px solid var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent); }
+.asset.picked::after { content: "✓"; position: absolute; top: 6px; left: 6px; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--accent); color: var(--accent-ink); font-size: 12px; display: grid; place-items: center; }
+.bulk-bar { position: fixed; left: 50%; bottom: 18px; transform: translate(-50%, 140%); display: flex; gap: 6px; align-items: center;
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 8px 10px; box-shadow: var(--shadow);
+  transition: transform .2s; z-index: 10; }
+.bulk-bar.show { transform: translate(-50%, 0); }
+.bulk-bar b { margin: 0 6px; font-size: 12.5px; }
+.slice-preview { position: relative; border-radius: 8px; overflow: hidden; margin-bottom: 8px;
+  background: repeating-conic-gradient(var(--checker) 0 25%, var(--surface-1) 0 50%) 50% / 12px 12px; }
+.slice-preview:empty { display: none; }
+.slice-preview img { display: block; width: 100%; }
+.slice-preview svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.slice-preview .grid-line { stroke: var(--accent); stroke-width: 3; vector-effect: non-scaling-stroke; stroke-dasharray: 5 4; }
+.slice-preview .subject-box { fill: none; stroke: #ff7a32; stroke-width: 1.5; vector-effect: non-scaling-stroke; }

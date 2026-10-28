@@ -21,10 +21,8 @@ export function parseHash() {
 async function route() {
   const { name, rest, params } = parseHash();
   document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active", a.dataset.nav === name));
-  if (current.name === name && current.update) {
-    current.update({ rest, params });
-    return;
-  }
+  // a view can handle in-page changes itself; returning false asks for a fresh mount (e.g. different filters)
+  if (current.name === name && current.update && current.update({ rest, params }) !== false) return;
   if (current.cleanup) current.cleanup();
   main.innerHTML = "";
   main.scrollTop = 0; // each page starts at the top (main is the scroll container)

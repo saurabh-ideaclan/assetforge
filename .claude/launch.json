@@ -53,7 +53,7 @@
         "-m",
         "assetforge",
         "--home",
-        ".dev/demo",
+        ".dev/demo2",
         "ui",
         "--port",
         "8768",

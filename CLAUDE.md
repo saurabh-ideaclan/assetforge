@@ -15,7 +15,7 @@ it to **search for an existing asset before generating a new one**, then receive
 
 ```bash
 uv sync                       # install deps (Python 3.12+, uses .venv)
-uv run pytest                 # full suite (~30s, 492 tests, multi-process concurrency tests, no network)
+uv run pytest                 # full suite (~30s, 496 tests, multi-process concurrency tests, no network)
 uv run assetforge --help      # CLI entry point (also: uv run python -m assetforge)
 ```
 
@@ -183,7 +183,8 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   segmented control, collapsible sections, job polling; `views/*.js`: overview, assets, generate, art, usage, jobs).
   No build step. `tokens.css` is shared with `core/report_html.py`. The server only does GET/POST, so actions are
   `POST /api/assets/{id}/update|review|regenerate|slice`, `POST /api/art/profiles/{project}[/delete]`,
-  `POST /api/art/preview`; reads are `GET /api/art`, `/api/assets/{id}/similar`, and `/api/assets` accepts
+  `POST /api/art/preview`, `POST /api/review/bulk`; `/api/assets` hides archived unless `status=archived`
+  (`review.restore` returns assets to their pre-archive status); reads are `GET /api/art`, `/api/assets/{id}/similar`, and `/api/assets` accepts
   `color/orientation/tone/transparent/similar` (handled in `core/browse.py`). Static files are served `no-cache`,
   but Python changes need a server restart (relaunch the app).
 - `macos/AssetForgeApp.swift`: Cocoa + WKWebView shell. It runs `python -m assetforge [--home LIB] ui --json
@@ -217,7 +218,9 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   `dry_run`, `method: svg|procedural|file` → `add.add_file`, `sheet` + `slice`.
 - `add.py` (agent-made files; SVG master + resvg PNG via `image/svg.py`), `methods.py`, `guide.py`,
   `regenerate.py` (feedback loop, `generation.max_regenerations`, `RetryLimitError`).
-- `image/sprites.py`: `slice_image` (components → grid cells → despill → shared scale → anchored cells + report),
+- `image/sprites.py`: `guess_grid` (job's `sheet` request > prompt "N columns and M rows" > `detect_grid` from
+  subject rows), `plan_slice` (dry run), crowded cells refused unless `allow_crowded`, `fit` shared|each|auto,
+  names from `prompt_items`, re-slice archives stale frames. `slice_image` (components → grid cells → despill → scale → anchored cells + report),
   `slice_asset`/`assemble_assets` (frame assets `<base>_<anim>_<nn>`, `metadata.frame.pivot/fps/loop`, collection,
   aligned sheet variant, `metadata.animation`). Export writes atlas frame `anchor` and `animations.json`.
 - `core/qc.check_asset` adds expectation warnings from `metadata.expect` (size/aspect/format), near-duplicates and

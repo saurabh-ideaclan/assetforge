@@ -31,11 +31,12 @@ from scipy import ndimage
 
 from assetforge.core import collections as collections_mod
 from assetforge.core.catalog import Library
-from assetforge.core.models import AssetType, LineageRelation, NewAsset, Origin
+from assetforge.core.models import AssetType, LineageRelation, NewAsset, Origin, Status
 from assetforge.core.util import normalize_name, slugify
 from assetforge.errors import InvalidInputError
 
 Anchor = Literal["bottom", "center"]
+Fit = Literal["auto", "shared", "each"]
 ALPHA_ON = 24
 SPECK_SHARE = 0.004  # blobs smaller than this share of a cell are noise
 
@@ -76,7 +77,9 @@ class SliceReport:
     found: int
     empty_cells: list[int] = field(default_factory=list)
     merged_cells: list[int] = field(default_factory=list)
+    crowded_cells: list[int] = field(default_factory=list)  # cells holding several separate subjects
     dropped_pieces: int = 0
+    fit: str = "shared"
     height_spread: float = 0.0
     scale: float = 1.0
     cell: tuple[int, int] = (0, 0)
@@ -84,7 +87,8 @@ class SliceReport:
 
     def as_dict(self) -> dict[str, Any]:
         return {"expected": self.expected, "found": self.found, "empty_cells": self.empty_cells,
-                "merged_cells": self.merged_cells, "dropped_pieces": self.dropped_pieces,
+                "merged_cells": self.merged_cells, "crowded_cells": self.crowded_cells,
+                "dropped_pieces": self.dropped_pieces, "fit": self.fit,
                 "height_spread": round(self.height_spread, 3), "scale": round(self.scale, 4),
                 "cell": list(self.cell), "issues": self.issues}  # fmt: skip
 
@@ -123,6 +127,11 @@ def _despill(rgba: np.ndarray, mask: np.ndarray, key: str | None) -> np.ndarray:
     out[~mask] = 0
     if key not in ("magenta", "green"):
         return out
+    # Holes enclosed by the subject (between cherry stems, inside a ring) keep the flat key colour, because
+    # background removal only clears what touches the border. Clear pixels that are clearly the key colour.
+    key_rgb = np.array([255.0, 0.0, 255.0]) if key == "magenta" else np.array([0.0, 255.0, 0.0])
+    near_key = (np.linalg.norm(out[..., :3] - key_rgb, axis=2) < 90) & (out[..., 3] > 0)
+    out[near_key] = 0
     solid = (out[..., 3] > ALPHA_ON) & mask
     edge = solid & ~ndimage.binary_erosion(solid, iterations=4)
     r, g, b = out[..., 0], out[..., 1], out[..., 2]
@@ -159,8 +168,12 @@ def _ensure_alpha(image: Image.Image) -> Image.Image:
 
 
 def place(frames: list[Image.Image], *, cell: int | tuple[int, int] | None = None, anchor: Anchor = "bottom",
-          margin: int = 4, nearest: bool = False) -> tuple[list[Image.Image], float, tuple[int, int]]:  # fmt: skip
-    """Scale all frames by one shared factor and pad them into equal cells on a common anchor."""
+          margin: int = 4, nearest: bool = False, fit: str = "shared") -> tuple[list[Image.Image], float, tuple[int, int]]:  # fmt: skip
+    """Pad frames into equal cells on a common anchor.
+
+    `shared` scales every frame by one factor (an animated character never changes size); `each` scales
+    every frame to fill its cell (a set of different icons or items, each as large as the cell allows).
+    """
     max_w = max(f.width for f in frames)
     max_h = max(f.height for f in frames)
     if cell is None:
@@ -172,7 +185,8 @@ def place(frames: list[Image.Image], *, cell: int | tuple[int, int] | None = Non
         scale = min((cw - 2 * margin) / max_w, (ch - 2 * margin) / max_h)
     placed = []
     for frame in frames:
-        size = (max(1, round(frame.width * scale)), max(1, round(frame.height * scale)))
+        own = min((cw - 2 * margin) / frame.width, (ch - 2 * margin) / frame.height) if fit == "each" else scale
+        size = (max(1, round(frame.width * own)), max(1, round(frame.height * own)))
         small = _premul_resize(frame, size, nearest=nearest)
         canvas = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
         x = (cw - small.width) // 2
@@ -191,9 +205,92 @@ def grid_sheet(frames: list[Image.Image], columns: int, padding: int = 0) -> Ima
     return sheet
 
 
+class GridGuess(BaseModel):
+    columns: int
+    rows: int
+    source: Literal["request", "prompt", "detected", "given"]
+    subjects: int  # separate subjects found on the sheet
+    boxes: list[list[float]] = Field(default_factory=list)  # subject boxes as fractions [x, y, w, h]
+    detected: list[int] | None = None  # [columns, rows] seen in the image, when it differs from the source
+
+
+_PROMPT_GRID = re.compile(r"(\d+)\s*columns?\s*(?:and|by|x|×)\s*(\d+)\s*rows?|(\d+)\s*rows?\s*(?:and|by|x|×)\s*(\d+)\s*columns?",
+                          re.IGNORECASE)  # fmt: skip
+_PROMPT_GRID_X = re.compile(r"\b(\d{1,2})\s*[x×]\s*(\d{1,2})\s+grid", re.IGNORECASE)
+
+
+def prompt_grid(text: str | None) -> tuple[int, int] | None:
+    """'a grid of 6 columns and 3 rows' / '4 rows by 2 columns' / 'a 4x2 grid' → (columns, rows)."""
+    if not text:
+        return None
+    if m := _PROMPT_GRID.search(text):
+        return (int(m[1]), int(m[2])) if m[1] else (int(m[4]), int(m[3]))
+    if m := _PROMPT_GRID_X.search(text):
+        return int(m[1]), int(m[2])
+    return None
+
+
+def prompt_items(text: str | None) -> list[str]:
+    """Numbered cell descriptions in a sheet prompt: '1. a gold arcade token coin with…; 2. a red joystick…'."""
+    if not text:
+        return []
+    items = re.findall(r"(?:^|[\s;:])(\d{1,2})\.\s+([^;\n]+?)(?=;|\n|\s\d{1,2}\.\s|$)", text)
+    ordered = sorted(((int(n), t.strip().rstrip(".")) for n, t in items), key=lambda x: x[0])
+    numbers = [n for n, _ in ordered]
+    if not ordered or numbers != list(range(1, len(numbers) + 1)):
+        return []
+    return [t for _, t in ordered]
+
+
+def subjects(image: Image.Image, dilate: int = 2) -> list[Blob]:
+    """The separate things drawn on a sheet (specks and sparkles dropped)."""
+    rgba = np.asarray(_ensure_alpha(image), dtype=np.float64)
+    h, w = rgba.shape[:2]
+    found = _blobs(rgba, max(12, int(w * h * 0.0004)), dilate)
+    if not found:
+        return []
+    median = float(np.median([b.area for b in found]))
+    return [b for b in found if b.area >= median * 0.08]
+
+
+def detect_grid(image: Image.Image) -> GridGuess:
+    """Count the subjects and how they line up into rows and columns."""
+    blobs = subjects(image)
+    w, h = image.size
+    if not blobs:
+        raise InvalidInputError("No subjects found on the sheet (is the background transparent or a flat colour?)")
+    heights = sorted(b.box[3] - b.box[1] for b in blobs)
+    tolerance = heights[len(heights) // 2] * 0.6
+    rows: list[list[Blob]] = []
+    for blob in sorted(blobs, key=lambda b: b.cy):
+        if rows and abs(blob.cy - np.mean([b.cy for b in rows[-1]])) <= tolerance:
+            rows[-1].append(blob)
+        else:
+            rows.append([blob])
+    columns = max(len(r) for r in rows)
+    boxes = [[round(b.box[0] / w, 4), round(b.box[1] / h, 4), round((b.box[2] - b.box[0]) / w, 4),
+              round((b.box[3] - b.box[1]) / h, 4)] for b in blobs]  # fmt: skip
+    return GridGuess(columns=columns, rows=len(rows), source="detected", subjects=len(blobs), boxes=boxes)
+
+
+def guess_grid(image: Image.Image, *, sheet_request: dict[str, Any] | None = None, prompt: str | None = None) -> GridGuess:
+    """The sheet's grid: from its generation request, else its prompt, else the image. The image check wins when
+    the stated grid can't hold the subjects that are actually there."""
+    seen = detect_grid(image)
+    stated = None
+    if sheet_request and sheet_request.get("columns"):
+        stated = ("request", int(sheet_request["columns"]), int(sheet_request.get("rows") or 1))
+    elif grid := prompt_grid(prompt):
+        stated = ("prompt", *grid)
+    if stated and stated[1] * stated[2] >= seen.subjects and stated[1] >= seen.columns and stated[2] >= seen.rows:
+        return seen.model_copy(update={"columns": stated[1], "rows": stated[2], "source": stated[0],
+                                       "detected": [seen.columns, seen.rows]})  # fmt: skip
+    return seen
+
+
 def slice_image(image: Image.Image, columns: int, rows: int, *, cell: int | tuple[int, int] | None = None,
                 anchor: Anchor = "bottom", margin: int = 4, key: str | None = None, dilate: int = 2,
-                nearest: bool = False) -> tuple[list[Image.Image | None], SliceReport]:  # fmt: skip
+                nearest: bool = False, fit: str = "shared") -> tuple[list[Image.Image | None], SliceReport]:  # fmt: skip
     """Cut a grid sheet into aligned frames (None for an empty cell) plus a consistency report."""
     if columns < 1 or rows < 1:
         raise InvalidInputError("A grid needs at least 1 column and 1 row")
@@ -221,6 +318,12 @@ def slice_image(image: Image.Image, columns: int, rows: int, *, cell: int | tupl
             if ey0 >= y1 - 4 or extra.area < main.area * 0.01:  # below the subject (a caption) or a speck
                 report.dropped_pieces += 1
                 continue
+            gap = max(ex0 - x1, x0 - ex1, ey0 - y1, y0 - ey1, 0)
+            if extra.area >= main.area * 0.25 and gap > cell_w * 0.04:
+                # a second full-size subject in this cell: the grid is wrong, don't glue them together
+                if index not in report.crowded_cells:
+                    report.crowded_cells.append(index)
+                continue
             mask |= extra.mask
             x0, y0, x1, y1 = min(x0, ex0), min(y0, ey0), max(x1, ex1), max(y1, ey1)
             if index not in report.merged_cells:
@@ -234,15 +337,18 @@ def slice_image(image: Image.Image, columns: int, rows: int, *, cell: int | tupl
         raise InvalidInputError("No subjects found on the sheet (is the background transparent or a flat colour?)")
     heights = [c.height for c in present]
     report.height_spread = (max(heights) - min(heights)) / max(heights)
-    placed, report.scale, report.cell = place(present, cell=cell, anchor=anchor, margin=margin, nearest=nearest)
+    report.fit = fit
+    placed, report.scale, report.cell = place(present, cell=cell, anchor=anchor, margin=margin, nearest=nearest, fit=fit)
     it = iter(placed)
     frames = [next(it) if c is not None else None for c in crops]
     if report.found != report.expected:
         report.issues.append("missing_frames" if report.found < report.expected else "extra_frames")
-    if report.height_spread > 0.25:
+    if report.height_spread > 0.25 and fit == "shared":  # only matters when frames should match (animation)
         report.issues.append("inconsistent_frame_size")
     if report.dropped_pieces:
         report.issues.append("dropped_pieces")
+    if report.crowded_cells:
+        report.issues.append("crowded_cells")
     return frames, report
 
 
@@ -256,6 +362,9 @@ class SliceOutcome(BaseModel):
     animations: dict[str, dict[str, Any]]
     aligned_variant_id: str | None
     report: dict[str, Any]
+    grid: list[int] = Field(default_factory=list)
+    grid_source: str = "given"
+    archived: list[str] = Field(default_factory=list)  # frames of a previous slice that this one replaced
 
 
 def frame_names(base: str, count: int, *, names: list[str] | None = None,
@@ -308,6 +417,8 @@ def _register_frames(lib: Library, sheet_id: str, frames: list[Image.Image | Non
             if reg.created:
                 lib.add_lineage(reg.asset_id, (sources or [None] * len(frames))[index] or sheet_id,
                                 LineageRelation.DERIVED_FROM)  # fmt: skip
+            elif lib.conn.execute("SELECT status FROM assets WHERE id = ?", (reg.asset_id,)).fetchone()[0] == "archived":
+                lib.set_status([reg.asset_id], sheet.status, note="back in use by a new slice")
             variant = lib.get_asset(reg.asset_id).primary_variant
             out.append({"cell": index, "name": name, "asset_id": reg.asset_id, "variant_id": reg.variant_id,
                         "path": variant.file.path if variant else None, "created": reg.created, "animation": anim})  # fmt: skip
@@ -338,41 +449,157 @@ def _animation_meta(frames: list[dict[str, Any]], animations: dict[str, Animatio
             for name, spec in animations.items()}  # fmt: skip
 
 
-def slice_asset(lib: Library, ref: str, *, columns: int, rows: int, names: list[str] | None = None,
-                animations: dict[str, AnimationSpec] | None = None, cell: int | None = None,
-                anchor: Anchor = "bottom", margin: int = 4, frame_type: AssetType | None = None,
-                base: str | None = None, nearest: bool = False) -> SliceOutcome:  # fmt: skip
-    """Slice a cataloged sheet into frame assets, an aligned sheet variant and animation metadata."""
+def _sheet_context(lib: Library, sheet: Any) -> tuple[dict[str, Any] | None, str]:
+    """The sheet layout it was generated with (if any) and its prompt."""
+    from assetforge.core import jobs
+
+    generator = sheet.metadata.get("generator") or {}
+    sheet_request = None
+    if generator.get("job_id"):
+        try:
+            sheet_request = (jobs.get_job(lib, generator["job_id"]).request.get("request") or {}).get("sheet")
+        except Exception:  # the job record is gone; fall back to the prompt
+            sheet_request = None
+    return sheet_request, generator.get("prompt") or sheet.description or ""
+
+
+def _default_fit(sheet: Any, animations: dict[str, AnimationSpec], prompt: str, sheet_request: dict[str, Any] | None) -> str:
+    if animations:
+        return "shared"
+    if sheet_request is not None:
+        return "shared" if sheet_request.get("one_character", True) else "each"
+    lowered = f"{prompt} {sheet.name}".lower()
+    if any(w in lowered for w in ("icon", "item", "different", "separate", "props", "collection of", "set of")):
+        return "each"
+    return "shared"
+
+
+class SlicePlan(BaseModel):
+    """What `slice` would do: the grid it would use and what it sees, without writing anything."""
+
+    sheet_asset_id: str
+    width: int
+    height: int
+    columns: int
+    rows: int
+    source: str
+    subjects: int
+    detected: list[int] | None
+    boxes: list[list[float]]
+    names: list[str]
+    fit: str
+    report: dict[str, Any]
+    previous_frames: int
+
+
+def _prepare(lib: Library, ref: str, columns: int | None, rows: int | None, names: list[str] | None,
+             animations: dict[str, AnimationSpec], fit: str, base: str | None) -> dict[str, Any]:  # fmt: skip
     sheet = lib.get_asset(ref)
     primary = sheet.primary_variant
     if primary is None or primary.file.kind != "image":
         raise InvalidInputError(f"{sheet.id} is not a raster image")
+    sheet_request, prompt = _sheet_context(lib, sheet)
+    with Image.open(primary.file.path) as opened:
+        image = opened.copy()
+    guess = guess_grid(image, sheet_request=sheet_request, prompt=prompt)
+    if columns and rows:
+        guess = guess.model_copy(update={"columns": columns, "rows": rows, "source": "given"})
+    base = normalize_name(base or re.sub(r"_?sheet(_v\d+)?$", "", sheet.name) or sheet.name)
+    if not names and not animations:
+        items = (sheet_request or {}).get("poses") or prompt_items(prompt)
+        if len(items) == guess.columns * guess.rows:
+            names = [" ".join(_name_words(i)) for i in items]
+    fit = fit if fit != "auto" else _default_fit(sheet, animations, prompt, sheet_request)
+    return {"sheet": sheet, "image": image, "guess": guess, "names": names, "fit": fit, "base": base}
+
+
+_NAME_SKIP = {"a", "an", "the", "of", "with", "and", "in", "on", "its", "small", "big", "little", "cute", "one", "single"}
+
+
+def _name_words(item: str) -> list[str]:
+    head = re.split(r"[,(:]| with | on | in | holding | wearing ", item, maxsplit=1)[0]
+    words = [w for w in re.findall(r"[a-z0-9]+", head.lower()) if w not in _NAME_SKIP]
+    return words[-3:] if len(words) > 3 else words  # the noun is usually last: "gold arcade token coin" → "arcade_token_coin"
+
+
+def plan_slice(lib: Library, ref: str, *, columns: int | None = None, rows: int | None = None,
+               names: list[str] | None = None, animations: dict[str, AnimationSpec] | None = None,
+               fit: Fit = "auto", base: str | None = None, cell: int | None = None, anchor: Anchor = "bottom",
+               margin: int = 4) -> SlicePlan:  # fmt: skip
+    animations = animations or {}
+    prep = _prepare(lib, ref, columns, rows, names, animations, fit, base)
+    guess, sheet = prep["guess"], prep["sheet"]
+    _, report = slice_image(prep["image"], guess.columns, guess.rows, cell=cell, anchor=anchor, margin=margin,
+                            fit=prep["fit"])  # fmt: skip
+    previous = len((sheet.metadata.get("animation") or {}).get("frames") or [])
+    return SlicePlan(sheet_asset_id=sheet.id, width=prep["image"].width, height=prep["image"].height,
+                     columns=guess.columns, rows=guess.rows, source=guess.source, subjects=guess.subjects,
+                     detected=guess.detected, boxes=guess.boxes,
+                     names=frame_names(prep["base"], guess.columns * guess.rows, names=prep["names"], animations=animations),
+                     fit=prep["fit"], report=report.as_dict(), previous_frames=previous)  # fmt: skip
+
+
+def slice_asset(lib: Library, ref: str, *, columns: int | None = None, rows: int | None = None,
+                names: list[str] | None = None, animations: dict[str, AnimationSpec] | None = None,
+                cell: int | None = None, anchor: Anchor = "bottom", margin: int = 4,
+                frame_type: AssetType | None = None, base: str | None = None, nearest: bool = False,
+                fit: Fit = "auto", allow_crowded: bool = False, replace_previous: bool = True) -> SliceOutcome:  # fmt: skip
+    """Slice a cataloged sheet into frame assets, an aligned sheet variant and animation metadata.
+
+    With no grid given, the grid comes from the sheet's generation request, its prompt ("6 columns and 3 rows"),
+    or the image itself. A grid that puts two separate subjects in one cell is refused (unless `allow_crowded`),
+    because it would glue them into one frame. Frames from an earlier slice of the same sheet that the new
+    slice doesn't produce are archived (`replace_previous`).
+    """
+    animations = animations or {}
+    prep = _prepare(lib, ref, columns, rows, names, animations, fit, base)
+    sheet, guess, fit_used, base = prep["sheet"], prep["guess"], prep["fit"], prep["base"]
+    columns, rows = guess.columns, guess.rows
     generator = sheet.metadata.get("generator") or {}
     key = key_name((generator.get("key") or {}).get("background_rgb"))
     nearest = nearest or (sheet.style or "") == "pixel-art"
-    with Image.open(primary.file.path) as opened:
-        frames, report = slice_image(opened.copy(), columns, rows, cell=cell, anchor=anchor, margin=margin, key=key,
-                                     nearest=nearest)  # fmt: skip
-    animations = animations or {}
-    base = normalize_name(base or sheet.name.removesuffix("_sheet"))
-    names_out = frame_names(base, columns * rows, names=names, animations=animations)
-    frame_type = frame_type or (AssetType.ANIMATION if animations else AssetType.SPRITE)
+    frames, report = slice_image(prep["image"], columns, rows, cell=cell, anchor=anchor, margin=margin, key=key,
+                                 nearest=nearest, fit=fit_used)  # fmt: skip
+    if report.crowded_cells and not allow_crowded:
+        seen = detect_grid(prep["image"])
+        raise InvalidInputError(
+            f"A {columns}x{rows} grid puts several separate subjects in cells {report.crowded_cells}; they would be "
+            f"glued into one frame. The sheet shows {seen.subjects} subjects in about {seen.columns}x{seen.rows}.",
+            hint=f"Slice with --grid {seen.columns}x{seen.rows} (or leave the grid out to detect it)",
+            suggested_grid=[seen.columns, seen.rows], crowded_cells=report.crowded_cells,
+        )  # fmt: skip
+    names_out = frame_names(base, columns * rows, names=prep["names"], animations=animations)
+    if frame_type is None:
+        lowered = f"{sheet.name} {generator.get('prompt') or ''}".lower()
+        frame_type = AssetType.ANIMATION if animations else AssetType.ICON if "icon" in lowered else AssetType.SPRITE
     collection = f"{slugify(base)}-frames"
     registered = _register_frames(lib, sheet.id, frames, names_out, frame_type=frame_type, anchor=anchor,
                                   cell=report.cell, animations=animations, collection=collection,
-                                  extra={"margin": margin})  # fmt: skip
+                                  extra={"margin": margin, "fit": fit_used})  # fmt: skip
+    archived: list[str] = []
+    previous = (sheet.metadata.get("animation") or {}).get("frames") or []
+    if replace_previous and previous:
+        keep = {f["asset_id"] for f in registered}
+        stale = [f["asset_id"] for f in previous if f["asset_id"] not in keep]
+        live = [a for a in stale if lib.conn.execute("SELECT status FROM assets WHERE id = ?", (a,)).fetchone()
+                and lib.conn.execute("SELECT status FROM assets WHERE id = ?", (a,)).fetchone()[0] != "archived"]  # fmt: skip
+        if live:
+            lib.set_status(live, Status.ARCHIVED, note=f"replaced by a new {columns}x{rows} slice of {sheet.id}")
+            archived = live
     aligned = grid_sheet([f if f is not None else Image.new("RGBA", report.cell) for f in frames], columns)
-    label = f"aligned_{columns}x{rows}_{report.cell[0]}x{report.cell[1]}_{anchor}"
+    label = f"aligned_{columns}x{rows}_{report.cell[0]}x{report.cell[1]}_{anchor}_{fit_used}"
     variant_id = _add_sheet_variant(lib, sheet.id, aligned, label, {"slice": {"columns": columns, "rows": rows,
-                                                                              "anchor": anchor, "margin": margin}})  # fmt: skip
+                                    "anchor": anchor, "margin": margin, "fit": fit_used}})  # fmt: skip
     anim_meta = _animation_meta(registered, animations)
     lib.merge_metadata(sheet.id, {"animation": {
-        "columns": columns, "rows": rows, "cell": list(report.cell), "anchor": anchor, "collection": collection,
+        "columns": columns, "rows": rows, "grid_source": guess.source, "cell": list(report.cell), "anchor": anchor,
+        "fit": fit_used, "collection": collection,
         "frames": [{"cell": f["cell"], "name": f["name"], "asset_id": f["asset_id"]} for f in registered],
         "animations": anim_meta, "aligned_variant_id": variant_id, "slice_report": report.as_dict(),
     }}, event="sliced")  # fmt: skip
     return SliceOutcome(sheet_asset_id=sheet.id, collection=collection, frames=registered, animations=anim_meta,
-                        aligned_variant_id=variant_id, report=report.as_dict())  # fmt: skip
+                        aligned_variant_id=variant_id, report=report.as_dict(), grid=[columns, rows],
+                        grid_source=guess.source, archived=archived)  # fmt: skip
 
 
 def assemble_assets(lib: Library, refs: list[str], *, name: str, columns: int | None = None, fps: float = 10,

@@ -437,6 +437,20 @@ review_app.command("archive")(_review_simple(Status.ARCHIVED, "Archive assets (h
 review_app.command("candidate")(_review_simple(Status.CANDIDATE, "Send assets back to candidate status."))
 
 
+@review_app.command("restore")
+def review_restore(
+    ctx: typer.Context,
+    refs: Annotated[list[str], typer.Argument(help="Archived assets to bring back.")],
+    note: Annotated[str | None, typer.Option(help="Reason, kept in the asset's history.")] = None,
+    json_: JsonOpt = False,
+) -> None:
+    """Un-archive assets, returning each to the status it had before it was archived."""
+    with session(ctx, json_) as s:
+        result = review_mod.restore(s.lib, refs, note=note)
+        s.out.emit({"review": result}, lambda c: c.print(
+            ", ".join(f"{a} → {st}" for a, st in result["restored"].items()) or "Nothing was archived"))
+
+
 @review_app.command("approve")
 def review_approve(
     ctx: typer.Context,

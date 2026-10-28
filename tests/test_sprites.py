@@ -99,7 +99,7 @@ def test_slice_asset_creates_frames_metadata_and_aligned_sheet(lib, knight_sheet
     sheet_asset = lib.get_asset(knight_sheet)
     meta = sheet_asset.metadata["animation"]
     assert meta["animations"]["attack"]["loop"] is False and meta["cell"] == [64, 64]
-    assert any(v.label == "aligned_4x2_64x64_bottom" and v.file.width == 256 for v in sheet_asset.variants)
+    assert any(v.label == "aligned_4x2_64x64_bottom_shared" and v.file.width == 256 for v in sheet_asset.variants)
     _, members = coll.collection_assets(lib, outcome.collection)
     assert len(members) == 8
     # slicing again with the same settings reuses everything (content dedupe)
@@ -137,3 +137,60 @@ def test_cli_slice_and_assemble(capsys, home, lib, knight_sheet, tmp_path):
     cell_w = out["assemble"]["report"]["cell"][0]
     assert sheet_asset.type == AssetType.SPRITESHEET and sheet_asset.primary_variant.file.width == 4 * cell_w
     assert run_cli(capsys, "sprite", "slice", knight_sheet, "--grid", "four", "--json")[0] == 4
+
+
+def icon_sheet(path: Path, columns=6, rows=3, cell=(90, 90)):
+    """A sheet of separate, differently sized items (like an AI icon set)."""
+    image = Image.new("RGBA", (columns * cell[0], rows * cell[1]), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    for i in range(columns * rows):
+        x0, y0 = (i % columns) * cell[0], (i // columns) * cell[1]
+        size = 30 + (i % 4) * 10
+        draw.ellipse((x0 + 45 - size // 2, y0 + 45 - size // 2, x0 + 45 + size // 2, y0 + 45 + size // 2),
+                     fill=(30 + 12 * i, 200 - 8 * i, 90, 255))  # fmt: skip
+    image.save(path)
+    return path
+
+
+def test_prompt_grid_and_items():
+    from assetforge.image.sprites import prompt_grid, prompt_items
+
+    text = ("A sheet of 18 icons in a neat grid of 6 columns and 3 rows. Row 1, left to right: 1. a gold token coin "
+            "with a star; 2. a red joystick on a black base; 3. a grey cartridge")  # fmt: skip
+    assert prompt_grid(text) == (6, 3) and prompt_grid("a 4x2 grid of poses") == (4, 2)
+    assert prompt_grid("3 rows by 5 columns") == (5, 3) and prompt_grid("a jungle scene") is None
+    assert prompt_items(text) == ["a gold token coin with a star", "a red joystick on a black base", "a grey cartridge"]
+
+
+def test_grid_is_detected_and_wrong_grids_are_refused(lib, tmp_path):
+    from assetforge.image.sprites import detect_grid, plan_slice
+
+    path = icon_sheet(tmp_path / "icons_sheet.png")
+    with Image.open(path) as image:
+        guess = detect_grid(image.copy())
+    assert (guess.columns, guess.rows, guess.subjects) == (6, 3, 18)
+    asset_id = lib.import_paths([path], ImportOptions(type=AssetType.SPRITESHEET)).items[0].asset_id
+    with pytest.raises(InvalidInputError) as err:
+        slice_asset(lib, asset_id, columns=4, rows=2)  # would glue icons together
+    assert err.value.details["suggested_grid"] == [6, 3]
+    plan = plan_slice(lib, asset_id)
+    assert (plan.columns, plan.rows, plan.source, plan.fit) == (6, 3, "detected", "each") and len(plan.boxes) == 18
+    outcome = slice_asset(lib, asset_id)
+    assert outcome.grid == [6, 3] and outcome.report["found"] == 18 and not outcome.report["issues"]
+    frame = lib.get_asset(outcome.frames[0]["asset_id"])
+    assert frame.type == AssetType.ICON and frame.metadata["frame"]["fit"] == "each"
+
+
+def test_reslicing_archives_the_old_frames_and_restore_brings_them_back(lib, tmp_path):
+    from assetforge.core import review
+
+    asset_id = lib.import_paths([icon_sheet(tmp_path / "gems_sheet.png", columns=3, rows=2)],
+                                ImportOptions(type=AssetType.SPRITESHEET)).items[0].asset_id  # fmt: skip
+    first = slice_asset(lib, asset_id, columns=3, rows=2, cell=64)
+    second = slice_asset(lib, asset_id, columns=3, rows=2, cell=96)  # different frames
+    assert sorted(second.archived) == sorted(f["asset_id"] for f in first.frames)
+    assert {lib.get_asset(a).status for a in second.archived} == {"archived"}
+    restored = review.restore(lib, second.archived[:1])["restored"]
+    assert list(restored.values()) == ["approved"]  # the status it had before
+    third = slice_asset(lib, asset_id, columns=3, rows=2, cell=96, replace_previous=False)
+    assert third.archived == []

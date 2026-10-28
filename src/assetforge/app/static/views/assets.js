@@ -11,7 +11,7 @@ const FILTERS = [
 const LOOK = ["color", "orientation", "tone", "transparent"];
 const COLORS = { red: "#e53935", orange: "#fb8c00", yellow: "#fdd835", green: "#43a047", teal: "#00897b", blue: "#1e88e5",
   purple: "#8e24aa", pink: "#ec407a", brown: "#795548", black: "#111111", white: "#f5f5f5", gray: "#9e9e9e" };
-const STATUS_TABS = [["", "All"], ["candidate", "To review"], ["approved", "Approved"], ["rejected", "Rejected"]];
+const STATUS_TABS = [["", "All"], ["candidate", "To review"], ["approved", "Approved"], ["rejected", "Rejected"], ["archived", "Archive"]];
 
 export async function assets(root, { rest, params }) {
   const state = { q: params.get("q") || "", sort: params.get("sort") || "newest", filters: {}, offset: 0, total: 0,
@@ -30,7 +30,9 @@ export async function assets(root, { rest, params }) {
     oninput: debounce((e) => { state.q = e.target.value; delete state.filters.similar; reload(); }, 250) });
   const sort = h("select", { onchange: (e) => { state.sort = e.target.value; reload(); } },
     ["newest", "oldest", "updated", "name", "type"].map((s) => h("option", { value: s, selected: s === state.sort }, `Sort: ${s}`)));
-  const statusSeg = segmented(STATUS_TABS.map(([v, l]) => [v, v === "candidate" && candidates ? `${l} (${candidates})` : l]),
+  const archivedCount = (facets.statuses || []).find((s) => s.value === "archived")?.count || 0;
+  const statusSeg = segmented(STATUS_TABS.map(([v, l]) => [v, v === "candidate" && candidates ? `${l} (${candidates})`
+    : v === "archived" && archivedCount ? `${l} (${archivedCount})` : l]),
     state.filters.status || "", (v) => { if (v) state.filters.status = v; else delete state.filters.status; reload(); });
 
   // filter panel
@@ -57,7 +59,7 @@ export async function assets(root, { rest, params }) {
     h("div.page-head", h("div", h("h1", "Assets"), h("div.sub", count)), statusSeg),
     h("div.toolbar", search, sort, filterBtn),
     panel, activeChips, layout,
-    h("div.kbd-hint", "Keys: ← → move · A approve · X reject · F find similar · Esc close · / search"));
+    h("div.kbd-hint", "Keys: ← → move · A approve · X reject · E archive/restore · F find similar · Esc close · / search · ⌘/⇧-click to select several"));
 
   function setFilter(key, value) {
     if (value) state.filters[key] = value; else delete state.filters[key];
@@ -96,7 +98,7 @@ export async function assets(root, { rest, params }) {
       if (!state.offset && !data.items.length) grid.append(h("div.empty", { style: "grid-column:1/-1" }, "No assets match. Try fewer filters."));
       for (const a of data.items) {
         state.items.push(a);
-        grid.append(assetCard(a, { onclick: () => select(a.id), selected: a.id === state.selected }));
+        grid.append(card(a));
       }
       state.offset += data.items.length;
     } catch (err) {
@@ -142,20 +144,77 @@ export async function assets(root, { rest, params }) {
     }
   }
 
+  function card(a) {
+    const el = assetCard(a, { selected: a.id === state.selected, onclick: (e) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey) { togglePick(a.id, e.shiftKey); return; }
+      if (picked.size) { picked.clear(); renderPicked(); }
+      select(a.id);
+    } });
+    el.classList.toggle("picked", picked.has(a.id));
+    return el;
+  }
+
   function refreshCard(asset) {
     const old = grid.querySelector(`.asset[data-id="${asset.id}"]`);
-    if (old) old.replaceWith(assetCard(asset, { onclick: () => select(asset.id), selected: asset.id === state.selected }));
+    if (old) old.replaceWith(card(asset));
+  }
+
+  // ---- multi-select + bulk actions
+  const picked = new Set();
+  let lastPicked = null;
+  const bulkCount = h("b");
+  const bulkBar = h("div.bulk-bar", bulkCount,
+    h("button.btn.small.primary", { onclick: () => bulk("approve") }, "Approve"),
+    h("button.btn.small", { onclick: () => bulk("reject") }, "Reject"),
+    h("button.btn.small", { onclick: () => bulk("archive") }, "Archive"),
+    h("button.btn.small", { onclick: () => bulk("restore") }, "Restore"),
+    h("button.btn.small", { onclick: () => { [...grid.querySelectorAll(".asset")].forEach((c) => picked.add(c.dataset.id)); renderPicked(); } }, "Select all shown"),
+    h("button.btn.small", { onclick: () => { picked.clear(); renderPicked(); } }, "Clear"));
+  root.append(bulkBar);
+
+  function togglePick(id, range) {
+    const ids = [...grid.querySelectorAll(".asset")].map((c) => c.dataset.id);
+    if (range && lastPicked && ids.includes(lastPicked)) {
+      const [a, b] = [ids.indexOf(lastPicked), ids.indexOf(id)].sort((x, y) => x - y);
+      ids.slice(a, b + 1).forEach((i) => picked.add(i));
+    } else if (picked.has(id)) picked.delete(id);
+    else picked.add(id);
+    if (state.selected && !picked.size) picked.add(state.selected);
+    lastPicked = id;
+    renderPicked();
+  }
+
+  function renderPicked() {
+    grid.querySelectorAll(".asset").forEach((c) => c.classList.toggle("picked", picked.has(c.dataset.id)));
+    bulkCount.textContent = `${picked.size} selected`;
+    bulkBar.classList.toggle("show", picked.size > 0);
+  }
+
+  async function bulk(action, force = false) {
+    const ids = [...picked];
+    try {
+      const { review: r } = await api("/api/review/bulk", { method: "POST", body: { ids, action, force } });
+      const n = action === "restore" ? Object.keys(r.restored || {}).length : ids.length;
+      toast(`${n} asset${n === 1 ? "" : "s"} ${action === "restore" ? "restored" : r.status || action}`);
+      picked.clear();
+      renderPicked();
+      reload();
+    } catch (err) {
+      if (err.code === "POLICY_VIOLATION" && action === "approve" && confirm(`${err.message}\n\nApprove anyway?`)) return bulk(action, true);
+      toast(err.message);
+    }
   }
 
   async function review(action, force = false) {
     if (!state.selected) return;
     try {
       const { review: r } = await api(`/api/assets/${state.selected}/review`, { method: "POST", body: { action, force } });
-      toast(`${state.selected} ${r.status}`);
+      toast(`${state.selected} ${r.status === "archived" ? "moved to the archive" : r.status}`);
       const reviewed = state.selected;
       const next = neighbour(1) !== reviewed ? neighbour(1) : neighbour(-1);
       const { asset } = await api(`/api/assets/${reviewed}`);
-      if (state.filters.status && state.filters.status !== asset.status) {
+      const stillHere = state.filters.status ? asset.status === state.filters.status : asset.status !== "archived";
+      if (!stillHere) {
         grid.querySelector(`.asset[data-id="${reviewed}"]`)?.remove();  // it left this view (e.g. "To review")
         state.total -= 1;
         count.textContent = `${fmt.int(state.total)} asset${state.total === 1 ? "" : "s"}`;
@@ -187,6 +246,7 @@ export async function assets(root, { rest, params }) {
     else if (e.key === "Escape") select(null);
     else if (e.key === "a" && state.selected) review("approve");
     else if (e.key === "x" && state.selected) review("reject");
+    else if (e.key === "e" && state.selected) review(state.filters.status === "archived" ? "restore" : "archive");
     else if (e.key === "f" && state.selected) { state.q = ""; search.value = ""; state.filters = { similar: state.selected }; reload(); }
   };
   document.addEventListener("keydown", onKey);
@@ -201,7 +261,13 @@ export async function assets(root, { rest, params }) {
 
   return {
     cleanup: () => { observer.disconnect(); document.removeEventListener("keydown", onKey); },
-    update: ({ rest: r }) => { if ((r[0] || null) !== state.selected) select(r[0] || null); },
+    update: ({ rest: r, params: p }) => {
+      const wanted = new URLSearchParams(p);
+      const have = new URLSearchParams(qs({ q: state.q, sort: state.sort !== "newest" ? state.sort : "", ...state.filters }).slice(1));
+      wanted.sort(); have.sort();
+      if (wanted.toString() !== have.toString()) return false;  // new filters: remount with them
+      if ((r[0] || null) !== state.selected) select(r[0] || null);
+    },
   };
 }
 
@@ -261,7 +327,10 @@ function renderDetail({ asset, lineage, job, usage, frames, can_regenerate: canR
     asset.status !== "approved" ? h("button.btn.small.primary", { onclick: () => onReviewed("approve") }, "Approve ", h("kbd", "A")) : null,
     siblings?.length && asset.status === "candidate" ? h("button.btn.small", { title: "Approve this one and reject the other candidates from the same run", onclick: () => act("pick") }, `Pick (reject ${siblings.length} other${siblings.length > 1 ? "s" : ""})`) : null,
     asset.status !== "rejected" ? h("button.btn.small", { onclick: () => onReviewed("reject") }, "Reject ", h("kbd", "X")) : null,
-    asset.status !== "candidate" ? h("button.btn.small", { onclick: () => act("candidate") }, "Back to review") : null);
+    asset.status !== "candidate" && asset.status !== "archived" ? h("button.btn.small", { onclick: () => act("candidate") }, "Back to review") : null,
+    asset.status === "archived"
+      ? h("button.btn.small.primary", { title: "Bring it back with its previous status", onclick: () => onReviewed("restore") }, "Restore ", h("kbd", "E"))
+      : h("button.btn.small", { title: "Hide it from every view except Archive (nothing is deleted)", onclick: () => onReviewed("archive") }, "Archive ", h("kbd", "E")));
 
   async function act(action, force = false) {
     try {
@@ -454,35 +523,96 @@ function regenerateForm(asset) {
 }
 
 function sliceForm(asset) {
-  const columns = h("input", { type: "number", min: 1, max: 16, value: 4 });
-  const rows = h("input", { type: "number", min: 1, max: 16, value: 2 });
+  const columns = h("input", { type: "number", min: 1, max: 16, placeholder: "auto" });
+  const rows = h("input", { type: "number", min: 1, max: 16, placeholder: "auto" });
+  const fit = h("select", h("option", { value: "auto" }, "auto"), h("option", { value: "shared" }, "one scale (animation frames)"),
+    h("option", { value: "each" }, "fill each cell (icons / items)"));
   const cell = h("input", { type: "number", min: 16, max: 2048, placeholder: "fit largest" });
   const anchor = h("select", h("option", { value: "bottom" }, "bottom (feet on one line)"), h("option", { value: "center" }, "center"));
   const animations = h("input", { type: "text", placeholder: "walk=0-3@8, idle=4-7@4, die=8-11@10:once" });
-  const names = h("input", { type: "text", placeholder: "optional: comma-separated, row by row" });
+  const names = h("input", { type: "text", placeholder: "auto: from the prompt" });
+  const replace = h("input", { type: "checkbox", checked: true });
+  const status = h("div.help");
+  const overlay = h("div.slice-preview");
   const out = h("div");
+  const variantId = asset.primary_variant?.id;
+
+  const body = (extra = {}) => ({
+    columns: columns.value ? +columns.value : undefined, rows: rows.value ? +rows.value : undefined, fit: fit.value,
+    cell: cell.value ? +cell.value : undefined, anchor: anchor.value,
+    animations: animations.value.split(",").map((x) => x.trim()).filter(Boolean),
+    names: names.value.split(",").map((x) => x.trim()).filter(Boolean), replace_previous: replace.checked, ...extra });
+
+  function drawOverlay(plan) {
+    overlay.innerHTML = "";
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", `0 0 ${plan.width} ${plan.height}`);
+    const line = (x1, y1, x2, y2) => { const l = document.createElementNS(ns, "line");
+      Object.entries({ x1, y1, x2, y2, class: "grid-line" }).forEach(([k, v]) => l.setAttribute(k, v)); svg.append(l); };
+    for (let c = 1; c < plan.columns; c++) line(plan.width * c / plan.columns, 0, plan.width * c / plan.columns, plan.height);
+    for (let r = 1; r < plan.rows; r++) line(0, plan.height * r / plan.rows, plan.width, plan.height * r / plan.rows);
+    for (const [x, y, w, hh] of plan.boxes) {
+      const rect = document.createElementNS(ns, "rect");
+      Object.entries({ x: x * plan.width, y: y * plan.height, width: w * plan.width, height: hh * plan.height, class: "subject-box" })
+        .forEach(([k, v]) => rect.setAttribute(k, v));
+      svg.append(rect);
+    }
+    overlay.append(h("img", { src: fileUrl(variantId), alt: "" }), svg);
+  }
+
+  async function preview() {
+    status.textContent = "Reading the sheet…";
+    try {
+      const { plan } = await api(`/api/assets/${asset.id}/slice`, { method: "POST", body: body({ dry_run: true }) });
+      if (!columns.value) columns.placeholder = String(plan.columns);
+      if (!rows.value) rows.placeholder = String(plan.rows);
+      const src = { request: "from how it was generated", prompt: "from its prompt", detected: "detected in the image", given: "as you set it" }[plan.source];
+      status.innerHTML = "";
+      status.append(`${plan.columns} × ${plan.rows} grid (${src}) · ${plan.subjects} subjects found · fit: ${plan.fit === "each" ? "fill each cell" : "one scale"}`,
+        plan.previous_frames ? ` · re-slicing replaces ${plan.previous_frames} earlier frames` : "",
+        plan.report.issues.length ? h("div", plan.report.issues.map((i) => h("span.issue.warn", i))) : "");
+      if (plan.report.crowded_cells?.length && plan.detected) suggest(plan.detected);
+      drawOverlay(plan);
+    } catch (err) { status.innerHTML = ""; status.append(errorBox(err)); }
+  }
+
+  function suggest([c, r]) {
+    status.append(h("div", h("button.btn.small.primary", { onclick: () => { columns.value = c; rows.value = r; preview(); } }, `Use ${c} × ${r}`)));
+  }
+
   async function run() {
     out.innerHTML = "";
     out.append(h("p.help", h("span.spinner"), " Slicing…"));
     try {
-      const { slice: s } = await api(`/api/assets/${asset.id}/slice`, { method: "POST", body: {
-        columns: +columns.value, rows: +rows.value, cell: cell.value ? +cell.value : undefined, anchor: anchor.value,
-        animations: animations.value.split(",").map((x) => x.trim()).filter(Boolean),
-        names: names.value.split(",").map((x) => x.trim()).filter(Boolean) } });
+      const { slice: s } = await api(`/api/assets/${asset.id}/slice`, { method: "POST", body: body() });
       out.innerHTML = "";
-      out.append(h("div.help", `${s.report.found}/${s.report.expected} frames, cell ${s.report.cell.join("×")} px → `,
+      out.append(h("div.help", `${s.report.found}/${s.report.expected} frames in a ${s.grid.join(" × ")} grid, cell ${s.report.cell.join("×")} px → `,
         h("a", { href: `#/assets?collection=${encodeURIComponent(s.collection)}` }, s.collection),
+        s.archived.length ? ` · ${s.archived.length} earlier frames moved to the archive` : "",
         s.report.issues.length ? h("div", s.report.issues.map((i) => h("span.issue.warn", i))) : null),
-        h("div.mini-strip", s.frames.slice(0, 12).map((f) => h("a.mini", { href: `#/assets/${f.asset_id}`, title: f.name },
+        h("div.mini-strip", s.frames.slice(0, 24).map((f) => h("a.mini", { href: `#/assets/${f.asset_id}`, title: f.name },
           h("img", { src: `/media/thumb/${f.variant_id}?size=128`, alt: "" })))));
-    } catch (err) { out.innerHTML = ""; out.append(errorBox(err)); }
+    } catch (err) {
+      out.innerHTML = "";
+      out.append(errorBox(err));
+      if (err.details?.suggested_grid) out.append(h("div", { style: "margin-top:6px" },
+        h("button.btn.small.primary", { onclick: () => { [columns.value, rows.value] = err.details.suggested_grid; preview(); run(); } },
+          `Slice as ${err.details.suggested_grid.join(" × ")} instead`)));
+    }
   }
+
+  [columns, rows, fit].forEach((el) => el.addEventListener("change", preview));
+  preview();
   return h("div",
-    h("div.form.compact", field("Columns", columns), field("Rows", rows), field("Cell size (px)", cell), field("Anchor", anchor),
+    overlay, status,
+    h("div.form.compact", field("Columns", columns), field("Rows", rows), field("Scale", fit), field("Anchor", anchor),
+      field("Cell size (px)", cell),
       h("label.wide", h("span.lbl", "Animations"), animations, h("span.help", "cells numbered from 0, row by row; fps after @")),
-      h("label.wide", h("span.lbl", "Frame names"), names)),
-    h("div.actions", h("button.btn.small.primary", { onclick: run }, "Slice")),
-    h("p.help", "Every frame is scaled by one factor and placed on a common baseline, so the character never jumps."),
+      h("label.wide", h("span.lbl", "Frame names"), names),
+      h("label.check.wide", replace, h("span", "Move frames from an earlier slice of this sheet to the archive"))),
+    h("div.actions", h("button.btn.small", { onclick: preview }, "Check grid"), h("button.btn.small.primary", { onclick: run }, "Slice")),
+    h("p.help", "Leave the grid empty to detect it. A grid that would put two things in one cell is refused."),
     out);
 }
 

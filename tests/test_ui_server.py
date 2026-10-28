@@ -258,3 +258,16 @@ def test_slice_endpoint(server, lib, tmp_path):
     status, d = jcall(server, f"/api/assets/{asset_id}")
     assert [f["name"] for f in d["frames"]] == [f"walk_walk_0{i}" for i in range(1, 5)] and d["frames"][0]["variant_id"]
     assert jcall(server, f"/api/assets/{asset_id}/slice", method="POST", body={"columns": 4, "animations": ["walk 0..3"]})[0] == 400
+
+
+def test_archive_view_bulk_and_restore(server, stocked):
+    hero, coin = stocked["hero"], stocked["coin"]
+    status, d = jcall(server, "/api/review/bulk", method="POST", body={"ids": [hero, coin], "action": "archive"})
+    assert status == 200 and d["review"]["status"] == "archived"
+    assert {a["id"] for a in jcall(server, "/api/assets")[1]["items"]}.isdisjoint({hero, coin})  # hidden by default
+    assert {a["id"] for a in jcall(server, "/api/assets?status=archived")[1]["items"]} == {hero, coin}
+    status, d = jcall(server, f"/api/assets/{hero}/review", method="POST", body={"action": "restore"})
+    assert d["review"]["status"] == "approved"
+    status, d = jcall(server, "/api/review/bulk", method="POST", body={"ids": [coin], "action": "restore"})
+    assert d["review"]["restored"] == {coin: "approved"}
+    assert jcall(server, "/api/review/bulk", method="POST", body={"ids": [], "action": "archive"})[0] == 400

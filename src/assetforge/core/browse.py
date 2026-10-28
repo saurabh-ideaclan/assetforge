@@ -55,6 +55,8 @@ def _where(lib: Library, f: BrowseFilters) -> tuple[list[str], list[Any]]:
         if values:
             where.append(f"{column} IN ({qmarks(len(values))})")
             params += [v.value for v in values]
+    if not f.statuses:
+        where.append("a.status != 'archived'")  # the archive is its own view (status=archived)
     if f.kind:
         where.append("pf.kind = ?")
         params.append(f.kind.value)
