@@ -29,6 +29,7 @@ from assetforge.cli_ui import register as register_ui_commands
 from assetforge.cli_discover import register as register_discover_commands
 from assetforge.cli_sound import sound_app
 from assetforge.cli_ambience import ambience_app
+from assetforge.cli_creature import creature_app
 from assetforge.cli_music import music_app
 from assetforge.cli_create import register as register_create_commands
 from assetforge.cli_process import register as register_process_commands
@@ -66,6 +67,7 @@ app.add_typer(art_app, name="art")
 app.add_typer(sprite_app, name="sprite")
 app.add_typer(sound_app, name="sound")
 app.add_typer(ambience_app, name="ambience")
+app.add_typer(creature_app, name="creature")
 app.add_typer(music_app, name="music")
 
 def _version(value: bool) -> None:

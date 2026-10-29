@@ -59,35 +59,85 @@ def voice(ctx: RenderContext, f0: np.ndarray, vowel: str, size: float, rough: fl
     return out
 
 
-def beast(ctx: RenderContext, size: float, rough: float, *, pulse_hz: np.ndarray, f0: np.ndarray, opening: np.ndarray,
-          vowel: str = "a", chest: float = 1.0, floor: float = 0.4, voiced: float = 0.25, top: float = 7000.0,
-          low_cut: float = 65.0) -> np.ndarray:  # fmt: skip
-    """A big animal's roar or growl, matched to recordings (bear, dogs): pulsed turbulence plus a voiced part,
-    through broad mouth resonances near 0.6-1 kHz and 1.8-2.2 kHz.
+def glottal_pulses(ctx: RenderContext, n: int, f0: np.ndarray, *, jitter: float, shimmer: float, doubling: np.ndarray,
+                   open_quotient: float = 0.6) -> tuple[np.ndarray, np.ndarray]:  # fmt: skip
+    """A rough voice built one vocal-fold cycle at a time: every period (`jitter`) and every pulse strength
+    (`shimmer`) a little different, and in `doubling` stretches every other cycle weak (the subharmonic rattle
+    of a growl). Returns (excitation, glottal flow)."""
+    sr, rng = ctx.sr, ctx.rng
+    starts, amps = [], []
+    t, k = 0.0, 0
+    while t < n:
+        i = min(int(t), n - 1)
+        period = max(sr / 800, sr / f0[i] * (1 + jitter * rng.standard_normal()))
+        amp = np.exp(shimmer * rng.standard_normal())
+        if k % 2 and rng.uniform() < doubling[i]:
+            amp *= rng.uniform(0.2, 0.5)
+        starts.append(t)
+        amps.append(amp)
+        t += period
+        k += 1
+    edges = np.array([*starts, t])
+    idx = np.searchsorted(edges, np.arange(n), side="right") - 1
+    length = edges[idx + 1] - edges[idx]
+    flow = glottal_flow((np.arange(n) - edges[idx]) / length, open_quotient) * np.asarray(amps)[idx]
+    return np.diff(flow, prepend=0.0) * length / 20, flow
 
-    The pulses (20-80 per second) ride on a `floor`: real voices dip only 14-29 dB between pulses, so they never
-    break into separate bursts with silence between. `voiced` is the share of the glottal voice (dogs ~0.6,
-    a roaring bear ~0.25); `top` is where the breath noise stops.
-    """
-    n, sr, rng = ctx.n, ctx.sr, ctx.rng
-    cycles = dsp.phase_osc(pulse_hz * (1 + 0.08 * dsp.drift(n, sr, 6, rng)), n, sr)
-    index = cycles.astype(int)
-    frac = cycles - index
-    strength = rng.lognormal(0, 0.3 + 0.2 * rough, index.max() + 2)[index]
-    shape = np.minimum(frac / 0.06, 1.0) * (1 - frac) ** (4.0 - rough)
-    bursts = (floor + (1 - floor) * shape) * strength
-    turbulence = s.noise(n, rng, "pink") * bursts
-    vo = voice(ctx, f0, vowel, size, rough, 0.2, opening=opening)
-    source = (1 - voiced) * rms_norm(turbulence) + voiced * rms_norm(vo) * bursts**0.5
-    scale = (1.25 - 0.45 * size) * opening
-    out = 0.7 * source  # the broadband floor real roars have
-    out += (1.6 + 0.8 * size) * chest * dsp.filt(source, "lowpass", 260 * (1.3 - 0.4 * size), sr, q=0.9)  # body weight
-    for formant, gain, q in ((700, 0.6, 1.6), (1300, 0.5, 2.0), (2100, 0.3, 3.0), (3100, 0.1, 4.0)):
-        out += gain * dsp.sweep_filter(source, "bandpass", formant * scale, sr, q=q, block=128)
-    return dsp.filt(dsp.filt(out, "highpass", low_cut, sr), "lowpass", top, sr)
+
+def vocal_tract(x: np.ndarray, sr: int, formants: list, bandwidths: tuple[float, ...], block: int = 128) -> np.ndarray:
+    """Cascade of two-pole resonators (an all-pole vocal tract); each formant may be a per-sample track."""
+    from scipy.signal import lfilter
+
+    out = x
+    for formant, bw in zip(formants, bandwidths, strict=True):
+        track = np.broadcast_to(np.asarray(formant, dtype=float), (len(x),))
+        r = np.exp(-np.pi * bw / sr)
+        y = np.empty(len(x))
+        zi = np.zeros(2)
+        for i in range(0, len(x), block):
+            th = 2 * np.pi * min(track[min(len(x) - 1, i + block // 2)], sr * 0.45) / sr
+            gain = (1 - r) * np.sqrt(1 - 2 * r * np.cos(2 * th) + r * r)  # about unity at the peak
+            y[i : i + block], zi = lfilter([gain], [1, -2 * r * np.cos(th), r * r], out[i : i + block], zi=zi)
+        out = y
+    return out
+
+
+def disperse(x: np.ndarray, sr: int, sections: int = 8, low: float = 200.0, high: float = 3000.0,
+             q: float = 0.8) -> np.ndarray:  # fmt: skip
+    """Allpass chain: smears each sharp pulse over a few milliseconds without changing the spectrum, the way a
+    throat, mouth and room do, so a rough voice sounds dense instead of clicky (lower crest factor)."""
+    from scipy.signal import lfilter
+
+    for f in np.geomspace(low, high, sections):
+        w = 2 * np.pi * f / sr
+        alpha = np.sin(w) / (2 * q)
+        x = lfilter([1 - alpha, -2 * np.cos(w), 1 + alpha], [1 + alpha, -2 * np.cos(w), 1 - alpha], x)
+    return x
+
+
+def beast(ctx: RenderContext, n: int, f0: np.ndarray, *, formants: list, rough: float, breath: float, air: float,
+          spread: float = 0.3) -> np.ndarray:  # fmt: skip
+    """A monster/animal voice as game creature sounds are made (matched to designed growls and roars): a
+    continuous, rough voice whose pitch wanders all the time, breath riding on each pulse, through a moving
+    vocal tract. No fixed pitch and no steady pulse rate: those two together are what makes an engine or a
+    chainsaw (tests measure both)."""
+    sr, rng = ctx.sr, ctx.rng
+    f0 = np.asarray(f0, dtype=float) * 2 ** (spread * dsp.drift(n, sr, 6, rng) + 0.3 * spread * dsp.drift(n, sr, 1.2, rng))
+    doubling = np.clip((0.2 + 0.45 * rough) * (0.5 + 0.8 * dsp.drift(n, sr, 3, rng)), 0, 1)
+    excitation, flow = glottal_pulses(ctx, n, f0, jitter=0.04 + 0.06 * rough, shimmer=0.14 + 0.14 * rough, doubling=doubling)
+    noise = dsp.filt(s.noise(n, rng, "white"), "highpass", 300, sr) * (0.25 + flow / (flow.max() + 1e-9))
+    soft = dsp.one_pole_lowpass(excitation, 1200, sr)  # a soft glottal closure: no click on every cycle
+    source = rms_norm(soft) + breath * rms_norm(noise)
+    move = 1 + 0.08 * dsp.drift(n, sr, 1.5, rng)  # the jaw and tongue never hold still
+    voice_ = rms_norm(disperse(vocal_tract(source, sr, [f * move for f in formants], (256, 352, 512, 672)), sr, 16))
+    hiss = dsp.filt(dsp.filt(noise, "highpass", 1500, sr), "lowpass", 9000, sr)
+    out = voice_ + air * rms_norm(hiss)
+    return dsp.filt(dsp.filt(out, "highpass", 90, sr), "lowpass", 10000, sr)
 
 
 VOWEL_CHOICES = tuple(VOWELS)
+GROWL_FORMANTS = (550, 1220, 2850, 3500)  # closed-mouth growl at size 0.7
+ROAR_FORMANTS = (780, 1700, 2850, 3500)  # open-mouth roar at size 0.8
 
 
 @recipe(
@@ -96,25 +146,26 @@ VOWEL_CHOICES = tuple(VOWELS)
     duration=1.2,
     duration_range=(0.3, 4.0),
     params=(
-        num("size", 0.7, 0, 1, "Body size: bigger is lower and darker"),
+        num("size", 0.7, 0, 1, "Body size: bigger is lower and darker (0.2 a dog, 0.7 a beast, 1 a giant)"),
         num("rough", 0.7, 0, 1, "Gravel in the voice"),
         choice("vowel", "o", VOWEL_CHOICES, "Mouth shape"),
     ),
     tags=("growl", "snarl", "monster", "beast", "creature", "dog", "wolf", "bear", "enemy", "threat", "animal"),
-    version=2,
+    version=3,
 )
 def growl(ctx: RenderContext, p: dict) -> np.ndarray:
-    """Matched to real dog growls: a voiced rumble (f0 ~110-260 Hz) rattling 25-80 times a second, energy at
-    150-600 Hz, little above 2 kHz. Bigger bodies pulse slower and pitch lower."""
+    """A sustained, mouth-closed rumble that surges and eases, like a game creature's growl."""
     n, sr = ctx.n, ctx.sr
-    size = p["size"]
-    surge = 0.75 + 0.25 * dsp.drift(n, sr, 1.5, ctx.rng)  # the growl swells and eases
-    pulse = (28 + 30 * (1 - size)) * (0.9 + 0.1 * surge)
-    f0 = (190 - 60 * size) * ctx.pitch * (1 + 0.06 * dsp.drift(n, sr, 2.5, ctx.rng))
-    v = beast(ctx, size, 0.5 + 0.5 * p["rough"], pulse_hz=pulse, f0=f0, opening=0.75 + 0.15 * surge, vowel=p["vowel"],
-              chest=0.25, floor=0.45, voiced=0.6, top=2200, low_cut=130)  # fmt: skip
+    size, rough = p["size"], p["rough"]
+    surge = 0.75 + 0.25 * dsp.drift(n, sr, 1.5, ctx.rng)
+    scale = 1 + 0.6 * (0.7 - size)  # a bigger body has a longer vocal tract: lower formants
+    shape = [v / o for v, o in zip(VOWELS[p["vowel"]], VOWELS["o"], strict=True)] + [1.0]
+    f0 = 130 * 2 ** (1.5 * (0.7 - size)) * ctx.pitch * (1 + 0.05 * surge)
+    v = beast(ctx, n, np.full(n, f0), formants=[f * scale * k for f, k in zip(GROWL_FORMANTS, shape, strict=True)],
+              rough=rough, breath=1.2, air=0.1)  # fmt: skip
     env = s.adsr(n, sr, attack=0.12, decay=0.2, sustain=0.85, release=n / sr * 0.3) * surge
     return fade_tail(norm(v) * env, sr)
+
 
 @recipe(
     "roar",
@@ -127,18 +178,22 @@ def growl(ctx: RenderContext, p: dict) -> np.ndarray:
         num("breath", 0.4, 0, 1, "Breathy noise"),
     ),
     tags=("roar", "dragon", "dinosaur", "monster", "beast", "boss", "lion", "creature", "scream", "enemy"),
-    version=2,
+    version=3,
 )
 def roar(ctx: RenderContext, p: dict) -> np.ndarray:
+    """Open-mouthed and bright, unlike the growl: the jaw opens as it swells (formants rise), the pitch climbs
+    with the effort and sags at the end, and the breath roars with it."""
     n, sr = ctx.n, ctx.sr
+    size = p["size"]
     x = np.linspace(0, 1, n)
-    swell = np.sin(np.pi * np.clip(x / 0.85, 0, 1)) ** 0.6  # rises, holds, falls
-    pulse = (40 - 14 * p["size"]) * (0.8 + 0.3 * swell)
-    f0 = (170 - 90 * p["size"]) * ctx.pitch * s.semitones(4 * swell - 4 * x)
-    v = beast(ctx, p["size"], 0.5 + 0.5 * p["rough"], pulse_hz=pulse * ctx.pitch ** 0.5, f0=f0,
-              opening=0.75 + 0.45 * swell)  # fmt: skip
+    swell = np.sin(np.pi * np.clip(x / 0.85, 0, 1)) ** 0.6
+    scale = (1 + 0.6 * (0.8 - size)) * (0.85 + 0.2 * swell)
+    f0 = 125 * 2 ** (1.5 * (0.8 - size)) * ctx.pitch * s.semitones(5 * swell - 3 * x)
+    v = beast(ctx, n, f0, formants=[f * scale for f in ROAR_FORMANTS], rough=p["rough"], breath=0.4 + 2.0 * p["breath"],
+              air=0.15, spread=0.25)  # fmt: skip
     env = np.minimum(1, x * 8) * (1 - x) ** 0.5 * (0.35 + 0.65 * swell)
     return fade_tail(norm(v) * env, sr)
+
 
 @recipe(
     "squeak",

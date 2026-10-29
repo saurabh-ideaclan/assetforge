@@ -52,6 +52,12 @@ def master_kind(asset: Asset, variant: Variant) -> str | None:
 
 def can_rerender(lib: Library, asset: Asset) -> tuple[bool, str]:
     spec = (asset.metadata.get("generator") or {}).get("spec") or {}
+    if (asset.metadata.get("generator") or {}).get("engine") == "assetforge-creature":
+        from assetforge.audio.creatures import pack
+
+        installed = pack.installed_packs(lib.paths.home)
+        if any(installed.get(name) != version for name, version in (spec.get("packs") or {}).items()):
+            return False, "made from creature recordings that are not installed here"
     if spec.get("backend") == "soundfont":
         from assetforge.audio.music import soundfont
 

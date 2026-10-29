@@ -79,7 +79,8 @@ def for_library(fn: Callable[..., Any]) -> Callable[..., Any]:
             active_home.reset(token)
 
     return wrapper
-ENGINE_MODULES = ("assetforge.audio.design", "assetforge.audio.ambience.engine", "assetforge.audio.music.render")
+ENGINE_MODULES = ("assetforge.audio.design", "assetforge.audio.ambience.engine", "assetforge.audio.music.render",
+                  "assetforge.audio.creatures.engine")
 
 
 def load_engines() -> dict[str, Engine]:

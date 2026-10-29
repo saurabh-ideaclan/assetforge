@@ -260,11 +260,29 @@ WAV masters are kept so sounds can be edited and re-encoded. To save space, `ass
 --older-than 30 --dry-run --json` shows what can go (only synthesized sounds that re-render bit for bit; never
 imported audio); drop `--dry-run` to delete them. Anything that needs a pruned master re-renders it first.
 
-**Checked against reality.** Thunder, roar, growl (dog), engine, explosion (`blast`), lightning, sword clash
+**Checked against reality.** Thunder, engine, explosion (`blast`), lightning, sword clash
 (`blade_hit`), snow and wood footsteps, fire (`fire_burst`, fire spells, `fire_ignite`, the `fire_crackle` bed), the
 metal door slam and the rain and night-forest scenes are tuned to measurements of real field recordings (Wikimedia
-Commons and Freesound CC0; only the numbers are kept, in `audio/references.json`). The test suite fails if their
-spectra drift, if impacts ring longer than real ones, or if creature voices break into separate bursts.
+Commons and Freesound CC0; only the numbers are kept, in `audio/references.json`). Growl and roar are matched to
+designed game creature sounds instead, since that is what a monster should sound like in a game. The test suite
+fails if spectra drift, if impacts ring longer than real ones, or if a creature voice buzzes at one fixed pulse
+rate (an engine/chainsaw) or turns clicky.
+
+**Creature voices.** Game monsters are made by layering recordings, not by synthesis, so AssetForge does that:
+
+```bash
+assetforge creature install --yes          # five CC0 packs from OpenGameArt (~12 MB, pinned SHA-256s), into the library
+assetforge creature generate troll -s roar -n 3 --json
+assetforge request --type sfx -d "angry cave troll roar" --json   # routed to the creature engine
+```
+
+Each take picks a main voice (growl, roar, attack, grunt, hurt, death…), sometimes a second voice doubling it, a deep
+body layer pitched down for weight, a grit layer that grows with aggression, and an inhale before roars or a breath
+after deaths. Size slows the clips down (bigger throat), the layers are aligned, driven and compressed. Every take is
+a different blend, and the clips it used are recorded with it. Presets cover goblin, imp, dog, wolf, zombie, orc,
+beast, bear, demon, troll, giant, dragon, critter, insect, slime and alien; `creature add-folder` adds your own
+recordings (named growl, roar, breath…). Without the recordings, the synthesized `growl`/`roar` recipes are the
+fallback.
 
 Limits: no speech or vocals (crowds murmur, radios chatter unintelligibly); synthesized, not recorded, so foley
 is close to real rather than identical; the composer writes good game loops, not hit songs.

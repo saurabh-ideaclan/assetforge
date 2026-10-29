@@ -211,6 +211,8 @@ def sound_plan(req: AssetRequest, lib: Library | None = None) -> dict[str, Any]:
         return {"engine": "music", "settings": inferred | options}
     if "design" in options or "patch" in options:
         return {"engine": "design", "settings": options}
+    if not (options.get("recipe") or req.recipe) and (creature := _creature_plan(req, lib, options)) is not None:
+        return creature
     recipe_name = options.get("recipe") or req.recipe
     if recipe_name in RECIPES:
         recipe = RECIPES[recipe_name]
@@ -221,6 +223,17 @@ def sound_plan(req: AssetRequest, lib: Library | None = None) -> dict[str, Any]:
             return {"engine": "design", "settings": {"patch": infer.patch_from_words(req.description)}, "inferred": "patch"}
     return {"engine": "recipe", "recipe": recipe.name, "preset": options.get("preset") or req.preset or
             infer_preset(req.description, recipe)}  # fmt: skip
+
+
+def _creature_plan(req: AssetRequest, lib: Library | None, options: dict[str, Any]) -> dict[str, Any] | None:
+    """Creature voices go to the layered creature engine when its recordings are installed (else the synth recipes)."""
+    from assetforge.audio.creatures import engine as creatures
+    from assetforge.audio.creatures import pack
+
+    inferred = creatures.creature_from_words(req.description)
+    if not ("creature" in options or inferred) or lib is None or not pack.installed_packs(lib.paths.home):
+        return None
+    return {"engine": "creature", "settings": (inferred or {}) | options}
 
 
 def _engine_audio(lib: Library, req: AssetRequest, planned: dict[str, Any], *, seed: int, key: str | None,
@@ -242,6 +255,10 @@ def _engine_audio(lib: Library, req: AssetRequest, planned: dict[str, Any], *, s
             from assetforge.audio.music.generate import MusicRequest, generate_music
 
             return generate_music(lib, MusicRequest(**(settings | common)))
+        if planned["engine"] == "creature":
+            from assetforge.audio.creatures.engine import CreatureRequest, generate_creature
+
+            return generate_creature(lib, CreatureRequest(**(settings | common)))
         from assetforge.audio.design import DesignRequest, generate_design
 
         kind = "ui" if req.type is AssetType.UI else "sfx"

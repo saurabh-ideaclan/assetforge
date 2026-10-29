@@ -1,8 +1,9 @@
 """Reference targets: how real recordings of a sound measure, so synthesized versions can be checked.
 
 `references.json` holds numbers only (third-octave spectrum shape, noisiness, level-flutter profile),
-measured from freely licensed field recordings (Wikimedia Commons, Freesound CC0); the recordings themselves
-are not shipped. `REFERENCE_FOR` maps recipes and ambience scenes to a target, `match()` scores a render
+measured from freely licensed recordings (Wikimedia Commons, Freesound CC0); the recordings themselves are not
+shipped. Natural sounds (weather, fire, foley, impacts) are matched to field recordings; creature voices to
+designed game creature sounds (`growl_monster`, `roar_monster`), which is what players expect from a monster. `REFERENCE_FOR` maps recipes and ambience scenes to a target, `match()` scores a render
 against it, and the test suite keeps every mapped sound within tolerance of its real-world counterpart.
 """
 
@@ -18,8 +19,8 @@ import numpy as np
 # recipe, bed or scene ("name/case" when one recipe has several targets) → (target name, render overrides)
 REFERENCE_FOR: dict[str, tuple[str, dict[str, Any]]] = {
     "recipe:thunder": ("thunder", {"duration": 9.0}),
-    "recipe:roar": ("roar", {"duration": 4.0}),
-    "recipe:growl": ("growl_dog", {"duration": 3.0}),
+    "recipe:roar": ("roar_monster", {"duration": 2.5}),
+    "recipe:growl": ("growl_monster", {"duration": 2.0}),
     "recipe:blade_hit": ("sword_clash", {"duration": 0.8}),
     "recipe:footstep/snow": ("footstep_snow", {"surface": "snow", "duration": 0.45}),
     "recipe:footstep/wood": ("footstep_wood", {"surface": "wood", "duration": 0.45}),

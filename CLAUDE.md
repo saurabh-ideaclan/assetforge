@@ -15,7 +15,7 @@ it to **search for an existing asset before generating a new one**, then receive
 
 ```bash
 uv sync                       # install deps (Python 3.12+, uses .venv)
-uv run pytest                 # full suite (~80s, 2294 tests incl. every recipe × preset; multi-process concurrency tests; no network)
+uv run pytest                 # full suite (~85s, 2318 tests incl. every recipe × preset; multi-process concurrency tests; no network)
 uv run assetforge --help      # CLI entry point (also: uv run python -m assetforge)
 ```
 
@@ -269,9 +269,22 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   `.dev/references` with `.dev/compare.py` / `make_targets.py` for analysis). `REFERENCE_FOR` maps recipes,
   beds and scenes (`name/case` for several targets per recipe) to targets; `tests/test_audio_references.py` keeps
   each within 4.5 dB mean and also checks impact decay times and that voices aren't chopped into bursts (the
-  spectrum alone missed both). When reworking a natural sound, compare against a real recording first
+  spectrum alone missed both), and that growl/roar have no single dominant pulse rate (fixed pitch + steady pulses
+  = chainsaw) and a dense, non-clicky waveform. Creature voices are matched to designed game creature sounds
+  (`growl_monster`, `roar_monster`), not wildlife. `creatures.beast` builds them cycle by cycle
+  (`glottal_pulses`: jitter, shimmer, period doubling) through a moving all-pole `vocal_tract` and an allpass
+  `disperse` (the fallback when no creature recordings are installed). When reworking a natural sound, compare against a real recording first
   (spectrogram, spectrum, envelope) instead of tuning by guesswork. Most real impacts and fire are noise-led:
   long-ringing sine modes read as synthetic.
+- `audio/creatures/` (`assetforge-creature`, CLI `cli_creature.py`): the real creature voices. `pack.py` installs five
+  CC0 OpenGameArt packs (pinned SHA-256s, `creature install --yes`, or `--from` a folder; `add_folder` for your own)
+  into `$ASSETFORGE_HOME/creatures/`, slices long takes and catalogs clips in `index.json` with family (beast, alien,
+  insect, slime, critter), roles (body, growl, roar, grunt, attack, breath, hurt, death, voice) and features.
+  `engine.py` layers identity (+ double) + body (low-passed, pitched down) + grit (high-passed, aggression,
+  centroid ≤ 3.5 kHz) + intake/tail breath; size = varispeed (`size_shift`), lengths fit per sound (`LENGTHS`),
+  presets require their own kind of clip (`prefer`, e.g. wolves always snarl). Specs store pack versions;
+  `masters.can_rerender` keeps masters whose packs are missing. `creature_from_words` routes `request`
+  descriptions (growl/roar always; attack/hurt/death/grunt only with a named creature) when packs are installed.
 - `audio/recipes/physical.py`: modal resonances, smooth strikes, N-wave shocks, windowed `crackle` (blast/rubble),
   sharp broadband `clicks` (embers, snow crust), `exp_env`, `flame`, `fade_tail`.
 - `audio/infer.py`: description → recipe/patch, scene + extra layers, or music brief. `request` routes `sfx`,

@@ -53,7 +53,9 @@ COMMANDS = {
               "music render --score F | --midi F", "music score REF [--midi out.mid]",
               "music edit REF [--tempo --key --transpose -i role=inst --mute role]",
               "music vary REF [--keep chords|melody]", "sound profile set|show|list", "audio soundfont status|install",
-              "audio prune-masters [--older-than D --project P --type T --dry-run]", "audio restore-masters REF"],
+              "audio prune-masters [--older-than D --project P --type T --dry-run]", "audio restore-masters REF",
+              "creature install --yes | status | list", "creature generate CREATURE -s SOUND [--size --aggression -n]",
+              "creature add-folder DIR --name N --license L (your own recordings)"],
     "shape": ["process REF --preset web-sprite", "image process REF --resize WxH --recolor ...",
               "sprite slice REF --grid CxR -a NAME=START-END@FPS", "sprite assemble REF... --name N --fps F"],
     "organize": ["update REF [--category --subcategory --theme --genre --add-tag --style]", "use REF --project P",
@@ -141,10 +143,14 @@ SOUND_RULES = [
     "Ask for variants (takes) for anything repeated (steps, hits, shots) and play them round-robin.",
     "Loops: ambience and music loops are exact-length and seamless; ship OGG with the M4A twin for Safari/iOS.",
     "Every take has OGG (primary) + M4A copies; export lists both in sounds.json src. M4A needs ffmpeg.",
-    "Reference-matched (spectra checked against real field recordings in the tests): thunder, roar, growl (dog), "
+    "Reference-matched (spectra checked against real recordings in the tests): thunder, roar, growl, "
     "engine_rev, blast, lightning_zap, blade_hit, footstep on snow and wood, fire_burst, spell_cast fire, "
     "fire_ignite, door slam (metal), the fire_crackle bed, and the rain_light, rain_storm and forest_night scenes.",
-    "Bears, dragons and big monsters: use roar (a growl is dog-sized; raise size for wolves).",
+    "Creature voices: install the recordings once (`creature install --yes`, ~12 MB CC0), then describe them "
+    "('angry cave troll roar', 'small goblin hurt'): request layers real growls/roars/breaths, pitched for size. "
+    "Presets: goblin, imp, dog, wolf, zombie, orc, beast, bear, demon, troll, giant, dragon, critter, insect, slime, "
+    "alien; sounds: growl, roar, attack, grunt, hurt, death, idle, breath. Ask for several takes: each is a different blend.",
+    "Without the recordings, growl and roar recipes are a synthesized fallback (fine for prototypes, not for release).",
 ]
 
 
