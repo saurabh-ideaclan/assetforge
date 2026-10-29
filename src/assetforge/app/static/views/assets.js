@@ -396,7 +396,31 @@ export async function assets(root, { rest, params }) {
   await load();
   if (state.selected) select(state.selected);
 
+  // New or changed assets (an agent or the CLI just made something): reload what is shown, in place,
+  // keeping scroll, selection and picks; new cards get a brief highlight.
+  async function refresh({ assets: changed }) {
+    if (!changed || state.loading) return;
+    const known = new Set(state.items.map((a) => a.id));
+    const limit = Math.min(600, Math.max(PAGE, state.offset));
+    const data = await api("/api/assets" + qs({ q: state.q, sort: state.sort, ...state.filters, offset: 0, limit }));
+    const top = root.closest("main")?.scrollTop ?? 0;
+    state.items = data.items;
+    state.total = data.total;
+    state.offset = data.items.length;
+    count.textContent = state.filters.similar ? `${fmt.int(data.total)} assets, most similar to ${state.filters.similar} first`
+      : `${fmt.int(data.total)} asset${data.total === 1 ? "" : "s"}`;
+    const cards = data.items.map((a) => {
+      const el = card(a);
+      if (known.size && !known.has(a.id)) el.classList.add("fresh");
+      return el;
+    });
+    grid.replaceChildren(...(cards.length ? cards : [h("div.empty", { style: "grid-column:1/-1" }, "No assets match. Try fewer filters.")]));
+    const scroller = root.closest("main");
+    if (scroller) scroller.scrollTop = top;
+  }
+
   return {
+    refresh,
     cleanup: () => { observer.disconnect(); document.removeEventListener("keydown", onKey); },
     update: ({ rest: r, params: p }) => {
       const wanted = new URLSearchParams(p);

@@ -354,3 +354,17 @@ def test_sound_actions_profiles_and_describe(server):
     assert jcall(server, "/api/sound/profiles/x", method="POST", body={"sound": {"space": "attic"}})[0] == 400
     assert jcall(server, "/api/sound/profiles/crypt-run/delete", method="POST")[0] == 200
     assert jcall(server, "/api/sound/profiles/crypt-run")[1]["profile"] is None
+
+
+def test_revision_changes_when_the_library_does(server, stocked, lib):
+    """The app polls /api/revision and refreshes its views when agents or the CLI change the library."""
+    first = jcall(server, "/api/revision")[1]
+    assert jcall(server, "/api/revision")[1] == first  # nothing changed: nothing to refresh
+    lib.set_status([stocked["coin"]], Status.APPROVED)
+    second = jcall(server, "/api/revision")[1]
+    assert second["assets"] != first["assets"] and second["jobs"] == first["jobs"]
+    from assetforge.audio.generate import AudioRequest, generate_audio
+
+    generate_audio(lib, AudioRequest(recipe="coin", seed=99))
+    third = jcall(server, "/api/revision")[1]
+    assert third["assets"] != second["assets"] and third["jobs"] != second["jobs"]

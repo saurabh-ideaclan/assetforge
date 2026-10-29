@@ -368,3 +368,27 @@ export function pollJob(jobId, onTick) {
     }, 2000);
   });
 }
+
+// Calls onChange({ assets, jobs }) whenever the library changes (agents, the CLI or another window),
+// checking every few seconds while the app is in front, and right away when it comes back to the front.
+export function watchLibrary(onChange, ms = 3000) {
+  let last = null;
+  let busy = false;
+  async function check() {
+    if (busy || document.visibilityState !== "visible") return;
+    busy = true;
+    try {
+      const rev = await api("/api/revision");
+      if (last && (rev.assets !== last.assets || rev.jobs !== last.jobs)) {
+        onChange({ assets: rev.assets !== last.assets, jobs: rev.jobs !== last.jobs });
+      }
+      last = rev;
+    } catch { /* server restarting or offline: try again next tick */ }
+    finally { busy = false; }
+  }
+  check();
+  const timer = setInterval(check, ms);
+  document.addEventListener("visibilitychange", check);
+  window.addEventListener("focus", check);
+  return () => { clearInterval(timer); document.removeEventListener("visibilitychange", check); window.removeEventListener("focus", check); };
+}

@@ -113,6 +113,16 @@ def list_assets(req: Request, lib: Library) -> dict[str, Any]:
             "sorts": list(SORTS)}  # fmt: skip
 
 
+@router.route("GET", "/api/revision")
+def revision(req: Request, lib: Library) -> dict[str, Any]:
+    """Cheap change markers the app polls, so views refresh when agents or the CLI add or change things."""
+    assets = lib.conn.execute("SELECT count(*), max(updated_at) FROM assets").fetchone()
+    variants = lib.conn.execute("SELECT count(*) FROM asset_variants").fetchone()[0]
+    events = lib.conn.execute("SELECT max(rowid) FROM asset_events").fetchone()[0]
+    jobs = lib.conn.execute("SELECT count(*), max(updated_at) FROM generation_jobs").fetchone()
+    return {"assets": f"{assets[0]}:{variants}:{assets[1] or ''}:{events or 0}", "jobs": f"{jobs[0]}:{jobs[1] or ''}"}
+
+
 @router.route("GET", "/api/facets")
 def get_facets(req: Request, lib: Library) -> dict[str, Any]:
     return {"facets": facets(lib)}

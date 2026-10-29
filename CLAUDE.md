@@ -187,7 +187,10 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   validated first), `POST /api/collections/add`, `GET /api/asset-ids` (ids matching the browse filters; it can't
   live under `/api/assets/…`, which the detail route matches first); `/api/assets` hides archived unless `status=archived`
   (`review.restore` returns assets to their pre-archive status); reads are `GET /api/art`, `/api/assets/{id}/similar`, and `/api/assets` accepts
-  `color/orientation/tone/transparent/similar` (handled in `core/browse.py`). Static files are served `no-cache`,
+  `color/orientation/tone/transparent/similar` (handled in `core/browse.py`). Live refresh: `GET /api/revision`
+  (asset/variant/event and job change markers) is polled every 3 s by `lib.watchLibrary` while the window is in
+  front; overview/jobs/usage re-render in place, assets reloads its grid keeping scroll/selection (new cards
+  highlighted), and form views (generate, sound, art) are never touched. Static files are served `no-cache`,
   but Python changes need a server restart (relaunch the app).
 - `macos/AssetForgeApp.swift`: Cocoa + WKWebView shell. It runs `python -m assetforge [--home LIB] ui --json
   --port 0 --parent-pid PID`, reads the first stdout line `{"url", "port", "token", "home"}`, and loads the URL.

@@ -1,5 +1,5 @@
 // AssetForge desktop UI: hash router and view mounting.
-import { api, h, errorBox } from "/static/lib.js";
+import { api, h, errorBox, watchLibrary } from "/static/lib.js";
 import { overview } from "/static/views/overview.js";
 import { assets } from "/static/views/assets.js";
 import { generate } from "/static/views/generate.js";
@@ -37,6 +37,29 @@ async function route() {
 }
 
 window.addEventListener("hashchange", route);
+
+// Views that only show library data re-render when it changes; views with forms (generate, sound, art)
+// are left alone so nothing typed is lost. A view can refresh itself in place by returning `refresh`.
+const AUTO_REMOUNT = new Set(["overview", "jobs", "usage"]);
+let refreshing = false;
+watchLibrary(async (changed) => {
+  if (refreshing || !current.name) return;
+  refreshing = true;
+  try {
+    if (current.refresh) await current.refresh(changed);
+    else if (AUTO_REMOUNT.has(current.name)) {
+      const top = main.scrollTop;
+      const { rest, params } = parseHash();
+      const fresh = h("div");
+      const mounted = (await views[current.name](fresh, { rest, params })) || {};
+      if (current.cleanup) current.cleanup();
+      main.replaceChildren(...fresh.childNodes);  // swap in one go: no flash of an empty page
+      current = { name: current.name, ...mounted };
+      main.scrollTop = top;
+    }
+  } catch { /* keep showing what we have */ }
+  finally { refreshing = false; }
+});
 
 (async () => {
   try {
