@@ -607,6 +607,7 @@ class Library:
             colors=loads(row["colors"], None) if row["colors"] else None,
             dhash=row["dhash"],
             pruned=bool(loads(row["extra"], {}).get("pruned")),
+            withheld=bool(loads(row["extra"], {}).get("withheld")),
         )
         return Variant(
             id=row["id"],
@@ -800,8 +801,8 @@ class Library:
         for row in rows:
             path = self.store.abs_path(row["rel_path"])
             known.add(row["rel_path"])
-            if not path.is_file() and loads(row["extra"], {}).get("pruned"):
-                continue  # a master removed on purpose by `audio prune-masters`; re-rendered on demand
+            if not path.is_file() and any(loads(row["extra"], {}).get(k) for k in ("pruned", "withheld")):
+                continue  # removed on purpose: a pruned master (re-rendered on demand) or left out of a snapshot
             if not path.is_file():
                 issues.append({"sha256": row["sha256"], "path": str(path), "problem": "missing"})
             elif path.stat().st_size != row["size_bytes"]:

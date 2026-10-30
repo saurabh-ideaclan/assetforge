@@ -202,7 +202,9 @@ def _audio_variant(lib: Library, asset: Asset, fmt: str, source: Variant | None 
     if primary.file.ext.lstrip(".") == fmt:
         return primary
     by_id = {v.id: v for v in asset.variants}
-    master = by_id.get(primary.params.get("encoded_from")) or primary
+    ops = primary.params.get("ops") or []
+    reencoded = len(ops) == 1 and ops[0].get("op") == "format"  # e.g. ogg_of_original as primary in a snapshot
+    master = by_id.get(primary.params.get("encoded_from")) or (reencoded and by_id.get(primary.parent_variant_id)) or primary
     sibling = next((v for v in asset.variants if v.params.get("encoded_from") == master.id
                     and v.params.get("format") == fmt), None)  # fmt: skip
     if sibling is None:

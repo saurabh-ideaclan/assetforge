@@ -5,7 +5,7 @@ it to **search for an existing asset before generating a new one**, then receive
 
 ## How to work in this repo (user instructions)
 
-- Do **all implementation and testing directly in this directory** (`/Users/sumansaurabh/IdeaClan/Games/AssetForge`).
+- Do **all implementation and testing directly in this directory** (the AssetForge repo root).
   Do not use git worktrees, scratch copies or a separate sandbox for this project's work.
 - For manual CLI testing, point the library inside the repo, never at `~/.assetforge`:
   `export ASSETFORGE_HOME=$PWD/.dev/library` (`.dev/` is gitignored and safe to delete).
@@ -308,6 +308,16 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   soundfont). App: `/api/sound/options`, `/api/generate/{design,ambience,music}`, `/api/sound/request` (the
   agents' `request`), `/api/sound/profiles/{project}[/delete]`, `/api/assets/{id}/sound/vary` (keep=chords|melody
   for music), `/api/assets/{id}/music/edit`, asset detail `sound`, `views/sound.js`.
+
+### Sharing (GitHub)
+
+- Two private repos: this code repo and a library repo made by `assetforge library snapshot DEST`
+  (`core/snapshot.py`, `cli_library.py`): SQLite backup API copy of the catalog + referenced objects, no jobs/previews/
+  logs/backups/soundfonts/creatures. WAVs: re-renderable masters go through `masters.prune`; every other WAV is
+  marked `extra.withheld` (verify/QC skip it, `ensure_file` raises) and its OGG/M4A child becomes primary.
+  Pruned/withheld marks carry over between runs. Refuses if the catalog contains a key-shaped string.
+- Secrets: `.env` is ignored; `scripts/check_secrets.sh` runs from `.githooks/pre-commit`
+  (`git config core.hooksPath .githooks`) and `.github/workflows/secrets.yml`. Never commit `.env`.
 
 Data model: **Asset** (logical item) → **Variant** (labelled rendering) → **File** (content by SHA-256).
 Identical bytes are stored once and resolve to the asset that first registered them. Generation jobs, lineage,

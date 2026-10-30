@@ -10,3 +10,7 @@ build/
 .env
 .env.*
 !.env.example
+*.env
+.ruff_cache/
+*.sqlite3*
+*.sf2

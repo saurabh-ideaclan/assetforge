@@ -60,7 +60,8 @@ COMMANDS = {
               "sprite slice REF --grid CxR -a NAME=START-END@FPS", "sprite assemble REF... --name N --fps F"],
     "organize": ["update REF [--category --subcategory --theme --genre --add-tag --style]", "use REF --project P",
                  "collection add NAME REF...", "review approve|reject|pick", "art profile set|show|list"],
-    "ship": ["export --project P --out DIR [--atlas NAME]", "report --range last-30-days", "budget"],
+    "ship": ["export --project P --out DIR [--atlas NAME]", "report --range last-30-days", "budget",
+             "library snapshot DIR (shareable copy for a git repo; no WAVs)"],
 }
 
 REQUEST_EXAMPLE = {

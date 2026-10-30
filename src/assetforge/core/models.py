@@ -108,6 +108,7 @@ class FileInfo(BaseModel):
     colors: list[dict[str, Any]] | None = None
     dhash: str | None = None
     pruned: bool = False  # a synthesized master deleted to save space; re-rendered from its spec on demand
+    withheld: bool = False  # left out of a shared snapshot (`library snapshot`); only the publisher has it
 
 
 class Variant(BaseModel):

@@ -114,6 +114,10 @@ def ensure_file(lib: Library, variant: Variant) -> Path:
     from assetforge.audio.export import write_audio
 
     path = Path(variant.file.path)
+    if not path.is_file() and variant.file.withheld:
+        raise StorageError(f"{variant.id} ({variant.label}) is not in this copy of the library",
+                           variant_id=variant.id, hint="It was left out of the shared snapshot; use its OGG/M4A "
+                           "copy, or ask whoever publishes the library for the original")  # fmt: skip
     if path.is_file() or not variant.file.pruned:
         return path
     asset = lib.get_asset(variant.asset_id)

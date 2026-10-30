@@ -100,6 +100,39 @@ The library lives in `~/.assetforge` by default. Override it with `--home DIR` o
 ├── previews/ jobs/ styles/ collections/ exports/ tmp/
 ```
 
+## Team setup
+
+AssetForge (this repo) and the shared asset library are two private GitHub repos. API keys are never committed.
+
+```bash
+git clone git@github.com:<owner>/assetforge.git && cd assetforge
+uv sync
+git config core.hooksPath .githooks       # once per clone: blocks commits of .env files and API keys
+cp .env.example .env                      # then fill in OPENAI_API_KEY / GEMINI_API_KEY (only images need them)
+
+git clone git@github.com:<owner>/assetforge-library.git ~/assetforge-library
+export ASSETFORGE_HOME=~/assetforge-library   # add to your shell profile; or pass --home
+uv run assetforge info
+```
+
+Optional: `brew install ffmpeg fluid-synth`, then `uv run assetforge audio soundfont install --yes` (realistic
+instruments) and `uv run assetforge creature install --yes` (creature voices), and `uv run assetforge app install`
+for the Mac app.
+
+The shared library has no WAV files. Synthesized sounds re-render their WAV master bit for bit when something
+needs it; WAV originals that were added as files stay with the publisher and their OGG copy is the primary file.
+The catalog is one SQLite file and can't be merged, so one person publishes: update the shared copy with
+
+```bash
+uv run assetforge library snapshot ~/IdeaClan/Games/assetforge-library   # from the publisher's own library
+cd ~/IdeaClan/Games/assetforge-library && git add -A && git commit -m "Library snapshot" && git push
+```
+
+Teammates update with `git fetch origin && git reset --hard origin/main` in their clone (this drops anything
+they recorded in it; generate your own assets in your own library, `~/.assetforge`, to keep them).
+The pre-commit hook and the `secrets` GitHub Action both run `scripts/check_secrets.sh`, which refuses `.env`
+files and anything shaped like an OpenAI/Google key or a private key.
+
 ## Quick start
 
 ```bash
@@ -139,6 +172,7 @@ assetforge review approve ast_00042 --note "matches style"
 | `use REF --project P` / `usage --project P` | Track which games use which variants |
 | `collection create\|list\|show\|add\|remove\|delete` | Named asset sets |
 | `verify [--rehash]` | Check that every stored file exists and is unmodified |
+| `library snapshot DIR` | Write (or update) a shareable copy of the library in DIR for a git repo: catalog + files, no WAVs, jobs or caches (see Team setup) |
 | `audio recipes [NAME]` | List SFX recipes, presets and effects, or one recipe's parameters |
 | `audio generate` | Procedurally generate a sound with seeded variants (no API calls) |
 | `audio vary REF -n N` | Add more variations to a generated sound |

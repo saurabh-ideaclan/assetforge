@@ -29,6 +29,8 @@ def check_variant(asset: Asset, variant: Variant) -> dict[str, Any]:
     metrics: dict[str, Any] = {}
     if not path.is_file() and variant.file.pruned:
         issues, metrics = [], {"pruned": True}
+    elif not path.is_file() and variant.file.withheld:
+        issues, metrics = [], {"withheld": True}
     elif not path.is_file():
         issues = ["missing_file"]
     elif variant.file.kind == FileKind.IMAGE:

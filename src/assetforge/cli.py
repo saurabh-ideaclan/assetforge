@@ -23,6 +23,7 @@ from assetforge.cli_audio import audio_app
 from assetforge.cli_image import image_app, style_app
 from assetforge.cli_export import register as register_export_command
 from assetforge.cli_jobs import jobs_app
+from assetforge.cli_library import library_app
 from assetforge.cli_ops import register as register_ops_commands
 from assetforge.cli_report import register as register_report_commands
 from assetforge.cli_ui import register as register_ui_commands
@@ -69,6 +70,7 @@ app.add_typer(sound_app, name="sound")
 app.add_typer(ambience_app, name="ambience")
 app.add_typer(creature_app, name="creature")
 app.add_typer(music_app, name="music")
+app.add_typer(library_app, name="library")
 
 def _version(value: bool) -> None:
     if value:
