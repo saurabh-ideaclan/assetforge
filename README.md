@@ -105,12 +105,12 @@ The library lives in `~/.assetforge` by default. Override it with `--home DIR` o
 AssetForge (this repo) and the shared asset library are two private GitHub repos. API keys are never committed.
 
 ```bash
-git clone git@github.com:<owner>/assetforge.git && cd assetforge
+git clone https://github.com/saurabh-ideaclan/assetforge.git && cd assetforge
 uv sync
 git config core.hooksPath .githooks       # once per clone: blocks commits of .env files and API keys
 cp .env.example .env                      # then fill in OPENAI_API_KEY / GEMINI_API_KEY (only images need them)
 
-git clone git@github.com:<owner>/assetforge-library.git ~/assetforge-library
+git clone https://github.com/saurabh-ideaclan/assetforge-library.git ~/assetforge-library
 export ASSETFORGE_HOME=~/assetforge-library   # add to your shell profile; or pass --home
 uv run assetforge info
 ```
