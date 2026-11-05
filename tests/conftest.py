@@ -60,6 +60,19 @@ def no_real_providers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(google.genai, "Client", forbidden)
     monkeypatch.setattr(providers, "OVERRIDES", {})
 
+    # Text providers: no signed-in CLI (claude/codex/gemini) may ever be spawned, and none counts as installed.
+    from assetforge import llm
+    from assetforge.llm import runner, structured
+
+    def no_cli(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("a test tried to run a real LLM command-line tool")
+
+    monkeypatch.setattr(llm, "OVERRIDES", {})
+    monkeypatch.setattr(runner, "spawn", no_cli)
+    monkeypatch.setattr(runner, "popen", no_cli)
+    monkeypatch.setattr(runner, "which", lambda name: None)
+    monkeypatch.setattr(structured, "sleep", lambda seconds: None)
+
 
 @pytest.fixture
 def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:

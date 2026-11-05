@@ -15,13 +15,14 @@ it to **search for an existing asset before generating a new one**, then receive
 
 ```bash
 uv sync                       # install deps (Python 3.12+, uses .venv)
-uv run pytest                 # full suite (~85s, 2318 tests incl. every recipe × preset; multi-process concurrency tests; no network)
+uv run pytest                 # full suite (~4 min, 2375 tests incl. every recipe × preset; multi-process concurrency tests; no network)
 uv run assetforge --help      # CLI entry point (also: uv run python -m assetforge)
 ```
 
 ## Design principles (from the spec; keep them)
 
-1. CLI-first, Python-first, local-first. Image generation is the only thing that calls external APIs (OpenAI/Gemini).
+1. CLI-first, Python-first, local-first. Only image generation calls external APIs (OpenAI/Gemini), plus story
+   text, which goes through the user's signed-in `claude`/`codex`/`gemini` CLIs (API keys only as an opt-in).
 2. Search before generation. Don't pay for an asset that already exists.
 3. Non-destructive. Stored objects are read-only; edits/processing create new variants or derived assets with lineage.
 4. Game-independent. Manages assets, never gameplay code.
@@ -308,6 +309,83 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   soundfont). App: `/api/sound/options`, `/api/generate/{design,ambience,music}`, `/api/sound/request` (the
   agents' `request`), `/api/sound/profiles/{project}[/delete]`, `/api/assets/{id}/sound/vary` (keep=chords|melody
   for music), `/api/assets/{id}/music/edit`, asset detail `sound`, `views/sound.js`.
+
+### Visual-novel stories + text providers (post-v1)
+
+- `llm/`: text generation, built like `image/providers/` (FACTORIES, `OVERRIDES`, `provider_chain`, `ProviderError` kinds).
+  - **Preferred providers are the signed-in CLIs, so no API key is needed:**
+    - `claude_cli.py` runs `claude -p --output-format json --json-schema --tools "" --no-session-persistence`.
+      It must **never use `--bare`**: bare mode skips the keychain, where the plan login lives.
+    - `codex_cli.py` runs `codex exec --sandbox read-only --ephemeral --json --output-schema -o answer.txt`.
+    - `gemini_cli.py` puts the schema in the prompt.
+  - `api.py` holds the API fallbacks. They are **opt-in**: a key alone is not enough, a `ASSETFORGE_*_TEXT_MODEL` must also be set.
+  - `fake.py` uses a caller-supplied `offline` builder.
+  - `runner.py`:
+    - The prompt goes in via stdin, and the CLI runs in an empty temp cwd.
+    - The env is scrubbed of `CLAUDE_CODE_*`/`ANTHROPIC_*`/`OPENAI_*`… A parent Claude Code session's env breaks the child CLI's auth.
+    - `classify()` maps CLI text to error kinds.
+    - Tests patch `runner.spawn`/`runner.which`.
+- `llm/structured.py` `generate(lib, TextCall, Model)`:
+  - `strict_schema()` produces closed objects, with every property required and optional ones nullable. Keywords
+    such as `title` are dropped, but never field names: `properties`/`$defs` are name maps.
+  - Each call is a `generation_jobs` row of kind `text`, fingerprinted on task, prompt, schema, provider and model.
+    A cache hit unless `fresh`.
+  - Prompt and answers go to `jobs/<id>/`, followed by one repair round, retries (`structured.sleep`) and fallback.
+    The reported error is the requested provider's, and `details.errors` lists all of them.
+- `story/` follows storycraftr's workflow, extended for branching visual novels.
+  - `models.py` covers StoryConfig, World, Cast, Outline, SceneDraft, Script and Node (a flat `kind` + fields).
+  - `prompts.py` sends a compact JSON bible in place of RAG. **Bump `PROMPT_VERSION` when wording changes.**
+  - `steps.py` runs init → world → cast → outline (`repair_outline`) → write (resumable, BFS order, so-far
+    summaries) → refine → check, then `assemble` writes `script.json` + `notes.md`.
+  - `validate.py`:
+    - `validate_script` covers links, reachability, no path to an ending, cast and variables.
+    - `conform_scene` forces the planned exit and fixes expressions and speakers without a model call.
+  - `offline.py` builds a coherent story for the fake provider.
+  - `project.py` handles the folder layout, atomic writes and `.back` copies.
+- `story/assets.py`:
+  - `manifest()` maps the script onto `AssetRequest`s keyed `vn/<slug>/…` in project `vn-<slug>`.
+  - Expressions, time-of-day backgrounds, CGs and title art take `refs` (keys resolved to the asset ids made earlier).
+  - `produce()`:
+    - First checks the key via `request.by_key`.
+    - Images use `always_generate`, so identity is never a search match; SFX use search reuse.
+    - Items whose refs don't exist yet are `blocked`.
+    - The run stops after auth, quota or not-configured errors.
+- `exporters/vn.py`: uses the generic export (webp, ogg+m4a) and writes `story.json`, `story.js`
+  (`window.STORY`, so file:// works) and `vn_player/index.html`. It never replaces foreign files. `window.vn` is a test hook.
+- Picking a model:
+  - Each provider has `signed_in()` (local checks: `claude auth status --json`, `codex login status`, gemini's
+    oauth file) and `models()`. Claude's are aliases. Codex's are the `visibility: list` entries in
+    `$CODEX_HOME/models_cache.json`. The Codex desktop app rewrites that file too, so it can list models the
+    older CLI rejects ("requires a newer version"); `version_note()` warns about this.
+  - With no model chosen, `CodexCLIProvider.run` walks the listed models past rejections and remembers the first
+    that works (`_WORKING`).
+  - `llm/catalog.describe()` merges all of this and marks models with successful `text` jobs as `worked`.
+  - `runner.search_path()` adds `~/.local/bin`, Homebrew, npm/bun/volta/nvm dirs, because a Finder-launched app has a bare PATH.
+- `llm/login.py` signs in from the app:
+  - Runs `claude auth login --claudeai`, `gemini` (interactive; `-p` refuses manual auth) or `codex login`.
+  - Uses a 4000-column pty so links never wrap, in an empty temp dir, because Gemini in a folder with settings asks
+    for trust and restarts, which breaks the pasted code (`invalid_grant`). It also forces Gemini's
+    `security.auth.selectedType` to `oauth-personal`.
+  - Pulls the link out of the output, and `submit()` writes the code to the pty.
+  - Success = the provider's `signed_in()`; the whole flow times out after 10 min.
+  - API: `POST /api/llm/login`, `GET /api/llm/login/{id}`, `POST …/code`, `…/open` (`open` its own URL), and `…/cancel`.
+  - Tests use a stand-in CLI script (`runner.popen` is blocked by `conftest` unless restored).
+- Gemini CLI needs `--skip-trust` headless. Google's retired free individual tier ("no longer supported…
+  Antigravity") maps to `kind=unsupported` with a hint. Antigravity has no public CLI (its `language_server` uses a private protocol).
+- `steps.improve(feedback, include_check, scenes)`: a `RevisionPlan` editor call, then `_refine_scene` per edit
+  run through `_parallel` (each thread opens its own Library), then a `feedback.json` history entry and `assemble`.
+- Desktop app:
+  - `app/api_story.py` (registered at the end of `api.py`) serves `/api/llm/providers` (cached 60 s),
+    `/api/stories` (GET list / POST create in `<library>/stories/<slug>`), `/api/stories/{id}` (detail),
+    `/{id}/settings`, `/{id}/run` (`write|improve|refine|check|assets_plan|assets|export`), and
+    `/play/{id}/…` (only files in `build/`).
+  - `/run` runs in-process tasks (one per story; `/api/story-tasks/{id}`), which re-export the demo after
+    writing, improving or making assets.
+  - `story/project.register()` keeps `<library>/stories.json` (id → folder); CLI steps register too.
+  - The UI lives in `views/story.js` (list + new story with a writer picker; detail tabs Script/Improve/Assets/Play with an iframe player).
+- CLI: `cli_story.py` (`story …`, `llm providers|models|test`). The preview config `vn-demo` serves `.dev/vn-demo`.
+- `MusicRequest.key` is the **musical** key; the asset key is `asset_key`. `request` and `music compose --asset-key`
+  both pass it, and `generate_music` never uses the musical key as the catalog key.
 
 ### Sharing (GitHub)
 

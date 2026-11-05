@@ -315,3 +315,25 @@ a.tile.link:hover { border-color: var(--accent); }
 /* a card that just appeared (made by an agent or the CLI while the app was open) */
 .asset.fresh { animation: fresh-card 2.4s ease-out; }
 @keyframes fresh-card { from { box-shadow: 0 0 0 3px var(--accent, #4c8dff); } to { box-shadow: 0 0 0 0 transparent; } }
+
+/* ---- stories ---- */
+.story-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.story-card { display: grid; gap: 6px; color: var(--text-primary); text-decoration: none; }
+.story-card:hover { border-color: var(--accent); }
+.row { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+.row.wrap { flex-wrap: wrap; justify-content: flex-start; }
+.tag.done { background: var(--good-bg); color: var(--good); }
+.vn-scene summary { display: flex; justify-content: space-between; gap: 12px; }
+.vn-lines { display: grid; gap: 4px; padding: 8px 2px; max-height: 420px; overflow-y: auto; font-size: 13px; line-height: 1.45; }
+.vn-line.narr { font-style: italic; color: var(--text-secondary); }
+.vn-choice { border-left: 3px solid var(--accent); padding: 4px 10px; display: grid; gap: 2px; }
+.vn-scene .actions input { flex: 1; min-width: 200px; }
+.vn-issue { margin: 6px 0; font-size: 13px; }
+.vn-frame { width: 100%; aspect-ratio: 16 / 9; border: 1px solid var(--border); border-radius: 12px; background: #000; }
+.subs { display: grid; gap: 8px; margin: 6px 0 10px; }
+.sub-row { display: grid; grid-template-columns: minmax(150px, auto) 1fr auto; gap: 10px; align-items: center; }
+.signin { border: 1px solid var(--accent); border-radius: 10px; padding: 12px 14px; background: var(--surface-2); }
+.signin h3 { margin: 0 0 6px; }
+.signin-steps { margin: 4px 0 8px; padding-left: 20px; display: grid; gap: 6px; font-size: 13px; }
+.signin input.link { width: 100%; font-size: 11px; color: var(--text-secondary); }
+.signin .actions input { flex: 1; min-width: 240px; }

@@ -646,3 +646,9 @@ def generate_image_route(req: Request, lib: Library) -> dict[str, Any]:
 @router.route("GET", "/api/kinds")
 def kinds(req: Request, lib: Library) -> dict[str, Any]:
     return {"types": [t.value for t in AssetType], "kinds": [k.value for k in FileKind]}
+
+
+# Stories (visual novels): see api_story.py
+from assetforge.app.api_story import register_routes as _register_story_routes  # noqa: E402
+
+_register_story_routes(router)

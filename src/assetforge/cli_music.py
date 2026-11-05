@@ -119,8 +119,10 @@ def compose(
         if stems:
             data["stems"] = True
         data |= common_fields(name=name, project=project, variants=variants, seed=seed, format_=format_, tag=tag,
-                              key=key_, description=description, status=status, collection=collection,
+                              key=None, description=description, status=status, collection=collection,
                               new_take=new_take)  # fmt: skip
+        if key_:
+            data["asset_key"] = key_  # `key` is the musical key
         try:
             req = MusicRequest(**data)
         except ValueError as exc:

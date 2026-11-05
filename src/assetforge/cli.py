@@ -32,6 +32,7 @@ from assetforge.cli_sound import sound_app
 from assetforge.cli_ambience import ambience_app
 from assetforge.cli_creature import creature_app
 from assetforge.cli_music import music_app
+from assetforge.cli_story import llm_app, story_app
 from assetforge.cli_create import register as register_create_commands
 from assetforge.cli_process import register as register_process_commands
 from assetforge.cli_common import JsonOpt, parse_pairs, session
@@ -71,6 +72,8 @@ app.add_typer(ambience_app, name="ambience")
 app.add_typer(creature_app, name="creature")
 app.add_typer(music_app, name="music")
 app.add_typer(library_app, name="library")
+app.add_typer(story_app, name="story")
+app.add_typer(llm_app, name="llm")
 
 def _version(value: bool) -> None:
     if value:

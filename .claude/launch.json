@@ -76,6 +76,20 @@
         ".dev/audio-demo"
       ],
       "port": 8769
+    },
+    {
+      "name": "vn-demo",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8771",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        ".dev/vn-demo"
+      ],
+      "port": 8771
     }
   ]
 }

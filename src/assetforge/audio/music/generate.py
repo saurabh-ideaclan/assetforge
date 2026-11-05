@@ -28,7 +28,8 @@ class MusicRequest(pipeline.Common):
     genre: str | None = Field(None, description="Music genre (see `music genres`); default from mood or profile")
     mood: str | None = None
     tempo: float | None = Field(None, ge=40, le=240)
-    key: str | None = None
+    key: str | None = Field(None, description="Musical key, e.g. 'D minor' (the asset key is `asset_key`)")
+    asset_key: str | None = Field(None, description="Logical asset key, e.g. music/level1")
     meter: str | None = None
     bars: int | None = Field(None, ge=1, le=256)
     seconds: float | None = Field(None, gt=0, le=600)
@@ -171,7 +172,7 @@ def generate_music(lib: Library, req: MusicRequest, *, source_id: str | None = N
         engine=render.ENGINE_REF, spec=spec, kind=kind, asset_type=AssetType.MUSIC, name=name, description=description,
         target_lufs=sound.loudness_target(direction, kind), loop=first.loop,
         sample_rate=req.sample_rate or direction.sample_rate or 44100, format=req.format or direction.format or "ogg",
-        tags=[t for t in [*tags, *req.tags] if t], audio_meta=meta, **(req.catalog() | {"genre": None}),
+        tags=[t for t in [*tags, *req.tags] if t], audio_meta=meta, **(req.catalog() | {"genre": None, "key": req.asset_key}),
     )  # fmt: skip
     return pipeline.produce(lib, out, variants=req.variants, seed=seed, new_take=req.new_take, source_id=source_id,
                             seeded=req.seed is not None)  # fmt: skip

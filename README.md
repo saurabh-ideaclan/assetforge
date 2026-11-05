@@ -536,6 +536,94 @@ const walk = new AnimatedSprite(Assets.get("sprites").animations["characters/bee
   longer selected. Files AssetForge didn't create are never overwritten (`--overwrite` to force).
 - With `--project`, each exported asset is recorded in that project's usage under its alias.
 
+## Visual-novel stories (written by your signed-in LLM)
+
+AssetForge can write a branching visual novel and then make every asset it needs. The workflow follows
+[storycraftr](https://github.com/raestrada/storycraftr): worldbuilding, then outline, then chapters, then
+iterate. It extends that workflow with choices, variables and multiple endings.
+
+The text is written by the **command-line tool you are already signed in to**, so no API key is needed:
+
+| Provider | Uses | Sign in |
+|---|---|---|
+| `claude-cli` | your Claude plan (`claude -p`) | run `claude`, then `/login` |
+| `codex-cli` | your ChatGPT plan (`codex exec`) | `codex login` → *Sign in with ChatGPT* |
+| `gemini-cli` | your Google account (`gemini -p`) | run `gemini` → *Login with Google* |
+| `openai-api`, `gemini-api` | API keys, billed per token | opt-in only: set `ASSETFORGE_OPENAI_TEXT_MODEL` / `ASSETFORGE_GEMINI_TEXT_MODEL` |
+
+```bash
+assetforge llm providers                      # installed? which one does `auto` pick first?
+assetforge llm test --provider codex-cli      # one tiny call: checks sign-in, model and JSON output
+
+assetforge story make "A lighthouse apprentice uncovers a smuggling ring" --title "The Fog Lantern" \
+  --genre mystery --scenes 8 --endings 3 --style "soft painted anime"   # → story/the-fog-lantern/build/index.html
+assetforge story assets --dry-run             # every sprite/background/CG/UI/music/ambience/SFX + image cost
+assetforge story assets --only chars --limit 2   # then bg, cg, ui, audio… (re-runs only make what's missing)
+assetforge story export                       # rebuild the playable demo with the new assets
+```
+
+**Pick any model from any subscription you have.** `assetforge llm models` shows each provider's sign-in state
+(local checks only, no model call) and the models your plan offers: Claude Code's `opus`/`sonnet`/`haiku`, and the
+model list your ChatGPT plan gives the codex CLI. Models that have already worked are marked ✓. Set
+`--provider`/`--model` on any step, store them per story with `story init`, or choose them in the app. With no
+model set, codex tries your plan's models in order and keeps the first one your installed CLI accepts.
+
+**Improve from feedback.** `assetforge story improve "Tomas should matter more; the ending feels rushed"`
+(`--use-check` adds the continuity report, `--scene ID` limits the rewrite). An editor pass turns the feedback into
+concrete notes for each scene, then rewrites those scenes in parallel (each keeps a `.back`). Every round is
+logged in `feedback.json`.
+
+**In the Mac app**, the **Stories** page does all of this without the terminal:
+- create a story and choose the writer (subscription and model)
+- watch it being written
+- read the script and revise single scenes
+- improve it from feedback and run continuity checks
+- estimate and make the assets
+- play the demo in the window
+
+**Signing in from the app:** the Stories page has a **Your AI subscriptions** card. **Sign in** starts that
+company's own login tool and shows its link, with *Open in browser* and *Copy link* buttons. You approve in the
+browser and paste the code back into the app (ChatGPT needs no code: the browser returns to codex by itself). The app
+then confirms with the tool's own status check. Your password and tokens never pass through AssetForge.
+
+Note on Gemini: Google no longer serves its free "Gemini Code Assist for individuals" tier to the Gemini CLI. That
+needs a Google AI Pro/Ultra or Workspace account, or else a free AI Studio key with `gemini-api`. AssetForge reports
+this clearly and moves on to Claude or ChatGPT.
+
+Stories made in the app live in `<library>/stories/<slug>`. Stories written from the CLI appear there too.
+
+The steps can also be run one at a time: `story init`, `world`, `cast`, `outline`, `write`, `refine --scene ID --note "…"`,
+`check` (continuity pass), `improve`, `validate`, `status`. A story is a plain folder you can diff:
+
+```
+story/the-fog-lantern/
+├── story.json  world.json  cast.json  outline.json   # config → setting → characters/locations → branching plan
+├── scenes/<id>.json                                    # one scene each (refine keeps <id>.json.back)
+├── script.json  notes.md                               # assembled playable script; everything as readable text
+└── build/  index.html  story.js  story.json  vn/…      # the demo player and its assets
+```
+
+- **Reliable output.** Every answer must match a Pydantic schema, with one repair round if it doesn't. The
+  outline and scenes are then fixed in code: every scene gets exactly one exit that matches the plan, unknown
+  expressions become `neutral`, and unknown speakers become narration. `validate` checks for broken links,
+  unreachable scenes, loops with no ending, and unknown cast or variables.
+- **No double spending.** Each model call is a `text` job keyed by its prompt, so re-running a step reuses the stored
+  answer unless you pass `--fresh`. `write` is resumable. Prompts and answers are kept in `jobs/<id>/`. When a
+  provider fails (not signed in, usage limit, outage), the call falls back to the next signed-in CLI, and the error
+  shown is the one from the provider you asked for.
+- **Assets** live under the keys `vn/<slug>/char/<id>/<expression>`, `bg/<location>/<time>`, `cg/<id>`,
+  `ui/{title,textbox,choice}`, `music/<mood>`, `amb/<location>` and `sfx/<cue>`, in project `vn-<slug>`.
+  - Each character has one neutral sprite; every other expression is an edit that uses it as the reference image.
+    Evening and night backgrounds are relit from the day one. CGs and title art use the character sprites as
+    references. One art profile per story keeps every image in the same look.
+  - Images use your image API key, as today. Music, ambience and SFX are synthesized for free.
+- **The demo player** is a single `index.html` with no build step. It shows backgrounds and characters
+  with expressions, typewriter text, choices with conditions and variables, CGs, music and ambience loops (OGG,
+  or M4A on Safari), SFX, save/load, and ending screens. Missing assets play as placeholders, so a story is
+  playable before any art exists. `story.json` holds engine-neutral data for a real engine (Ink or Ren'Py
+  exporters could be added later).
+- Try the whole pipeline offline with `ASSETFORGE_ENABLE_FAKE_PROVIDER=1` and `--provider fake --image-provider fake`.
+
 ## Many agents, one library
 
 - **Reuse first.** Generated assets start as `candidate`. Approve them (`review`) and other games' `request`

@@ -6,8 +6,9 @@ import { generate } from "/static/views/generate.js";
 import { usage } from "/static/views/usage.js";
 import { jobsView } from "/static/views/jobs.js";
 import { art } from "/static/views/art.js";
+import { story } from "/static/views/story.js";
 
-const views = { overview, assets, generate, art, usage, jobs: jobsView };
+const views = { overview, assets, generate, art, story, usage, jobs: jobsView };
 const main = document.getElementById("view");
 let current = { name: null, cleanup: null };
 

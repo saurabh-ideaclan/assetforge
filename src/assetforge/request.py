@@ -254,7 +254,9 @@ def _engine_audio(lib: Library, req: AssetRequest, planned: dict[str, Any], *, s
         if planned["engine"] == "music":
             from assetforge.audio.music.generate import MusicRequest, generate_music
 
-            return generate_music(lib, MusicRequest(**(settings | common)))
+            # MusicRequest.key is the *musical* key (e.g. "D minor"); the asset key travels as asset_key.
+            music_common = {k: v for k, v in common.items() if k != "key"} | {"asset_key": key}
+            return generate_music(lib, MusicRequest(**(settings | music_common)))
         if planned["engine"] == "creature":
             from assetforge.audio.creatures.engine import CreatureRequest, generate_creature
 
