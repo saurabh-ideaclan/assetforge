@@ -38,6 +38,7 @@ from assetforge.errors import InvalidInputError, NotFoundError
 from assetforge.llm import get_provider, runner
 
 TIMEOUT_SECONDS = 600
+GEMINI_CREDS = Path("~/.gemini/oauth_creds.json")
 URL_RE = re.compile(r"https://[^\s\x1b\"'<>│]+")
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b[()][0-9A-Za-z]|\r")
 URL_HOSTS = {
@@ -81,6 +82,7 @@ class LoginSession:
     error: str | None = None
     started: float = field(default_factory=time.time)
     output: str = ""
+    relogin: bool = False  # already signed in when this started ("Sign in again")
     _proc: subprocess.Popen[bytes] | None = None
     _master: int | None = None
     _tmp: str | None = None
@@ -105,8 +107,14 @@ def start(provider: str, settings: Settings) -> LoginSession:
                 _stop(s, "cancelled")
     session = LoginSession(provider=provider, needs_code=NEEDS_CODE[provider])
     argv = command(provider)
+    session.relogin = bool(get_provider(provider, settings).signed_in()[0])
     if provider == "gemini-cli":
         prefer_google_login()
+        if session.relogin:  # gemini reuses its saved login without asking: set it aside (restored on failure)
+            creds = GEMINI_CREDS.expanduser()
+            if creds.exists():
+                creds.replace(creds.with_name(creds.name + ".assetforge-backup"))
+            session.relogin = False  # with no saved login, gemini asks again and success is the new file
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 4000, 0, 0))  # wide: links never wrap
     session._tmp = tempfile.mkdtemp(prefix="assetforge-login-")
@@ -170,7 +178,8 @@ def _watch(session: LoginSession, settings: Settings) -> None:
     provider = get_provider(session.provider, settings)
     while session.state in ("starting", "waiting", "verifying"):
         time.sleep(1.5)
-        signed, account = provider.signed_in()
+        # Signing in again: the old login still counts as signed in, so wait for the tool to finish instead
+        signed, account = (False, "") if session.relogin else provider.signed_in()
         if signed:
             session.account = account
             _stop(session, "done")
@@ -203,7 +212,14 @@ def _reason(output: str) -> str | None:
 
 
 def _stop(session: LoginSession, state: str) -> None:
+    if session._master is None and session.state in ("done", "failed", "cancelled"):
+        return  # already stopped (cancel and the watcher can race)
     session.state = state
+    if session.provider == "gemini-cli":  # put back a login set aside by "Sign in again" unless a new one landed
+        creds = GEMINI_CREDS.expanduser()
+        backup = creds.with_name(creds.name + ".assetforge-backup")
+        if backup.exists():
+            backup.replace(creds) if not creds.exists() else backup.unlink()
     proc, master = session._proc, session._master
     session._master = None
     if proc is not None and proc.poll() is None:

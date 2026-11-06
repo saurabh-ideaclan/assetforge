@@ -83,7 +83,8 @@ def schema_call(prompt: str = "say hello") -> TextCall:
 
 def test_claude_cli_argv_stdin_env_and_parse(installed: None, monkeypatch: pytest.MonkeyPatch) -> None:
     ok = {"type": "result", "subtype": "success", "is_error": False, "result": "", "structured_output": {"greeting": "hi", "n": 3},
-          "usage": {"input_tokens": 10, "cache_read_input_tokens": 5, "output_tokens": 4}, "modelUsage": {"claude-x": {}},
+          "usage": {"input_tokens": 10, "cache_read_input_tokens": 5, "output_tokens": 4},
+          "modelUsage": {"claude-haiku-side": {"outputTokens": 12}, "claude-x": {"outputTokens": 40}},
           "total_cost_usd": 0.01}  # fmt: skip
     spawn = FakeSpawn(stdout=json.dumps(ok))
     monkeypatch.setattr(runner, "spawn", spawn)
@@ -165,6 +166,8 @@ def test_timeout_and_missing_binary(installed: None, monkeypatch: pytest.MonkeyP
     ("API Error: 529 Overloaded", "unavailable"),
     ("rate_limit_error: too many requests", "rate_limited"),
     ("error: unexpected argument '--output-schema' found", "rejected"),
+    ("connect ECONNREFUSED 127.0.0.1:443", "unavailable"),  # not a content refusal (review finding C7)
+    ("catalog index failed", "unavailable"),  # "log in" needs word boundaries
 ])  # fmt: skip
 def test_classify(text: str, kind: str) -> None:
     assert runner.classify(text) == kind

@@ -1,0 +1,31 @@
+name: home_interior
+description: 'A lived-in home, quiet: soft room air, a ticking wall clock, the odd floorboard creak and a dog down the street'
+tags:
+- home
+- house
+- family
+- living room
+- kitchen
+- bedroom
+- indoor
+- cozy
+- quiet
+- apartment
+space: room
+beds:
+- bed: room_tone
+  level_db: -20
+  params:
+    hum: 0.0
+    low_cut: 160
+- bed: clock_tick
+  level_db: 0
+events:
+- event: creak
+  rate: 0.8
+  distance: 0.35
+  gain_db: -12
+- event: dog_bark_far
+  rate: 0.5
+  distance: 0.75
+  gain_db: -10

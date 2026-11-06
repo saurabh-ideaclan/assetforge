@@ -8,6 +8,7 @@ task that dies part-way loses nothing (re-running continues).
 
 from __future__ import annotations
 
+import json
 import mimetypes
 import threading
 import time
@@ -91,20 +92,92 @@ def register_routes(router: Router) -> None:  # noqa: C901 - one place for all s
 
     @router.route("GET", "/api/stories")
     def list_stories(req: Request, lib: Library) -> dict[str, Any]:
+        """Every story the library knows (app, CLI or agent), with live progress and a cover."""
+        from assetforge.story.progress import library_assets, progress
+
         items = []
         for sid, root in sorted(registered(lib.paths.home).items()):
             project = StoryProject(root)
             try:
                 config = project.config
-            except AssetForgeError:
+                prog = progress(lib, project)
+                cover = (library_assets(lib, project).get(f"vn/{config.slug}/ui/title") or {}).get("image")
+                world = project.read_json("world.json")
+            except (AssetForgeError, ValueError, OSError):
                 continue
             items.append({"id": sid, "title": config.title, "premise": config.premise, "genre": config.genre,
-                          "dir": str(root), "provider": config.provider, "model": config.model,
-                          "status": project.status(), "busy": sid in _busy,
-                          "playable": (root / "build" / "index.html").exists(),
-                          "updated": max((p.stat().st_mtime for p in root.glob("*.json")), default=0)})  # fmt: skip
-        items.sort(key=lambda s: -s["updated"])
+                          "logline": world.get("logline") or config.premise, "dir": str(root),
+                          "provider": config.provider, "model": config.model, "status": project.status(),
+                          "progress": {k: prog[k] for k in ("stage", "steps", "active", "running", "eta_seconds",
+                                                            "playable_chapters")},
+                          "busy": sid in _busy or prog["active"], "cover": cover,
+                          "playable": prog["playable_chapters"] > 0,
+                          "updated": max((p.stat().st_mtime for p in [*root.glob("*.json"), *root.glob("scenes/*.json")]),
+                                         default=0)})  # fmt: skip
+        items.sort(key=lambda s: (not s["busy"], -s["updated"]))
         return {"stories": items, "default_dir": str(lib.paths.home / "stories")}
+
+    @router.route("GET", r"/api/stories/(?P<sid>[a-z0-9-]+)/assets")
+    def story_assets_route(req: Request, lib: Library) -> dict[str, Any]:
+        """Everything the story uses (characters × expressions, places × times, CGs, UI, sound) and where."""
+        from assetforge.story.usage import story_assets
+
+        _, project = _story(lib, req.match["sid"])
+        data = story_assets(lib, project)
+        if data is None:
+            raise NotFoundError("Nothing planned yet: write the story first")
+        return data
+
+    @router.route("GET", r"/api/assets/(?P<ref>[^/]+)/stories")
+    def asset_stories(req: Request, lib: Library) -> dict[str, Any]:
+        from assetforge.story.usage import stories_using
+
+        return {"stories": stories_using(lib, lib.resolve_asset_id(req.match["ref"]))}
+
+    @router.route("GET", "/api/activity")
+    def activity(req: Request, lib: Library) -> dict[str, Any]:
+        """What is being written right now, across every story (for the sidebar)."""
+        from assetforge.core.util import loads
+        from assetforge.story.progress import STALE_SECONDS, _ts
+
+        projects: dict[str, tuple[str, str]] = {}
+        for sid, root in registered(lib.paths.home).items():
+            try:
+                config = StoryProject(root).config
+            except AssetForgeError:
+                continue
+            projects[config.asset_project] = (sid, config.title)
+        now = time.time()
+        busy: dict[str, dict[str, Any]] = {}
+        for r in lib.conn.execute("SELECT request, created_at FROM generation_jobs WHERE kind = 'text' AND status = 'running'"):
+            req_data = loads(r["request"], {}) or {}
+            if now - _ts(r["created_at"]) > STALE_SECONDS or req_data.get("project") not in projects:
+                continue
+            sid, title = projects[req_data["project"]]
+            busy.setdefault(sid, {"id": sid, "title": title, "running": 0})["running"] += 1
+        for sid, task_id in list(_busy.items()):
+            entry = busy.setdefault(sid, {"id": sid, "title": sid, "running": 0})
+            entry["task"] = _tasks.get(task_id, {}).get("action")
+        return {"stories": list(busy.values()), "running": sum(b["running"] for b in busy.values()) or len(busy)}
+
+    @router.route("GET", r"/preview/(?P<sid>[a-z0-9-]+)/(?P<path>.*)")
+    def preview(req: Request, lib: Library) -> Any:
+        """The player on the story exactly as it is now: written chapters, stand-ins for the rest, library art."""
+        from assetforge.app.server import PLAYER_CSP, RawResponse
+        from assetforge.exporters.vn import player_html
+        from assetforge.story.progress import preview_data
+
+        _, project = _story(lib, req.match["sid"])
+        path = req.match["path"] or "index.html"
+        if path == "index.html":
+            return RawResponse(player_html().encode(), "text/html; charset=utf-8", headers={"Content-Security-Policy": PLAYER_CSP})
+        if path == "story.js":
+            data = preview_data(lib, project)
+            if data is None:
+                raise NotFoundError("Nothing to play yet: the chapters haven't been planned")
+            return RawResponse(f"window.STORY = {json.dumps(data, ensure_ascii=False)};\n".encode(),
+                               "text/javascript; charset=utf-8")  # fmt: skip
+        raise NotFoundError("Not part of the preview")
 
     @router.route("POST", "/api/stories")
     def create_story(req: Request, lib: Library) -> dict[str, Any]:
@@ -113,10 +186,12 @@ def register_routes(router: Router) -> None:  # noqa: C901 - one place for all s
         premise = str(body.pop("premise", "")).strip()
         if not title or len(premise) < 3:
             raise InvalidInputError("A story needs a title and a premise")
-        directory = body.pop("dir", None) or lib.paths.home / "stories" / slugify(title)
+        # an untitled story is keyed by its idea (the writer names it later; slug and asset keys never change)
+        slug = slugify(title) if not body.get("title_from_writer") else slugify(" ".join(premise.split()[:6]))[:40].strip("-")
+        directory = body.pop("dir", None) or lib.paths.home / "stories" / slug
         allowed = set(StoryConfig.model_fields) - {"title", "slug", "premise"}
         options = {k: v for k, v in body.items() if k in allowed and v not in ("", None)}
-        project = steps.init(directory, title=title, premise=premise, **options)
+        project = steps.init(directory, title=title, premise=premise, slug=slug, **options)
         return {"id": register(lib.paths.home, project), "dir": str(project.root)}
 
     @router.route("GET", r"/api/stories/(?P<sid>[a-z0-9-]+)")
@@ -134,8 +209,14 @@ def register_routes(router: Router) -> None:  # noqa: C901 - one place for all s
             data["scenes"] = [s.model_dump(mode="json", exclude_none=True) for s in script.scenes]
             data["issues"] = [i.model_dump() for i in steps.validate(project)]
             data["assets"] = coverage(lib, project)
+        from assetforge.story.progress import library_assets, progress
+
+        data["cover"] = (library_assets(lib, project).get(f"vn/{project.config.slug}/ui/title") or {}).get("image")
+        data["written"] = {sid_: sc.model_dump(mode="json", exclude_none=True) for sid_, sc in project.scenes().items()}
+        data["progress"] = progress(lib, project, with_assets=project.has("script"))
         data["feedback"] = project.read_json("feedback.json").get("history", [])[-10:]
-        data["playable"] = (project.root / "build" / "index.html").exists()
+        data["playable"] = data["progress"]["playable_chapters"] > 0
+        data["exported"] = (project.root / "build" / "index.html").exists()
         return data
 
     @router.route("POST", r"/api/stories/(?P<sid>[a-z0-9-]+)/settings")
@@ -190,7 +271,9 @@ def register_routes(router: Router) -> None:  # noqa: C901 - one place for all s
         mime = mimetypes.guess_type(target.name)[0]
         if target.suffix == ".js":
             mime = "text/javascript"
-        return FileResponse(target, mime, "no-cache")
+        from assetforge.app.server import PLAYER_CSP
+
+        return FileResponse(target, mime, "no-cache", headers={"Content-Security-Policy": PLAYER_CSP})
 
 
 def _story(lib: Library, sid: str) -> tuple[str, StoryProject]:
@@ -258,7 +341,8 @@ def _run_action(lib: Library, project: StoryProject, ctx: steps.Ctx, body: dict[
     if action in ("assets_plan", "assets"):
         result = produce(lib, project, only=body.get("only") or None, limit=body.get("limit"),
                          dry_run=action == "assets_plan", image_provider=body.get("image_provider") or "auto",
-                         quality=body.get("quality") or "auto")  # fmt: skip
+                         quality=body.get("quality") or "auto", redo=bool(body.get("redo")),
+                         replan=bool(body.get("replan")))  # fmt: skip
         if action == "assets":
             result["export"] = export_story(lib, project, project.root / "build")
         return result

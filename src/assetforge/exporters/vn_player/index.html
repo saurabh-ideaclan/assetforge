@@ -23,7 +23,8 @@
   .t-day { background: linear-gradient(180deg, #8fc3e8, #e9dcc0); }
   .t-evening { background: linear-gradient(180deg, #3b2a5a, #e0855a 70%, #f2c27b); }
   .t-night { background: linear-gradient(180deg, #05070f, #1b2547 70%, #31406b); }
-  #chars .char { position: absolute; bottom: 0; height: 92%; transform: translateX(-50%); transition: left 400ms ease, opacity 300ms ease, filter 200ms; }
+  /* visual-novel framing: tall sprites anchored below the stage, so characters read knees-up behind the textbox */
+  #chars .char { position: absolute; bottom: -42%; height: 132%; transform: translateX(-50%); transition: left 400ms ease, opacity 300ms ease, filter 200ms; }
   #chars .char img { height: 100%; width: auto; display: block; filter: drop-shadow(0 6px 18px rgba(0,0,0,.45)); }
   #chars .char.dim { filter: brightness(.72); }
   .char-ph { height: 100%; aspect-ratio: 2 / 3; border-radius: 45% 45% 8% 8%; background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.05));
@@ -56,6 +57,7 @@
   .screen.on { display: flex; }
   .screen::before { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.15), rgba(0,0,0,.7)); }
   .screen > * { position: relative; }
+  .screen > [hidden] { display: none; }
   .screen h1 { margin: 0 0 1cqw; font-size: 5.4cqw; letter-spacing: .02em; text-shadow: 0 4px 30px rgba(0,0,0,.6); }
   .screen p { margin: 0; max-width: 60cqw; font-size: 1.8cqw; color: var(--ink-dim); }
   .btn { min-width: 22cqw; padding: 1cqw 2.4cqw; font: 600 1.6cqw var(--ui); border-radius: 99px; border: 1px solid var(--panel-edge);
@@ -63,14 +65,37 @@
   .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
   .btn:disabled { opacity: .4; cursor: default; }
   .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-  #menu { position: absolute; top: 1.4cqw; right: 1.4cqw; display: flex; gap: .6cqw; z-index: 5; }
-  #menu[hidden] { display: none; }
-  #menu button { font: 600 1.1cqw var(--ui); padding: .5cqw 1.1cqw; border-radius: 99px; border: 1px solid var(--panel-edge);
+  #menu { position: absolute; top: 1.4cqw; right: 1.4cqw; display: flex; align-items: center; gap: .6cqw; z-index: 5; }
+  #menu[hidden], #menu [hidden] { display: none; }
+  #menu button, #h-close { font: 600 1.1cqw var(--ui); padding: .5cqw 1.1cqw; border-radius: 99px; border: 1px solid var(--panel-edge);
                  background: rgba(0,0,0,.45); color: var(--ink); cursor: pointer; }
-  #toast { position: absolute; top: 1.4cqw; left: 50%; transform: translateX(-50%); padding: .6cqw 1.6cqw; border-radius: 99px;
-           background: rgba(0,0,0,.7); font: 600 1.2cqw var(--ui); opacity: 0; transition: opacity 250ms; pointer-events: none; z-index: 6; }
+  #menu button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+  #menu button:focus-visible, #h-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .tag { font: 700 .95cqw var(--ui); letter-spacing: .14em; text-transform: uppercase; padding: .4cqw .9cqw; border-radius: 99px;
+         border: 1px solid var(--accent); color: var(--accent); background: rgba(0,0,0,.45); }
+  #toast { position: absolute; top: 5.2cqw; left: 50%; transform: translateX(-50%); max-width: 70cqw; padding: .6cqw 1.6cqw; border-radius: 99px;
+           background: rgba(0,0,0,.7); font: 600 1.2cqw var(--ui); text-align: center; opacity: 0; transition: opacity 250ms; pointer-events: none; z-index: 8; }
   #toast.on { opacity: 1; }
   .kind { font: 700 1.2cqw var(--ui); letter-spacing: .2em; text-transform: uppercase; color: var(--accent); }
+  #draft { position: absolute; top: 1.4cqw; left: 1.4cqw; max-width: 40cqw; z-index: 5; padding: .5cqw 1.2cqw; border-radius: .8cqw;
+           font: 600 1.05cqw/1.35 var(--ui); color: var(--ink); background: rgba(0,0,0,.5); border: 1px dashed var(--accent); pointer-events: none; }
+  #draft[hidden] { display: none; }
+  #card { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .8cqw; text-align: center; z-index: 4;
+          background: rgba(7,6,10,.62); opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 350ms ease, visibility 0s linear 350ms; }
+  #card.on { opacity: 1; visibility: visible; transition: opacity 350ms ease; }
+  #card h2 { margin: 0; max-width: 80cqw; font-size: 4cqw; font-weight: 600; letter-spacing: .02em; text-shadow: 0 4px 30px rgba(0,0,0,.6); }
+  #history { display: grid; place-items: center; z-index: 7; background: rgba(0,0,0,.55); cursor: default; }
+  #history[hidden] { display: none; }
+  .h-panel { width: 66cqw; height: 82%; display: flex; flex-direction: column; padding: 1.6cqw 2.4cqw; user-select: text;
+             background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 1.2cqw; box-shadow: var(--shadow); backdrop-filter: blur(6px); }
+  .h-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.2cqw; }
+  .h-top h2 { margin: 0; font: 700 1.3cqw var(--ui); letter-spacing: .2em; text-transform: uppercase; color: var(--accent); }
+  #h-list { list-style: none; margin: 0; padding: 0 .8cqw 0 0; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 1.1cqw;
+            font-size: 1.6cqw; line-height: 1.45; }
+  .h-name { display: block; font: 700 1.1cqw var(--ui); color: var(--accent); letter-spacing: .02em; }
+  .h-narrate .h-text { font-style: italic; color: #e9e2d4; }
+  .h-choice .h-text { font: 600 1.25cqw var(--ui); color: var(--ink-dim); }
+  .h-empty { font-style: italic; color: var(--ink-dim); }
 </style>
 </head>
 <body>
@@ -80,12 +105,21 @@
   <div class="layer" id="cg"></div>
   <div id="box"><div id="name"></div><div id="text"></div><div id="more">▼</div></div>
   <div class="layer" id="choices" role="group" aria-label="Choices"></div>
+  <div class="layer" id="card"><div class="kind" id="c-kind"></div><h2 id="c-title"></h2></div>
+  <div id="draft" role="status" hidden>This chapter is still being written — showing the plan</div>
   <div id="menu" hidden>
+    <span class="tag" id="m-preview" title="This story is still being written" hidden>Preview</span>
     <button id="m-save" type="button">Save</button><button id="m-load" type="button">Load</button>
-    <button id="m-mute" type="button">Mute</button><button id="m-title" type="button">Title</button>
+    <button id="m-history" type="button" aria-haspopup="dialog" aria-expanded="false" title="History (H)">History</button>
+    <button id="m-speed" type="button">Text: Normal</button><button id="m-auto" type="button" aria-pressed="false">Auto</button>
+    <button id="m-mute" type="button" aria-pressed="false">Mute</button><button id="m-title" type="button">Title</button>
+  </div>
+  <div class="layer" id="history" role="dialog" aria-modal="true" aria-labelledby="h-head" hidden>
+    <div class="h-panel"><div class="h-top"><h2 id="h-head">History</h2><button id="h-close" type="button">Close</button></div>
+      <ol id="h-list"></ol></div>
   </div>
   <div id="toast"></div>
-  <div class="layer screen" id="title"><h1 id="t-title"></h1><p id="t-logline"></p>
+  <div class="layer screen" id="title"><div class="kind" id="t-preview" hidden>Preview · still being written</div><h1 id="t-title"></h1><p id="t-logline"></p>
     <button class="btn primary" id="t-start" type="button">Start</button><button class="btn" id="t-continue" type="button">Continue</button></div>
   <div class="layer screen" id="ending"><div class="kind" id="e-kind"></div><h1 id="e-title"></h1><p id="e-summary"></p>
     <button class="btn primary" id="e-again" type="button">Back to title</button></div>
@@ -94,19 +128,37 @@
 <script>
 (() => {
   "use strict";
+  // All story text comes from a model: it only ever reaches the page through textContent / append, never innerHTML.
   const DATA = window.STORY;
   const S = DATA.script, A = DATA.assets || {}, slug = S.slug;
   const $ = (id) => document.getElementById(id);
   const key = (...parts) => ["vn", slug, ...parts].join("/");
-  const asset = (...parts) => A[key(...parts)] || null;
-  const scenes = Object.fromEntries(S.scenes.map((s) => [s.id, s]));
-  const chars = Object.fromEntries(S.characters.map((c) => [c.id, c]));
-  const locs = Object.fromEntries(S.locations.map((l) => [l.id, l]));
-  const endings = Object.fromEntries(S.endings.map((e) => [e.id, e]));
-  const SAVE = `vn-${slug}-save`;
+  const asset = (...parts) => (Object.prototype.hasOwnProperty.call(A, key(...parts)) && A[key(...parts)]) || null;
+  const byId = (list) => Object.assign(Object.create(null), Object.fromEntries((list || []).map((x) => [x.id, x])));
+  const scenes = byId(S.scenes), chars = byId(S.characters), locs = byId(S.locations), endings = byId(S.endings);
+  const VERSION = DATA.version ?? null;
+  const SAVE = `vn-${slug}-save`, PREFS = "vn-player-prefs";
   const store = { get() { try { return JSON.parse(localStorage.getItem(SAVE) || "null"); } catch { return null; } },
                   set(v) { try { localStorage.setItem(SAVE, JSON.stringify(v)); return true; } catch { return false; } } };
+  const prefs = { get() { try { const p = JSON.parse(localStorage.getItem(PREFS) || "{}"); return p && typeof p === "object" ? p : {}; } catch { return {}; } },
+                  set(patch) { try { localStorage.setItem(PREFS, JSON.stringify({ ...prefs.get(), ...patch })); } catch { /* storage off */ } } };
+  const validSave = (s) => !!(s && typeof s === "object" && s.state && typeof s.state === "object");
+  const cssUrl = (u) => `url("${String(u).replace(/["\\\n\r]/g, (c) => `\\${c.charCodeAt(0).toString(16)} `)}")`;
   document.title = S.title;
+
+  // Chapter numbers: shortest-path depth of each scene from the start, over choice/jump exits.
+  const depth = new Map();
+  if (scenes[S.start]) {
+    depth.set(S.start, 0);
+    const queue = [S.start];
+    while (queue.length) {
+      const id = queue.shift();
+      for (const n of scenes[id].nodes || []) {
+        const exits = n.kind === "choice" ? (n.choices || []).map((c) => c.goto) : n.kind === "jump" ? [n.goto] : [];
+        for (const to of exits) if (to != null && scenes[to] && !depth.has(to)) { depth.set(to, depth.get(id) + 1); queue.push(to); }
+      }
+    }
+  }
 
   // ---------------------------------------------------------------- audio
   const probe = document.createElement("audio");
@@ -141,7 +193,7 @@
     if (bgFront && bgFront.dataset.id === id) return;
     let el;
     if (a && a.image) { el = new Image(); el.src = a.image; el.alt = ""; }
-    else { el = document.createElement("div"); el.className = `placeholder-bg t-${scene.time}`; el.textContent = loc.name; }
+    else { el = document.createElement("div"); el.className = `placeholder-bg t-${scene.time}`; el.textContent = String(loc.name ?? ""); }
     el.classList.add("bg"); el.dataset.id = id;
     $("bgs").appendChild(el);
     requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add("on")));
@@ -152,10 +204,12 @@
   function charEl(id, expr) {
     const c = chars[id] || { name: id }, a = asset("char", id, expr) || asset("char", id, "neutral");
     if (a && a.image) { const img = new Image(); img.src = a.image; img.alt = `${c.name} (${expr})`; return img; }
-    const ph = document.createElement("div"); ph.className = "char-ph"; ph.innerHTML = `${c.name}<br><small>${expr}</small>`; return ph;
+    const ph = document.createElement("div"); ph.className = "char-ph";  // text only: names come from the model
+    const small = document.createElement("small"); small.textContent = String(expr ?? "");
+    ph.append(String(c.name ?? id), document.createElement("br"), small); return ph;
   }
   function renderChars(speaker) {
-    const layer = $("chars"); layer.innerHTML = "";
+    const layer = $("chars"); layer.replaceChildren();
     for (const [id, st] of Object.entries(state.shown)) {
       const wrap = document.createElement("div"); wrap.className = "char"; wrap.style.left = `${SLOT[st.pos] || 50}%`;
       if (speaker && speaker !== id) wrap.classList.add("dim");
@@ -167,22 +221,82 @@
     return ["center", "left", "right"].find((p) => !used.has(p)) || "center";
   }
   function setCg(id, text) {
-    const layer = $("cg"); layer.innerHTML = "";
+    const layer = $("cg"); layer.replaceChildren();
     if (!id) { layer.classList.remove("on"); return; }
-    const a = asset("cg", id);
-    if (a && a.image) { const img = new Image(); img.src = a.image; img.alt = text || id; layer.appendChild(img); }
-    else { const ph = document.createElement("div"); ph.className = "ph"; ph.textContent = text || id; layer.appendChild(ph); }
+    const a = asset("cg", id), label = String(text || id);
+    if (a && a.image) { const img = new Image(); img.src = a.image; img.alt = label; layer.appendChild(img); }
+    else { const ph = document.createElement("div"); ph.className = "ph"; ph.textContent = label; layer.appendChild(ph); }
     layer.classList.add("on");
   }
   function skin() {
     const box = asset("ui", "textbox"), title = asset("ui", "title");
-    if (box && box.image) { $("box").style.backgroundImage = `url("${box.image}")`; $("box").classList.add("skin"); }
-    if (title && title.image) { $("title").style.backgroundImage = `url("${title.image}")`; }
+    if (box && box.image) { $("box").style.backgroundImage = cssUrl(box.image); $("box").classList.add("skin"); }
+    if (title && title.image) { $("title").style.backgroundImage = cssUrl(title.image); }
     else { $("title").style.background = "radial-gradient(circle at 50% 35%, #3b2f55, #09070e)"; }
   }
 
+  // ---------------------------------------------------------------- settings: text speed + auto
+  const SPEEDS = [{ name: "Slow", step: 1, ms: 34 }, { name: "Normal", step: 2, ms: 24 }, { name: "Fast", step: 5, ms: 16 }, { name: "Instant", step: 0, ms: 0 }];
+  const AUTO_MS = 1400;
+  let speed = SPEEDS.findIndex((s) => s.name === prefs.get().speed); if (speed < 0) speed = 1;
+  let auto = false, autoTimer = null;
+  function showSpeed() { const b = $("m-speed"); b.textContent = `Text: ${SPEEDS[speed].name}`; b.setAttribute("aria-label", `Text speed: ${SPEEDS[speed].name}`); }
+  function scheduleAuto() {
+    clearTimeout(autoTimer); autoTimer = null;
+    if (!auto || waiting !== "line" || typing || histOpen) return;
+    autoTimer = setTimeout(() => { autoTimer = null; if (auto && waiting === "line" && !typing && !histOpen) advance(); }, AUTO_MS);
+  }
+
+  // ---------------------------------------------------------------- history (backlog)
+  const HISTORY_MAX = 150;
+  const hist = [];
+  let histOpen = false, histReturn = null;
+  function remember(speaker, text, kind) { hist.push({ speaker, text, kind }); if (hist.length > HISTORY_MAX) hist.splice(0, hist.length - HISTORY_MAX); }
+  function openHistory() {
+    if (histOpen || !state) return;
+    histOpen = true; clearTimeout(autoTimer); autoTimer = null;
+    const list = $("h-list"); list.replaceChildren();
+    if (!hist.length) { const li = document.createElement("li"); li.className = "h-empty"; li.textContent = "Nothing yet."; list.appendChild(li); }
+    for (const h of hist) {
+      const li = document.createElement("li"); li.className = `h-${h.kind}`;
+      if (h.speaker) { const nm = document.createElement("span"); nm.className = "h-name"; nm.textContent = h.speaker; li.appendChild(nm); }
+      const tx = document.createElement("span"); tx.className = "h-text"; tx.textContent = h.kind === "choice" ? `→ ${h.text}` : h.text;
+      li.appendChild(tx); list.appendChild(li);
+    }
+    histReturn = document.activeElement;
+    $("history").hidden = false; $("m-history").setAttribute("aria-expanded", "true");
+    list.scrollTop = list.scrollHeight;
+    $("h-close").focus({ preventScroll: true });
+  }
+  function closeHistory(restoreFocus = true) {
+    if (!histOpen) return;
+    histOpen = false; $("history").hidden = true; $("m-history").setAttribute("aria-expanded", "false");
+    const back = histReturn; histReturn = null;
+    if (restoreFocus && back && back !== document.body && document.contains(back) && back.focus) back.focus({ preventScroll: true });
+    scheduleAuto();
+  }
+
+  // ---------------------------------------------------------------- chapter title card
+  const CARD_MS = 1600;
+  let cardTimer = null, cardDone = null;
+  function showCard(sceneId, done) {
+    hideCard();
+    const scene = scenes[sceneId], n = depth.get(sceneId);
+    $("c-kind").textContent = n === undefined ? "Chapter" : `Chapter ${n + 1}`;
+    $("c-title").textContent = String(scene.title ?? "");
+    waiting = "card"; cardDone = done;
+    $("card").classList.add("on");
+    cardTimer = setTimeout(skipCard, CARD_MS);
+  }
+  function hideCard() {
+    clearTimeout(cardTimer); cardTimer = null; cardDone = null;
+    $("card").classList.remove("on");
+    if (waiting === "card") waiting = null;
+  }
+  function skipCard() { if (waiting !== "card") return; const done = cardDone; hideCard(); if (done) done(); }
+
   // ---------------------------------------------------------------- engine
-  let state = null, typing = null, waiting = null;
+  let state = null, typing = null, waiting = null, lineFull = "";
   const fresh = () => ({ scene: S.start, index: 0, vars: Object.fromEntries((S.variables || []).map((v) => [v.name, v.initial || 0])), shown: {}, cg: null });
   function test(cond) {
     if (!cond) return true;
@@ -190,19 +304,24 @@
     return { "==": v === x, "!=": v !== x, ">=": v >= x, "<=": v <= x, ">": v > x, "<": v < x }[cond.op] ?? true;
   }
   function apply(assigns) { for (const a of assigns || []) state.vars[a.var] = a.op === "set" ? a.value : (state.vars[a.var] || 0) + a.value; }
+  function stopLine() { clearInterval(typing); typing = null; clearTimeout(autoTimer); autoTimer = null; }
+  function clearLine() { stopLine(); lineFull = ""; $("name").textContent = ""; $("text").textContent = ""; $("text").className = ""; $("more").classList.remove("on"); }
   function enter(sceneId, keepIndex) {
     const scene = scenes[sceneId];
-    if (!scene) { console.error("unknown scene", sceneId); return; }
+    if (!scene) { console.error("unknown scene", sceneId); return end(null); }
     state.scene = sceneId;
-    if (!keepIndex) { state.index = 0; state.shown = {}; state.cg = null; }
+    if (!keepIndex) { state.index = 0; state.shown = {}; state.cg = null; state.sceneVars = { ...state.vars }; }
+    clearLine();
+    $("draft").hidden = !scene.draft;
     setBackground(scene); setCg(state.cg && state.cg.id, state.cg && state.cg.text);
     loop("music", asset("music", scene.music)); loop("amb", asset("amb", scene.location));
-    renderChars(null); run();
+    renderChars(null);
+    if (keepIndex) run(); else showCard(sceneId, run);
   }
   function run() {
-    const scene = scenes[state.scene];
-    while (state.index < scene.nodes.length) {
-      const n = scene.nodes[state.index];
+    const scene = scenes[state.scene], nodes = scene.nodes || [];
+    while (state.index < nodes.length) {
+      const n = nodes[state.index];
       switch (n.kind) {
         case "show": if (state.cg) { state.cg = null; setCg(null); }  // staging characters ends the CG
                      state.shown[n.character] = { expr: n.expression || (state.shown[n.character] || {}).expr || "neutral",
@@ -219,6 +338,7 @@
       }
       state.index++;
     }
+    end(null);  // a scene with no exit (unfinished story): never leave the player stuck
   }
   function say(n) {
     const who = n.kind === "say" ? n.speaker : null;
@@ -227,72 +347,151 @@
       state.shown[who] = { expr: n.expression || (st ? st.expr : "neutral"), pos: n.position || (st ? st.pos : freeSlot()) };
     }
     renderChars(who);
-    $("name").textContent = who ? (chars[who] ? chars[who].name : who) : "";
+    const name = who ? String(chars[who] ? chars[who].name : who) : "";
+    const full = String(n.text ?? "");
+    stopLine();
+    $("name").textContent = name;
     const box = $("text"); box.className = who ? "" : "narration"; box.textContent = "";
     $("more").classList.remove("on");
-    const full = n.text || ""; let i = 0;
-    clearInterval(typing);
-    typing = setInterval(() => { i += 2; box.textContent = full.slice(0, i); if (i >= full.length) finishTyping(); }, 24);
-    box.dataset.full = full; waiting = "line";
+    lineFull = full; waiting = "line";
+    remember(name || null, full, who ? "say" : "narrate");
+    const sp = SPEEDS[speed];
+    if (!sp.step) { finishTyping(); return; }
+    let i = 0;
+    typing = setInterval(() => { i += sp.step; box.textContent = full.slice(0, i); if (i >= full.length) finishTyping(); }, sp.ms);
   }
-  function finishTyping() { clearInterval(typing); typing = null; $("text").textContent = $("text").dataset.full || ""; $("more").classList.add("on"); }
+  function finishTyping() { clearInterval(typing); typing = null; $("text").textContent = lineFull; $("more").classList.add("on"); scheduleAuto(); }
   function choose(n) {
-    waiting = "choice";
-    const layer = $("choices"); layer.innerHTML = "";
-    const options = n.choices.filter((c) => test(c.require));
+    stopLine(); waiting = "choice";
+    const layer = $("choices"); layer.replaceChildren();
+    const all = n.choices || [];
+    let options = all.filter((c) => test(c.require));
+    if (!options.length) options = all;  // no dead ends: if every option is locked, offer them all
+    if (!options.length) { waiting = null; state.index++; return run(); }
     const choiceSkin = asset("ui", "choice");
     options.forEach((c, i) => {
       const b = document.createElement("button"); b.type = "button"; b.className = "choice";
-      if (choiceSkin && choiceSkin.image) { b.style.backgroundImage = `url("${choiceSkin.image}")`; b.classList.add("skin"); }
-      b.innerHTML = `<span class="n">${i + 1}</span>`; b.append(c.text);
+      if (choiceSkin && choiceSkin.image) { b.style.backgroundImage = cssUrl(choiceSkin.image); b.classList.add("skin"); }
+      const num = document.createElement("span"); num.className = "n"; num.textContent = String(i + 1);
+      b.append(num, String(c.text ?? ""));
       b.addEventListener("click", (ev) => { ev.stopPropagation(); pickChoice(c); });
       layer.appendChild(b);
     });
     layer.classList.add("on");
     const first = layer.querySelector("button"); if (first) first.focus({ preventScroll: true });
   }
-  function pickChoice(c) { $("choices").classList.remove("on"); waiting = null; apply(c.set); enter(c.goto); }
+  function pickChoice(c) {
+    if (waiting !== "choice" || histOpen) return;
+    $("choices").classList.remove("on"); waiting = null;
+    remember(null, String(c.text ?? ""), "choice");
+    apply(c.set); enter(c.goto);
+  }
   function end(id) {
-    waiting = "ending"; const e = endings[id] || { title: id, summary: "", kind: "" };
-    $("e-kind").textContent = e.kind ? `${e.kind} ending` : "The end"; $("e-title").textContent = e.title; $("e-summary").textContent = e.summary || "";
+    stopLine(); hideCard(); closeHistory(false);
+    waiting = "ending";
+    const e = id == null ? { title: "To be continued", summary: "", kind: "" } : endings[id] || { title: id, summary: "", kind: "" };
+    $("e-kind").textContent = e.kind ? `${e.kind} ending` : id == null ? "" : "The end";
+    $("e-title").textContent = String(e.title ?? ""); $("e-summary").textContent = String(e.summary ?? "");
+    $("choices").classList.remove("on"); $("draft").hidden = true;
     $("ending").classList.add("on"); $("menu").hidden = true;
   }
   function advance() {
+    if (histOpen) return;
+    if (waiting === "card") { skipCard(); return; }
     if (waiting !== "line") return;
     if (typing) { finishTyping(); return; }
+    clearTimeout(autoTimer); autoTimer = null;
     waiting = null; state.index++; run();
   }
 
-  // ---------------------------------------------------------------- screens + input
-  function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("on"); setTimeout(() => t.classList.remove("on"), 1400); }
+  // ---------------------------------------------------------------- screens + saves
+  let toastTimer = null;
+  function toast(msg, ms = 1400) {
+    const t = $("toast"); t.textContent = msg; t.classList.add("on");
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("on"), ms);
+  }
   function showTitle() {
     for (const ch of Object.values(channels)) { if (ch.el) ch.el.pause(); ch.el = null; ch.src = null; }
-    $("ending").classList.remove("on"); $("choices").classList.remove("on"); $("title").classList.add("on"); $("menu").hidden = true;
-    $("t-continue").disabled = !store.get(); waiting = null;
+    stopLine(); hideCard(); closeHistory(false);
+    $("ending").classList.remove("on"); $("choices").classList.remove("on"); $("draft").hidden = true;
+    $("title").classList.add("on"); $("menu").hidden = true;
+    $("t-continue").disabled = !validSave(store.get()); waiting = null;
   }
-  function start(saved) {
-    $("title").classList.remove("on"); $("menu").hidden = false;
-    state = saved ? JSON.parse(JSON.stringify(saved)) : fresh();
-    enter(state.scene, !!saved);
+  function begin(st, keepIndex) {
+    stopLine(); hideCard(); closeHistory(false);
+    if (document.activeElement && document.activeElement !== document.body && document.activeElement.blur) document.activeElement.blur();
+    $("title").classList.remove("on"); $("ending").classList.remove("on"); $("choices").classList.remove("on"); $("menu").hidden = false;
+    hist.length = 0; waiting = null;
+    state = JSON.parse(JSON.stringify(st));
+    enter(state.scene, keepIndex);
   }
+  function start() { begin(fresh(), false); }
+  function startAt(id) {
+    if (typeof id !== "string" || !scenes[id]) { console.warn(`vn: unknown scene "${id}"`); return false; }
+    begin({ ...fresh(), scene: id }, false); return true;
+  }
+  const CHANGED = "The story changed since this save — resuming at the start of the chapter";
+  // Resume a save safely. Returns false when it had to fall back (and has said so).
+  function resume(save) {
+    const st = save.state, base = fresh();
+    if (!scenes[st.scene]) { start(); toast("The story changed since this save — starting from the beginning", 3200); return false; }
+    const nodes = scenes[st.scene].nodes || [];
+    const stale = (save.version ?? null) !== VERSION || !Number.isInteger(st.index) || st.index < 0 || st.index >= nodes.length;
+    if (stale) {
+      // Restart the chapter with the variables it was entered with, so its `set` nodes don't apply twice.
+      begin({ ...base, scene: st.scene, vars: { ...base.vars, ...(st.sceneVars || st.vars || {}) } }, false);
+      toast(CHANGED, 3200); return false;
+    }
+    begin({ ...base, ...st, vars: { ...base.vars, ...(st.vars || {}) }, shown: st.shown || {}, cg: st.cg || null }, true);
+    return true;
+  }
+
+  // ---------------------------------------------------------------- wiring + input
+  const onClick = (id, fn) => $(id).addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (e.detail && e.currentTarget.blur) e.currentTarget.blur();  // mouse click: keep Space/Enter for the story
+    fn(e);
+  });
   $("t-title").textContent = S.title;
   $("t-logline").textContent = DATA.logline || "";
-  $("t-start").addEventListener("click", (e) => { e.stopPropagation(); start(null); });
-  $("t-continue").addEventListener("click", (e) => { e.stopPropagation(); const s = store.get(); if (s) start(s.state); });
-  $("e-again").addEventListener("click", (e) => { e.stopPropagation(); showTitle(); });
-  $("m-save").addEventListener("click", (e) => { e.stopPropagation(); toast(store.set({ state, at: Date.now() }) ? "Saved" : "Can't save here"); });
-  $("m-load").addEventListener("click", (e) => { e.stopPropagation(); const s = store.get(); if (s) { $("choices").classList.remove("on"); start(s.state); toast("Loaded"); } else toast("No save yet"); });
-  $("m-mute").addEventListener("click", (e) => { e.stopPropagation(); muted = !muted; for (const ch of Object.values(channels)) if (ch.el) ch.el.muted = muted; $("m-mute").textContent = muted ? "Unmute" : "Mute"; });
-  $("m-title").addEventListener("click", (e) => { e.stopPropagation(); showTitle(); });
-  $("stage").addEventListener("click", advance);
+  $("t-preview").hidden = $("m-preview").hidden = !DATA.preview;
+  onClick("t-start", () => start());
+  onClick("t-continue", () => { const s = store.get(); if (validSave(s)) resume(s); });
+  onClick("e-again", () => showTitle());
+  onClick("m-save", () => { if (!state) return; toast(store.set({ state, at: Date.now(), version: VERSION }) ? "Saved" : "Can't save here"); });
+  onClick("m-load", () => { const s = store.get(); if (!validSave(s)) { toast("No save yet"); return; } if (resume(s)) toast("Loaded"); });
+  onClick("m-history", () => (histOpen ? closeHistory() : openHistory()));
+  onClick("m-speed", () => { speed = (speed + 1) % SPEEDS.length; showSpeed(); prefs.set({ speed: SPEEDS[speed].name }); if (typing && !SPEEDS[speed].step) finishTyping(); });
+  onClick("m-auto", () => { auto = !auto; $("m-auto").setAttribute("aria-pressed", String(auto)); scheduleAuto(); });
+  onClick("m-mute", () => { muted = !muted; for (const ch of Object.values(channels)) if (ch.el) ch.el.muted = muted;
+                            $("m-mute").textContent = muted ? "Unmute" : "Mute"; $("m-mute").setAttribute("aria-pressed", String(muted)); });
+  onClick("m-title", () => showTitle());
+  onClick("h-close", () => closeHistory());
+  $("history").addEventListener("click", (e) => { e.stopPropagation(); if (e.target === e.currentTarget) closeHistory(); });
+  $("stage").addEventListener("click", () => advance());
+  const isControl = (t) => t instanceof Element && !!t.closest("button, a[href], input, select, textarea, [contenteditable]");
   document.addEventListener("keydown", (e) => {
-    if (e.key === " " || e.key === "Enter") { if (waiting === "line") { e.preventDefault(); advance(); } }
-    else if (waiting === "choice" && /^[1-9]$/.test(e.key)) { const b = $("choices").querySelectorAll("button")[+e.key - 1]; if (b) b.click(); }
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = e.key;
+    if (histOpen) {
+      if (k === "Escape" || k === "h" || k === "H") { e.preventDefault(); closeHistory(); }
+      else if ((k === " " || k === "Enter") && !isControl(e.target)) e.preventDefault();
+      return;  // nothing behind the history moves while it is open
+    }
+    if ((k === "h" || k === "H") && state && !$("menu").hidden) { e.preventDefault(); openHistory(); return; }
+    if (k === " " || k === "Enter") {
+      if (isControl(e.target)) return;  // a focused button handles its own key
+      if (waiting === "line" || waiting === "card") { e.preventDefault(); advance(); }
+    } else if (waiting === "choice" && /^[1-9]$/.test(k)) { const b = $("choices").querySelectorAll("button")[+k - 1]; if (b) b.click(); }
   });
-  skin(); showTitle();
-  // Small hook for automated play-throughs (and the curious): window.vn.state(), .advance(), .choose(i)
-  window.vn = { state: () => state && { ...state, waiting }, advance, choose: (i) => $("choices").querySelectorAll("button")[i]?.click(),
-                start: () => start(null), missing: DATA.missing || [] };
+  showSpeed(); skin();
+  let wanted = null;
+  try { wanted = new URLSearchParams(location.search).get("scene"); } catch { wanted = null; }
+  if (!(wanted && startAt(wanted))) showTitle();
+  // Small hook for automated play-throughs (and the curious): window.vn.state(), .advance(), .choose(i), .startAt(id), .history()
+  window.vn = { state: () => state && { ...state, waiting, draft: !!(scenes[state.scene] && scenes[state.scene].draft) },
+                advance, choose: (i) => $("choices").querySelectorAll("button")[i]?.click(),
+                start, startAt, history: () => hist.map((h) => ({ ...h })), missing: DATA.missing || [] };
 })();
 </script>
 </body>

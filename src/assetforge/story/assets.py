@@ -24,11 +24,13 @@ from assetforge.errors import AssetForgeError
 from assetforge.request import AssetRequest, by_key, handle
 from assetforge.story.models import Script, StoryConfig, World
 from assetforge.story.project import StoryProject
+from assetforge.story.sound import SoundPlan, ambience_options, music_options
 
 if TYPE_CHECKING:
     from assetforge.core.catalog import Library
 
 Group = Literal["char", "expr", "bg", "bg_time", "cg", "ui", "music", "ambience", "sfx"]
+IMAGE_GROUPS = frozenset({"char", "expr", "bg", "bg_time", "cg", "ui"})
 GROUPS: tuple[Group, ...] = ("char", "expr", "bg", "bg_time", "cg", "ui", "music", "ambience", "sfx")
 ONLY = {"chars": ("char", "expr"), "bg": ("bg", "bg_time"), "cg": ("cg",), "ui": ("ui",),
         "audio": ("music", "ambience", "sfx"), "music": ("music",), "ambience": ("ambience",), "sfx": ("sfx",)}  # fmt: skip
@@ -51,15 +53,17 @@ def story_key(slug: str, *parts: str) -> str:
 
 
 def manifest(script: Script, config: StoryConfig, world: World | None, *, image_provider: str = "auto",
-             quality: str = "auto") -> list[Item]:  # fmt: skip
+             quality: str = "auto", sound_plan: SoundPlan | None = None) -> list[Item]:  # fmt: skip
     slug, project, collection = config.slug, config.asset_project, f"vn-{config.slug}"
     tags = ["visual-novel", slug]
     items: list[Item] = []
 
     def image(key: str, group: Group, label: str, type_: AssetType, description: str, *, aspect: str,
               transparent: bool, refs: list[str] | None = None, name: str) -> None:  # fmt: skip
+        # transparent pieces (sprites, UI frames) are trimmed to their content so they anchor and stretch cleanly
         req = AssetRequest(type=type_, description=description, project=project, key=key, provider=image_provider,
                            aspect=aspect, transparent=transparent, quality=quality, name=name, tags=tags,
+                           process="web-sprite" if transparent else None,
                            collection=collection, reuse_policy="always_generate", genre=config.genre,
                            purpose=f"visual novel {group}")  # type: ignore[arg-type]  # fmt: skip
         items.append(Item(key, group, label, req, refs or []))
@@ -133,14 +137,18 @@ def manifest(script: Script, config: StoryConfig, world: World | None, *, image_
           "No text, flat front view.", aspect="21:9", transparent=True, name=f"{slug}_choice")  # fmt: skip
 
     direction = world.music_direction if world else ""
+    cues = {c.mood: c for c in sound_plan.music} if sound_plan else {}
+    # a location the plan left empty (no scene, beds or events) falls back to matching its description
+    places = {p.location: p for p in sound_plan.locations if p.scene or p.beds or p.events} if sound_plan else {}
     for mood in sorted({s.music for s in script.scenes}):
         sound(story_key(slug, "music", mood), "music", f"Music: {mood}", AssetType.MUSIC,
               f"{mood} visual novel background music loop. {direction}", name=f"{slug}_music_{mood}",
-              sound_opts={"mood": MUSIC_MOOD.get(mood, mood), "form": "loop"})  # fmt: skip
+              sound_opts=music_options(cues[mood]) if mood in cues else {"mood": MUSIC_MOOD.get(mood, mood), "form": "loop"})  # fmt: skip
     for loc in script.locations:
         if loc.ambience and loc.id in used_times:
             sound(story_key(slug, "amb", loc.id), "ambience", f"Ambience: {loc.name}", AssetType.AMBIENCE,
-                  f"{loc.ambience} ({loc.name})", name=f"{slug}_amb_{loc.id}")  # fmt: skip
+                  f"{loc.ambience} ({loc.name})", name=f"{slug}_amb_{loc.id}",
+                  sound_opts=ambience_options(places[loc.id]) if loc.id in places else None)  # fmt: skip
     cues: dict[str, str] = {}
     for scene in script.scenes:
         for node in scene.nodes:
@@ -188,8 +196,28 @@ def ensure_art_profile(lib: Library, config: StoryConfig, world: World | None) -
     return True
 
 
+def load_sound_plan(lib: Library, project: StoryProject, *, make: bool, fresh: bool = False) -> tuple[SoundPlan | None, str | None]:
+    """The story's sound plan: read sound.json, or ask the writer for one (free on a subscription). A failure to plan
+    is reported, not fatal: sound then falls back to guessing from each location's description."""
+    if project.has("sound") and not fresh:
+        return project.load("sound"), None
+    if not make:
+        return None, None
+    from assetforge.errors import AssetForgeError
+    from assetforge.story import steps
+
+    try:
+        plan, _ = steps.plan_sound(steps.Ctx(lib=lib, project=project, fresh=fresh))
+        return plan, None
+    except AssetForgeError as exc:
+        return None, f"sound plan unavailable ({exc.message}); using description matching"
+
+
 def produce(lib: Library, project: StoryProject, *, only: list[str] | None = None, limit: int | None = None,
-            dry_run: bool = False, image_provider: str = "auto", quality: str = "auto") -> dict[str, Any]:  # fmt: skip
+            dry_run: bool = False, image_provider: str = "auto", quality: str = "auto",
+            redo: bool = False, replan: bool = False) -> dict[str, Any]:  # fmt: skip
+    """Make the missing assets. `redo` archives the selected groups' existing assets first and makes them again
+    (non-destructive: the old ones stay in the library, archived)."""
     config: StoryConfig = project.config
     script: Script = project.load("script")
     world = project.load("world") if project.has("world") else None
@@ -200,12 +228,25 @@ def produce(lib: Library, project: StoryProject, *, only: list[str] | None = Non
             from assetforge.errors import InvalidInputError
 
             raise InvalidInputError(f"Unknown asset groups {sorted(unknown)}", known=sorted(ONLY))
-    items = [i for i in manifest(script, config, world, image_provider=image_provider, quality=quality) if i.group in groups]
+    wants_sound = bool(groups & {"music", "ambience"})
+    sound_plan, sound_note = load_sound_plan(lib, project, make=wants_sound and not dry_run, fresh=replan and wants_sound)
+    items = [i for i in manifest(script, config, world, image_provider=image_provider, quality=quality,
+                                 sound_plan=sound_plan) if i.group in groups]  # fmt: skip
+    if redo and not dry_run:
+        from assetforge.core import review
+
+        old_ids = [a for a in (by_key(lib, i.request) for i in items) if a]
+        if old_ids:
+            review.archive(lib, list(dict.fromkeys(old_ids)), note="story assets remade")
     profile_set = False if dry_run else ensure_art_profile(lib, config, world)
     results: list[dict[str, Any]] = []
     made = 0
+    images_blocked: dict[str, Any] | None = None  # set when the image provider can't work at all (no key, quota)
     for item in items:
         row: dict[str, Any] = {"key": item.key, "group": item.group, "label": item.label}
+        if images_blocked and item.group in IMAGE_GROUPS:
+            results.append({**row, "state": "skipped", "reason": f"image provider unavailable: {images_blocked['message']}"})
+            continue
         existing = by_key(lib, item.request)
         if existing:
             results.append({**row, "state": "exists", "asset_id": existing})
@@ -222,9 +263,14 @@ def produce(lib: Library, project: StoryProject, *, only: list[str] | None = Non
             result = handle(lib, req)
         except AssetForgeError as exc:
             results.append({**row, "state": "failed", "error": exc.to_dict()})
-            if getattr(exc, "kind", None) in ("auth", "not_configured", "quota"):
-                break  # every following image would fail the same way
+            if item.group in IMAGE_GROUPS and getattr(exc, "kind", None) in ("auth", "not_configured", "quota"):
+                images_blocked = exc.to_dict()  # every following image would fail the same way; sound still works
             continue
+        if result.asset_id and lib.get_asset(result.asset_id).status.value == "archived":
+            # a remake that renders identical bytes resolves to the copy we just archived: bring it back
+            from assetforge.core import review
+
+            review.restore(lib, [result.asset_id], note="identical remake")
         made += 0 if result.reused else 1
         plan = result.plan or {}
         results.append({**row, "state": result.state, "asset_id": result.asset_id, "reused": result.reused,
@@ -236,6 +282,7 @@ def produce(lib: Library, project: StoryProject, *, only: list[str] | None = Non
         counts[r["state"]] = counts.get(r["state"], 0) + 1
     estimate = sum(r.get("estimated_cost_usd") or 0 for r in results)
     return {"project": config.asset_project, "collection": f"vn-{config.slug}", "art_profile_created": profile_set,
+            "sound_plan": "story" if sound_plan else "guessed", "notes": [sound_note] if sound_note else [],
             "total": len(items), "counts": counts, "estimated_cost_usd": round(estimate, 4) if dry_run else None,
             "items": results}  # fmt: skip
 

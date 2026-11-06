@@ -98,10 +98,14 @@ def wind(n, sr, rng, intensity, p, period):
     return stereo(one, rng)
 
 
-@bed("rain", "Rain: droplet patter, hiss and a soft roof rumble", {"heaviness": 0.5, "surface": 0.5},
+@bed("rain", "Rain: droplet patter, hiss and a soft roof rumble (inside > 0: heard from indoors, on a roof)",
+     {"heaviness": 0.5, "surface": 0.5, "inside": 0.0},
      ("rain", "storm", "drizzle", "downpour", "weather", "wet"))  # fmt: skip
 def rain(n, sr, rng, intensity, p, period):
     heavy = np.clip(p["heaviness"] * (0.3 + 1.0 * intensity), 0, 1.5)
+    inside = float(np.clip(p.get("inside", 0.0), 0.0, 1.0))
+    if inside > 0:
+        return _rain_inside(n, sr, rng, heavy, inside, period)
 
     def one(r):
         # Rain is three layers (after Farnell): a distant wash, a dense patter of thousands of tiny soft
@@ -121,6 +125,49 @@ def rain(n, sr, rng, intensity, p, period):
         return mix * gusts
 
     return stereo(one, rng)
+
+
+def _rain_inside(n, sr, rng, heavy, inside, period):
+    """Rain heard from inside a house: the roof and walls take the sizzle away, so what reaches you is a soft,
+    pitched drumming on the roof (each drop a short "tink" on tin or tile), a warm low wash and the odd close drip
+    on a sill. Energy is kept around 0.5-3 kHz (clear but never hissy); above ~4 kHz is rolled off."""
+
+    def one(r):
+        wash = dsp.filt(dsp.filt(s.noise(n, r, "pink"), "lowpass", 1400 - 500 * inside, sr), "highpass", 140, sr)
+        tinks = grains(n, sr, r, 260 + 900 * heavy, 700, 2600, 0.009, sweep=-0.05)  # drops on the roof
+        thuds = grains(n, sr, r, 60 + 160 * heavy, 180, 420, 0.03)  # heavier drops on wood and gutters
+        drips = grains(n, sr, r, 0.5 + 1.2 * heavy, 1200, 2600, 0.03, sweep=0.15)  # a close drip now and then
+        swell = 10 ** ((1.5 + 2.5 * heavy) * dsp.drift(n, sr, 0.08, r, period=period) / 20)  # slow, breathing swells
+        mix = (0.45 * _rms_norm(wash) + 0.9 * _rms_norm(tinks) + 0.35 * _rms_norm(thuds) + 0.12 * _rms_norm(drips)) * swell
+        return dsp.filt(mix, "lowpass", 6500 - 2500 * inside, sr)
+
+    return stereo(one, rng)
+
+
+@bed("clock_tick", "A wall clock ticking: a soft, woody tick-tock (seamless in any loop)", {"rate": 1.0, "tone": 0.5},
+     ("clock", "tick", "ticking", "tock", "wall clock", "house", "home", "study", "quiet", "indoor"))  # fmt: skip
+def clock_tick(n, sr, rng, intensity, p, period):
+    # Ticks sit on an exact grid that divides the loop, so the loop seam lands between two ticks.
+    count_in_loop = max(1, round(period / sr * float(np.clip(p["rate"], 0.5, 3.0))))
+    step = period / count_in_loop
+    k = int(0.06 * sr)
+    t = np.arange(k) / sr
+    out = np.zeros(n)
+    for i in range(int(n / step) + 1):
+        start = int(round(i * step))
+        if start >= n:
+            break
+        f = (1900 if i % 2 == 0 else 1600) * (0.8 + 0.4 * p["tone"])
+        click = rng.standard_normal(k) * np.exp(-t * 1400)
+        body = np.sin(2 * np.pi * f * t) * np.exp(-t * 220) + 0.35 * np.sin(2 * np.pi * f * 2.76 * t) * np.exp(-t * 320)
+        wood = 0.7 * np.sin(2 * np.pi * 380 * t) * np.exp(-t * 110)  # the case: the warm "tock" body
+        tick = 0.35 * dsp.filt(click, "bandpass", 2600, sr, q=0.8) + 0.45 * body + wood
+        tick *= (0.82 if i % 2 else 1.0) * rng.uniform(0.94, 1.0)
+        dsp.add_at(out, tick, start)
+    out = dsp.filt(out, "lowpass", 6000, sr)
+    peak = float(np.max(np.abs(out))) or 1.0
+    out = out / peak * 0.5
+    return np.stack([out * 0.8, out], axis=1)  # a point source a little to the right
 
 
 @bed("water_stream", "Stream or brook: babbling water with bubbles", {"flow": 0.5},
@@ -230,12 +277,16 @@ def desert_wind(n, sr, rng, intensity, p, period):
 # ---------------------------------------------------------------------- places and machines
 
 
-@bed("room_tone", "Quiet room tone: air, faint electrical hum", {"hum": 0.2},
+@bed("room_tone", "Quiet room tone: air, faint electrical hum (low_cut Hz removes rumble; hum 0 for no hum)",
+     {"hum": 0.2, "low_cut": 0.0},
      ("room", "indoor", "interior", "quiet", "office", "house", "silence"))  # fmt: skip
 def room_tone(n, sr, rng, intensity, p, period):
     t = np.arange(n) / sr
     hum = sum(np.sin(2 * np.pi * 50 * k * t) / k for k in (1, 2, 3)) * p["hum"] * 0.1
-    return stereo(lambda r: _rms_norm(s.lowpass(s.noise(n, r, "pink"), 900, sr)) + hum, rng)
+    tone = stereo(lambda r: _rms_norm(s.lowpass(s.noise(n, r, "pink"), 900, sr)) + hum, rng)
+    if p.get("low_cut", 0.0) > 0:  # just the air of a room: no sub-bass rumble for loudness matching to raise
+        tone = np.stack([dsp.filt(tone[:, c], "highpass", float(p["low_cut"]), sr) for c in range(2)], axis=1)
+    return tone
 
 
 @bed("machine_hum", "Machinery hum with a rhythmic mechanical pulse", {"hum_hz": 55, "pulse_hz": 1.5, "grit": 0.4},

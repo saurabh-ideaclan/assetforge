@@ -6,22 +6,52 @@
   <title>AssetForge</title>
   <link rel="stylesheet" href="/static/tokens.css">
   <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/shell.css">
+  <link rel="stylesheet" href="/static/views/assets.css">
 </head>
 <body>
-  <aside class="sidebar">
+  <aside class="sidebar" aria-label="Main navigation">
     <div class="brand"><span class="logo" aria-hidden="true"></span>AssetForge</div>
     <nav>
+      <div class="nav-group">Workspace</div>
       <a href="#/overview" data-nav="overview"><span class="ico">◎</span>Overview</a>
+      <a href="#/assets?status=candidate" data-nav="review"><span class="ico">✓</span>Review<span class="nav-badge" id="review-badge" hidden></span></a>
+      <div class="nav-group">Library</div>
       <a href="#/assets" data-nav="assets"><span class="ico">▦</span>Assets</a>
-      <a href="#/generate" data-nav="generate"><span class="ico">✦</span>Generate</a>
+      <a href="#/assets?kind=image" data-nav="assets-images" class="sub"><span class="ico">◧</span>Images</a>
+      <a href="#/assets?kind=audio" data-nav="assets-audio" class="sub"><span class="ico">♪</span>Sound</a>
+      <div class="nav-group">Make</div>
+      <a href="#/story" data-nav="story"><span class="ico">✎</span>Stories<span class="nav-badge" id="story-badge" hidden></span></a>
+      <a href="#/generate" data-nav="generate"><span class="ico">✦</span>Create</a>
+      <div class="nav-group">Direction</div>
       <a href="#/art" data-nav="art"><span class="ico">◐</span>Art direction</a>
-      <a href="#/story" data-nav="story"><span class="ico">✎</span>Stories</a>
-      <a href="#/usage" data-nav="usage"><span class="ico">$</span>Usage &amp; cost</a>
+      <div class="nav-group">Operations</div>
       <a href="#/jobs" data-nav="jobs"><span class="ico">≡</span>Jobs</a>
+      <a href="#/usage" data-nav="usage"><span class="ico">$</span>Usage &amp; cost</a>
     </nav>
-    <div class="library" id="library-path" title="Library folder"></div>
+    <a class="activity-pill" id="activity-pill" hidden></a>
+    <div class="sidebar-foot">
+      <div class="theme-switch" role="group" aria-label="Theme">
+        <button type="button" data-theme-set="light" title="Light">☀</button>
+        <button type="button" data-theme-set="auto" title="Match the system">◑</button>
+        <button type="button" data-theme-set="dark" title="Dark">☾</button>
+      </div>
+      <div class="library" id="library-path" title="Library folder"></div>
+    </div>
   </aside>
-  <main id="view" tabindex="-1"></main>
+  <div class="shell">
+    <header class="topbar">
+      <nav class="crumbs" id="crumbs" aria-label="Breadcrumb"></nav>
+      <button class="search-trigger" id="palette-open" type="button" aria-label="Search or jump to (Command K)">
+        <span class="ico">⌕</span><span>Search or jump to…</span><kbd>⌘K</kbd>
+      </button>
+      <div class="topbar-actions">
+        <a class="btn small" href="#/story/new">+ New story</a>
+        <a class="btn small primary" href="#/generate">✦ Create</a>
+      </div>
+    </header>
+    <main id="view" tabindex="-1"></main>
+  </div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <audio id="player" preload="none"></audio>
   <script type="module" src="/static/app.js"></script>

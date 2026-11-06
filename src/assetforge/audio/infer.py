@@ -93,6 +93,11 @@ def patch_from_words(description: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------- ambience
 
 
+# Words that describe how something sounds, not what: they must not summon a layer (e.g. "distant" → a wolf howl).
+VAGUE = frozenset({"distant", "far", "faint", "nearby", "near", "soft", "gentle", "quiet", "loud", "low", "high", "deep",
+                   "warm", "cold", "old", "new", "small", "big", "wall", "occasional", "constant"})
+
+
 def ambience_from_words(description: str, lib: Any = None) -> dict[str, Any]:
     from assetforge.audio.ambience.beds import BEDS
     from assetforge.audio.ambience.engine import scenes
@@ -111,13 +116,16 @@ def ambience_from_words(description: str, lib: Any = None) -> dict[str, Any]:
         out["scene"] = best.name
         covered = {t for t in tokens(best.name)} | {t for tag in best.tags for t in tokens(tag)}
         covered |= {b.bed for b in best.beds} | {e.event for e in best.events}
+        # the scene's own layers already cover their words ("clock" → its clock_tick bed, "dog" → its dog event)
+        covered |= {t for b in best.beds if b.bed in BEDS for t in BEDS[b.bed].tags}
+        covered |= {t for e in best.events if e.event in EVENTS for t in EVENTS[e.event].tags}
     extra_beds, extra_events = [], []
     for w in words:
-        if _hit(w, covered) or w in ("night", "day", "ambience", "ambient", "loop", "sound", "background"):
+        if _hit(w, covered) or w in ("night", "day", "ambience", "ambient", "loop", "sound", "background") or w in VAGUE:
             continue
         bed = next((b for b in BEDS.values() if _hit(w, set(b.tags) | {b.name})), None)
         if bed is not None and bed.name not in {x["bed"] for x in extra_beds}:
-            extra_beds.append({"bed": bed.name, "level_db": -4})
+            extra_beds.append({"bed": bed.name, "level_db": -12})  # an added detail, not a wall of sound
             covered |= set(bed.tags)
             continue
         event = next((e for e in EVENTS.values() if _hit(w, set(e.tags) | {e.name})), None)

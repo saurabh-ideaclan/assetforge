@@ -383,6 +383,61 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
     writing, improving or making assets.
   - `story/project.register()` keeps `<library>/stories.json` (id → folder); CLI steps register too.
   - The UI lives in `views/story.js` (list + new story with a writer picker; detail tabs Script/Improve/Assets/Play with an iframe player).
+- `story/progress.py` builds the live view from the story files plus `generation_jobs` (kind `text`,
+  `request.project` = the story's project), so work started by the CLI, an agent or the app all shows, and it
+  survives restarts. `running` jobs older than 30 min count as stale.
+  - `progress()` returns the stage, steps, chapters in reading order with `written|writing|revising|planned` and
+    BFS chapter numbers, readable labels, a feed and an ETA.
+  - `preview_script()` keeps written scenes as they are and turns unwritten ones into stand-ins
+    (`draft: true`, `summary`, plan exits).
+  - `library_assets()` maps `vn/<slug>/…` keys to `/media/variant/<id>.<ext>`; the extension lets the player pick
+    ogg or m4a, and the media route accepts it.
+  - App routes:
+    - `/preview/{id}/` is the player (RawResponse with `PLAYER_CSP`: no API access from model-written pages);
+    - `/preview/{id}/story.js` is live data;
+    - `/api/activity` is the sidebar pill;
+    - `/api/stories` lists and `/api/stories/{id}` details, both carrying `progress`; the detail also has
+      `written` scenes and `cover`.
+  - UI (`views/story.js`):
+    - hub (search, filter, progress bars, covers);
+    - a 4-step wizard (`#/story/new`);
+    - the story page with a live tracker and tabs: Chapters (rail + reader), Play (live iframe,
+      `?scene=` / `&chapter=`), Improve, Art & sound, Settings.
+  - The player (`vn_player/index.html`) has chapter cards, a draft banner, a Preview tag, versioned saves,
+    History (H), text speed / Auto, and no `innerHTML`.
+  - An untitled story gets `title_from_writer`: `World.title` names it, and the slug comes from the idea.
+- `story/sound.py` holds the story sound plan:
+  - `SoundPlan` gives each location a scene/beds/events and each mood a genre, instruments as a list of
+    `RolePick`, energy and tempo.
+  - The prompt carries the real catalog. `clean()` drops unknown names, caps noise beds, drops layers the chosen
+    scene already has, and covers every location.
+  - It is saved as `sound.json`; `assets.manifest(sound_plan=)` passes explicit `sound` options.
+  - `produce(redo=, replan=)`: `redo` archives and remakes, restoring identical remakes; `replan` asks for a new plan.
+  - The ambience additions are `rain.inside` (indoor roof drumming), the `clock_tick` bed, the `dog_bark_far`
+    event, `room_tone.low_cut`, and the scenes `home_interior` / `home_rain`.
+  - All new params default to the old behaviour, so older ambiences reproduce bit for bit.
+  - The `infer.ambience_from_words` `VAGUE` words never summon layers.
+- App shell (redesigned after research on Eagle, Linear, Raycast and the Apple HIG):
+  - `index.html` and `shell.css` provide a grouped sidebar (Workspace / Library / Make / Direction / Operations)
+    with Review and Stories badges, and an activity pill.
+  - The theme switch (light/auto/dark) is stored in `localStorage af-theme`.
+  - The top bar has breadcrumbs (`window.afCrumb(title)` from views), a ⌘K trigger and New/Create buttons.
+  - Below 860 px the sidebar becomes an icon rail.
+  - `tokens.css` has calm neutrals and the indigo accent (`--accent-soft`, `--shadow-pop`, `--ease`).
+  - `palette.js` is the ⌘K palette: pages, stories, asset search with thumbnails and actions. Its classes are
+    `cmdk-*`, because `.palette` is taken by the colour palette input.
+- `views/assets.js` + `views/assets.css` (`ab-*` classes) add:
+  - S/M/L density (⌘= / ⌘-) and Space Quick Look (← → A X P);
+  - hover play and progress on audio cards;
+  - quick filter chips;
+  - status dots;
+  - "Used in stories" via `GET /api/assets/{id}/stories`.
+- Story assets (`story/usage.py`):
+  - `story_assets()` lists every asset a story uses (characters × expressions, places × times + ambience, CGs,
+    UI, music, SFX) with its library asset and the chapters that use it. It works mid-writing via `preview_script`.
+  - `stories_using()` is the reverse lookup.
+  - Route: `GET /api/stories/{id}/assets`. The story page's Assets tab (`storyAssetsTab`) has a chapter lens and
+    an all/missing/made filter, with generation controls below.
 - CLI: `cli_story.py` (`story …`, `llm providers|models|test`). The preview config `vn-demo` serves `.dev/vn-demo`.
 - `MusicRequest.key` is the **musical** key; the asset key is `asset_key`. `request` and `music compose --asset-key`
   both pass it, and `generate_music` never uses the musical key as the catalog key.

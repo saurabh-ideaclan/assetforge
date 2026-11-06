@@ -1,0 +1,35 @@
+name: home_rain
+description: 'Indoors on a rainy day: warm rain drumming on the roof, a ticking clock, a creak now and then'
+tags:
+- home
+- house
+- rain
+- rainy
+- roof
+- indoor
+- cozy
+- window
+- monsoon
+space: room
+beds:
+- bed: rain
+  level_db: -8
+  params:
+    heaviness: 0.35
+    inside: 0.8
+- bed: room_tone
+  level_db: -22
+  params:
+    hum: 0.0
+    low_cut: 160
+- bed: clock_tick
+  level_db: -2
+events:
+- event: creak
+  rate: 0.6
+  distance: 0.35
+  gain_db: -12
+- event: dog_bark_far
+  rate: 0.3
+  distance: 0.85
+  gain_db: -12

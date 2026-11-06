@@ -250,3 +250,24 @@ def laugh_far(rng, sr):
         out += [voice(ctx, np.full(n, f * s.semitones(-k * 0.6)), "a", 0.5, 0.2, 0.5) * np.sin(np.pi * np.linspace(0, 1, n)),
                 np.zeros(int(0.06 * sr))]  # fmt: skip
     return np.concatenate(out)
+
+
+@event("dog_bark_far", "A dog barking a few houses away (muffled, 1-3 barks)",
+       ("dog", "dogs", "bark", "barking", "barks", "neighbourhood", "neighborhood", "village", "town", "home", "street"))
+def dog_bark_far(rng: np.random.Generator, sr: int) -> np.ndarray:
+    """A voiced bark: a glottal pulse train with a fast pitch fall through two mouth formants and a breathy edge."""
+    barks = int(rng.integers(1, 4))
+    size = rng.uniform(0.3, 0.8)  # bigger dogs bark lower
+    out = np.zeros(int(sr * (0.9 * barks + 0.4)))
+    for b in range(barks):
+        dur = rng.uniform(0.11, 0.2)
+        k = int(dur * sr)
+        t = np.arange(k) / sr
+        f0 = (620 - 330 * size) * (1.25 - 0.5 * t / dur)  # "rrUF": the pitch drops through the bark
+        phase = 2 * np.pi * np.cumsum(f0) / sr
+        pulses = np.sign(np.sin(phase)) * (np.abs(np.sin(phase)) ** 0.25)
+        voice = dsp.filt(pulses, "bandpass", 900 - 300 * size, sr, q=2.0) + 0.7 * dsp.filt(pulses, "bandpass", 1900 - 500 * size, sr, q=3.0)
+        breath = dsp.filt(rng.standard_normal(k), "bandpass", 1600, sr, q=0.8) * 0.25
+        env = np.minimum(1.0, t / 0.012) * np.exp(-((t / dur) ** 2) * 3.0)
+        dsp.add_at(out, (voice + breath) * env, int(b * sr * rng.uniform(0.32, 0.5)))
+    return dsp.filt(out, "lowpass", 2400, sr)

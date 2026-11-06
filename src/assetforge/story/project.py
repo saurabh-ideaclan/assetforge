@@ -24,6 +24,7 @@ from pydantic import BaseModel
 
 from assetforge.errors import InvalidInputError, NotFoundError
 from assetforge.story.models import Cast, ContinuityReport, Outline, Scene, Script, StoryConfig, World
+from assetforge.story.sound import SoundPlan
 
 M = TypeVar("M", bound=BaseModel)
 FILES: dict[str, tuple[str, type[BaseModel]]] = {
@@ -33,6 +34,7 @@ FILES: dict[str, tuple[str, type[BaseModel]]] = {
     "outline": ("outline.json", Outline),
     "script": ("script.json", Script),
     "check": ("check.json", ContinuityReport),
+    "sound": ("sound.json", SoundPlan),
 }
 
 
@@ -66,7 +68,7 @@ class StoryProject:
         path = self.root / name
         if not path.exists():
             step = {"config": "init", "world": "world", "cast": "cast", "outline": "outline", "script": "write",
-                    "check": "check"}[part]  # fmt: skip
+                    "check": "check", "sound": "assets --only audio"}[part]  # fmt: skip
             raise NotFoundError(f"{name} not found in {self.root}", hint=f"Run `assetforge story {step}` first")
         try:
             return (model or cls).model_validate_json(path.read_text())  # type: ignore[return-value]

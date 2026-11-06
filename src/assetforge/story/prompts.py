@@ -12,7 +12,7 @@ from typing import Any
 
 from assetforge.story.models import Cast, Outline, PlannedScene, Scene, StoryConfig, World
 
-PROMPT_VERSION = 1
+PROMPT_VERSION = 2
 
 
 def system(config: StoryConfig) -> str:
@@ -52,6 +52,7 @@ def world_prompt(config: StoryConfig) -> str:
         bible(config),
         "Build the world for this visual novel (like a series bible, but short: every field 1-4 sentences). "
         f"Genre: {config.genre}." + (f" Visual style wanted: {config.art_style}." if config.art_style else ""),
+        "title: a short, evocative title (2-5 words) that fits the premise. "
         "art_direction must describe one consistent illustrated look that works for both character sprites on "
         "transparent backgrounds and painted 16:9 backgrounds (medium, palette, lighting, line work).",
     ])  # fmt: skip

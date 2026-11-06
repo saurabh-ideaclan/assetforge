@@ -84,6 +84,8 @@ def world(ctx: Ctx) -> World:
     config = ctx.config
     data: World = _ask(ctx, "world", prompts.world_prompt(config), World, offline.world(config))
     ctx.project.save("world", data)
+    if config.title_from_writer and data.title.strip():  # the writer names an untitled story (slug/keys stay)
+        ctx.project.save("config", config.model_copy(update={"title": data.title.strip(), "title_from_writer": False}))
     return data
 
 
@@ -255,7 +257,9 @@ def write(ctx: Ctx, *, only: list[str] | None = None, rewrite: bool = False, wor
 
     def one(planned: PlannedScene, worker: Ctx) -> list[str]:
         prompt = prompts.scene_prompt(config, world_, cast_, plan, planned, _story_so_far(plan, parent, planned.id))
-        draft: SceneDraft = _ask(worker, f"scene.{planned.id}", prompt, SceneDraft, offline.scene(planned, cast_))
+        # an explicit rewrite must not get the stored answer to the same prompt back
+        draft: SceneDraft = _ask(worker, f"scene.{planned.id}", prompt, SceneDraft, offline.scene(planned, cast_),
+                                 fresh=True if (wanted or rewrite) else None)  # fmt: skip
         scene, scene_fixes = _scene_from(planned, draft, expressions)
         ctx.project.save_scene(scene)
         return scene_fixes
@@ -348,6 +352,18 @@ def check(ctx: Ctx) -> ContinuityReport:
                                     ContinuityReport, offline.check())  # fmt: skip
     ctx.project.save("check", report)
     return report
+
+
+def plan_sound(ctx: Ctx) -> tuple[Any, list[str]]:
+    """The writer picks each location's ambience layers and each mood's music from the real catalog (sound.json)."""
+    from assetforge.story import sound
+
+    script: Script = ctx.project.load("script")
+    world_ = ctx.project.load("world") if ctx.project.has("world") else None
+    plan = _ask(ctx, "sound", sound.prompt(script, world_, ctx.lib), sound.SoundPlan, sound.offline_builder(script))
+    plan, notes = sound.clean(plan, script, ctx.lib)
+    ctx.project.save("sound", plan)
+    return plan, notes
 
 
 # ---------------------------------------------------------------------- assembly

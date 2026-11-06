@@ -82,10 +82,11 @@ def run_cli(provider: str, argv: list[str], stdin: str, *, timeout: float,
 _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("quota", re.compile(r"usage limit|limit reached|hit your .*limit|quota|out of credits|insufficient_quota|"
                          r"credit balance", re.I)),  # fmt: skip
-    ("auth", re.compile(r"not logged in|log ?in|authenticat|oauth|unauthori[sz]ed|\b401\b|invalid api key|"
+    ("unavailable", re.compile(r"connection refused|econnrefused|econnreset|enotfound|etimedout|network is unreachable", re.I)),
+    ("auth", re.compile(r"not logged in|\blog ?in\b|authenticat|oauth|unauthori[sz]ed|\b401\b|invalid api key|"
                         r"sign in|credentials", re.I)),  # fmt: skip
     ("rate_limited", re.compile(r"rate.?limit|too many requests|\b429\b", re.I)),
-    ("content", re.compile(r"content policy|safety|refus", re.I)),
+    ("content", re.compile(r"content policy|\bsafety\b|refused to|i can.?t help|cannot help with", re.I)),
     ("rejected", re.compile(r"model_not_found|not supported|invalid_request|\b400\b|unknown model|invalid model|"
                             r"unexpected argument|unrecognized|unknown option|newer version", re.I)),  # fmt: skip
     ("unavailable", re.compile(r"overloaded|\b5\d\d\b|timed? ?out|connection|network|unavailable|ECONN", re.I)),

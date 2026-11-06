@@ -14,7 +14,7 @@ Builder = Callable[[TextCall], Any]
 
 def world(config: StoryConfig) -> Builder:
     def build(_: TextCall) -> dict[str, Any]:
-        return {"logline": config.premise, "setting": f"The small harbour town where {config.title} takes place.",
+        return {"title": config.title, "logline": config.premise, "setting": f"The small harbour town where {config.title} takes place.",
                 "history": "An old secret has been kept here for a generation.", "culture": "Close-knit; everyone talks.",
                 "rules": "Ordinary world; no magic.", "themes": ["trust", "courage"],
                 "art_direction": config.art_style or "Soft painted anime illustration, warm muted palette, clean line art.",

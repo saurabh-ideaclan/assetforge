@@ -82,9 +82,11 @@ class ClaudeCLIProvider(TextProvider):
         if call.schema and data is None and not text.strip():
             raise ProviderError("claude-cli returned an empty answer", provider=self.name, kind="bad_response")
         usage = doc.get("usage") or {}
-        models = list((doc.get("modelUsage") or {}).keys())
+        # Claude Code also makes small Haiku side calls; the answer came from the model with the most output.
+        usage_by_model = doc.get("modelUsage") or {}
+        main = max(usage_by_model, key=lambda m: (usage_by_model[m] or {}).get("outputTokens", 0), default=None)
         return TextResponse(
-            text=text, data=data, provider=self.name, model=models[0] if models else (call.model or self.default_model() or "default"),
+            text=text, data=data, provider=self.name, model=main or call.model or self.default_model() or "default",
             billing=self.billing,
             usage={"input_tokens": usage.get("input_tokens", 0) + usage.get("cache_read_input_tokens", 0)
                    + usage.get("cache_creation_input_tokens", 0), "output_tokens": usage.get("output_tokens", 0),

@@ -1,7 +1,8 @@
 import { api, qs, h, fmt, tz, columnChart, barList, assetCard, badge, errorBox, rangePicker } from "/static/lib.js";
 
 export async function overview(root) {
-  const d = await api("/api/overview?tz=" + encodeURIComponent(tz));
+  const [d, stories] = await Promise.all([api("/api/overview?tz=" + encodeURIComponent(tz)), api("/api/stories").catch(() => ({ stories: [] }))]);
+  const latest = stories.stories[0];
   const t = d.spend.totals;
   const month = d.budget.monthly;
   const candidates = d.by_status.candidate || 0;
@@ -27,6 +28,7 @@ export async function overview(root) {
       h("div", h("b", "This isn't the default library."), " Agents write to ", h("span.mono", d.library.default_home),
         " unless they pass --home, so their new assets and spend won't show here."),
       h("a.btn", { href: "assetforge-action://default-library", title: "Same as File ▸ Use Default Library" }, "Switch to default library")),
+    latest ? continueCard(latest) : "",
     h("div.page-head",
       h("div", h("h1", "Overview"), h("div.sub", d.library.home)),
       h("div.actions", h("a.btn", { href: "#/art" }, "Art direction"), h("a.btn", { href: "#/assets" }, "Browse assets"),
@@ -98,4 +100,16 @@ export function jobsTable(jobs, onRow) {
       h("td", { style: "max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, j.summary || "–"),
       h("td", [j.provider, j.model].filter(Boolean).join(" / ") || "–"),
       h("td.num", j.cost_usd ? fmt.money(j.cost_usd) : "–"), h("td", fmt.when(j.created_at))))));
+}
+
+
+function continueCard(s) {
+  const [done, total] = s.progress.steps.chapters;
+  const now = s.progress.running[0];
+  return h("div.card.continue-card",
+    h("div", h("div.help", s.busy ? "Being written now" : "Continue your story"), h("h2", { style: "margin:2px 0" }, s.title), h("div.help", s.logline)),
+    h("div", total ? `${done}/${total} chapters` : "Not planned yet", now ? h("div.help", now.label) : null),
+    h("div.actions", { style: "margin:0" },
+      s.playable ? h("a.btn", { href: `#/story/${s.id}?tab=play` }, "▶ Play") : "",
+      h("a.btn.primary", { href: `#/story/${s.id}` }, "Open")));
 }

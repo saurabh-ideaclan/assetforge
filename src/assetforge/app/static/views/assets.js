@@ -1,5 +1,5 @@
-import { api, qs, h, fmt, badge, assetCard, isAudio, thumbUrl, fileUrl, copy, toast, errorBox, chipsInput, swatches,
-  segmented, section, field } from "/static/lib.js";
+import { api, qs, h, fmt, assetCard, isAudio, thumbUrl, fileUrl, copy, toast, errorBox, chipsInput, swatches,
+  segmented, section, field, playVariant } from "/static/lib.js";
 import { layerName } from "/static/views/art.js";
 
 const PAGE = 60;
@@ -13,6 +13,39 @@ const COLORS = { red: "#e53935", orange: "#fb8c00", yellow: "#fdd835", green: "#
   purple: "#8e24aa", pink: "#ec407a", brown: "#795548", black: "#111111", white: "#f5f5f5", gray: "#9e9e9e" };
 const STATUS_TABS = [["", "All"], ["candidate", "To review"], ["approved", "Approved"], ["rejected", "Rejected"], ["archived", "Archive"]];
 
+// Thumbnail density: grid minimum column width in px (S / M / L), remembered per viewer.
+const DENSITY = { S: 110, M: 160, L: 230 };
+const DENSITY_ORDER = ["S", "M", "L"];
+const DENSITY_KEY = "assetforge.assets.density";
+function loadDensity() {
+  try { const v = localStorage.getItem(DENSITY_KEY); return DENSITY[v] ? v : "M"; } catch { return "M"; }
+}
+function saveDensity(v) {
+  try { localStorage.setItem(DENSITY_KEY, v); } catch { /* private window or blocked storage: size just isn't remembered */ }
+}
+
+// Quick filter chips. Each one sets a single filter key; "All" clears the keys these chips own.
+const QUICK = [
+  ["all", "All", null, null],
+  ["candidates", "Candidates", "status", "candidate"],
+  ["images", "Images", "kind", "image"],
+  ["audio", "Audio", "kind", "audio"],
+  ["transparent", "Transparent", "transparent", "true"],
+];
+const QUICK_KEYS = ["status", "kind", "transparent"];
+
+/** Status as a small coloured dot plus its word (never colour alone). */
+function statusTag(status) {
+  return h("span.ab-status", { class: `ab-st-${status}`, title: `Status: ${status}` }, h("i.ab-dot", { "aria-hidden": "true" }), status);
+}
+
+function fmtTime(s) {
+  if (!Number.isFinite(s)) return "–";
+  const m = Math.floor(s / 60);
+  const sec = s - m * 60;
+  return m ? `${m}:${sec.toFixed(1).padStart(4, "0")}` : `${sec.toFixed(1)} s`;
+}
+
 export async function assets(root, { rest, params }) {
   const state = { q: params.get("q") || "", sort: params.get("sort") || "newest", filters: {}, offset: 0, total: 0,
                   loading: false, selected: rest[0] || null, items: [] };
@@ -20,7 +53,7 @@ export async function assets(root, { rest, params }) {
   const { facets } = await api("/api/facets");
   const candidates = (facets.statuses || []).find((s) => s.value === "candidate")?.count || 0;
 
-  const grid = h("div.grid");
+  const grid = h("div.grid.ab-grid");
   const sentinel = h("div.sentinel");
   const count = h("span.muted");
   const detail = h("div.detail");
@@ -68,20 +101,97 @@ export async function assets(root, { rest, params }) {
     onclick: () => setSelectMode(!selectMode) }, "Select");
   let selectMode = false;
 
+  // thumbnail size
+  let density = loadDensity();
+  const densityBtns = DENSITY_ORDER.map((d) => h("button", { type: "button", dataset: { d },
+    title: `${{ S: "Small", M: "Medium", L: "Large" }[d]} thumbnails (⌘= / ⌘−)`, onclick: () => setDensity(d) }, d));
+  const densityCtl = h("div.ab-density", { role: "group", "aria-label": "Thumbnail size" }, densityBtns);
+  const thumbSize = () => (density === "L" ? 512 : 256);
+  function setDensity(d) {
+    if (!DENSITY[d]) return;
+    const changed = d !== density;
+    density = d;
+    saveDensity(d);
+    grid.style.setProperty("--ab-min", `${DENSITY[d]}px`);
+    grid.dataset.density = d;
+    densityBtns.forEach((b) => { const on = b.dataset.d === d; b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on)); });
+    if (changed) grid.querySelectorAll(".asset[data-variant]").forEach((c) => {
+      const img = c.querySelector(".thumb img");
+      if (img) img.src = thumbUrl(c.dataset.variant, thumbSize());
+    });
+  }
+  const stepDensity = (n) => setDensity(DENSITY_ORDER[Math.min(2, Math.max(0, DENSITY_ORDER.indexOf(density) + n))]);
+  setDensity(density);
+
+  // quick filter chips
+  const kindCount = (v) => (facets.kinds || []).find((k) => k.value === v)?.count;
+  const quickCounts = { candidates: candidates || null, images: kindCount("image"), audio: kindCount("audio") };
+  const quickRow = h("div.ab-quick", { role: "toolbar", "aria-label": "Quick filters" });
+  function renderQuick() {
+    quickRow.innerHTML = "";
+    const none = QUICK_KEYS.every((k) => !state.filters[k]);
+    for (const [id, label, key, value] of QUICK) {
+      const on = key ? state.filters[key] === value : none;
+      const n = quickCounts[id];
+      quickRow.append(h("button.ab-qchip", { type: "button", class: on ? "on" : "", "aria-pressed": String(on), dataset: { q: id },
+        onclick: () => quickFilter(key, value, on) }, label, n ? h("span.n", fmt.int(n)) : null));
+    }
+  }
+  function quickFilter(key, value, on) {
+    if (!key) QUICK_KEYS.forEach((k) => delete state.filters[k]);
+    else if (on) delete state.filters[key];
+    else {
+      state.filters[key] = value;
+      // transparency only applies to images
+      if (key === "kind" && value === "audio") delete state.filters.transparent;
+      if (key === "transparent" && state.filters.kind === "audio") delete state.filters.kind;
+    }
+    reload();
+  }
+
   root.append(
-    h("div.page-head", h("div", h("h1", "Assets"), h("div.sub", count)), statusSeg),
-    h("div.toolbar", search, sort, filterBtn, groupBtn, selectBtn),
-    panel, activeChips, layout,
-    h("div.kbd-hint", "Keys: ← → move · A approve · X reject · E archive/restore · F find similar · S select mode · ⌘A select all shown · ⌘/⇧-click to add to the selection · Esc clear/close · / search"));
+    h("div.page-head.ab-head", h("div", h("h1", "Assets"), h("div.sub", count)), statusSeg),
+    h("div.toolbar.ab-toolbar", search, sort, filterBtn, groupBtn, selectBtn, h("span.ab-spacer"), densityCtl),
+    panel, activeChips, quickRow, layout,
+    h("div.kbd-hint", "Keys: ← → move · Space quick look · A approve · X reject · E archive/restore · F find similar · S select mode · ⌘A select all shown · ⌘= / ⌘− thumbnail size · ⌘/⇧-click to add to the selection · Esc clear/close · / search"));
 
   function setFilter(key, value) {
     if (value) state.filters[key] = value; else delete state.filters[key];
     reload();
   }
 
+  // Keep a segmented control showing the filter's current value (filters can change from chips or "Clear all").
+  function syncSeg(seg, value) {
+    if (!seg || seg.value === value) return;
+    seg.value = value;
+    if (typeof seg.setLabels === "function" && Array.isArray(seg.options)) seg.setLabels(seg.options.map((o) => o[1]));
+  }
+
+  function clearAll() {
+    state.q = "";
+    search.value = "";
+    state.filters = {};
+    selects.forEach((s) => (s.value = ""));
+    reload();
+  }
+
+  function emptyState() {
+    const filtered = state.q || Object.keys(state.filters).length;
+    return h("div.empty.ab-empty", { style: "grid-column:1/-1" },
+      h("div", filtered ? "Nothing matches this search and these filters." : "No assets in this library yet."),
+      filtered ? h("button.btn.small", { type: "button", onclick: clearAll }, "Clear search and filters")
+        : h("a.btn.small.primary", { href: "#/generate" }, "Generate an asset"));
+  }
+
   function renderChips() {
     activeChips.innerHTML = "";
     syncGroupBtn();
+    renderQuick();
+    syncSeg(statusSeg, state.filters.status || "");
+    syncSeg(orientSeg, state.filters.orientation || "");
+    syncSeg(toneSeg, state.filters.tone || "");
+    syncSeg(alphaSeg, state.filters.transparent || "");
+    syncSeg(loopSeg, state.filters.loopable || "");
     const entries = Object.entries(state.filters).filter(([k]) => k !== "status" && k !== "group");
     filterBtn.textContent = entries.length ? `Filters (${entries.length})` : "Filters";
     for (const [k, v] of entries) {
@@ -110,7 +220,7 @@ export async function assets(root, { rest, params }) {
       state.total = data.total;
       count.textContent = state.filters.similar ? `${fmt.int(data.total)} assets, most similar to ${state.filters.similar} first`
         : `${fmt.int(data.total)} asset${data.total === 1 ? "" : "s"}`;
-      if (!state.offset && !data.items.length) grid.append(h("div.empty", { style: "grid-column:1/-1" }, "No assets match. Try fewer filters."));
+      if (!state.offset && !data.items.length) grid.append(emptyState());
       for (const a of data.items) {
         state.items.push(a);
         grid.append(card(a));
@@ -139,6 +249,7 @@ export async function assets(root, { rest, params }) {
     grid.querySelectorAll(".asset").forEach((c) => c.classList.toggle("selected", c.dataset.id === id));
     grid.querySelector(".asset.selected")?.scrollIntoView({ block: "nearest" });
     syncHash();
+    if (ql.el) { if (id) renderQuickLook(id); else closeQuickLook(); }
     if (!id) { layout.classList.remove("with-detail"); detail.innerHTML = ""; return; }
     layout.classList.add("with-detail");
     detail.innerHTML = "";
@@ -165,15 +276,168 @@ export async function assets(root, { rest, params }) {
       if (selectMode || e.metaKey || e.ctrlKey || e.shiftKey) { togglePick(a.id, e.shiftKey); return; }
       select(a.id);
     } });
+    el.classList.add("ab-card");
     el.prepend(h("button.pick", { type: "button", title: "Select", "aria-label": "Select",
       onclick: (e) => { e.stopPropagation(); togglePick(a.id, e.shiftKey); } }, "✓"));
     el.classList.toggle("picked", picked.has(a.id));
+    const v = a.primary_variant;
+    if (v) el.dataset.variant = v.id;
+    // status: dot + word instead of a coloured pill
+    const pill = el.querySelector(".meta .badge");
+    if (pill) pill.replaceWith(statusTag(a.status)); else el.querySelector(".meta")?.append(statusTag(a.status));
+    const thumb = el.querySelector(".thumb");
+    if (thumb) {
+      const img = thumb.querySelector("img");
+      if (img && v && thumbSize() !== 256) img.src = thumbUrl(v.id, thumbSize());
+      thumb.append(h("button.ab-ql-btn", { type: "button", title: "Quick Look (Space)", "aria-label": "Quick Look",
+        onclick: (e) => { e.stopPropagation(); openQuickLook(a.id); } }, "⤢"));
+      if (isAudio(a) && v) {
+        el.classList.add("ab-audio");
+        if (!thumb.querySelector(".play")) {
+          const btn = h("button.play", { type: "button", title: "Play", onclick: (e) => { e.stopPropagation(); playVariant(v.id, btn); } }, "▶");
+          thumb.append(btn);
+        }
+        thumb.append(h("div.ab-progress", { "aria-hidden": "true" }, h("i")));
+      }
+    }
     return el;
   }
 
   function refreshCard(asset) {
+    const i = state.items.findIndex((x) => x.id === asset.id);
+    const merged = i >= 0 ? { ...state.items[i], ...asset } : asset;
+    if (i >= 0) state.items[i] = merged;
     const old = grid.querySelector(`.asset[data-id="${asset.id}"]`);
-    if (old) old.replaceWith(card(asset));
+    if (old) old.replaceWith(card(merged));
+  }
+
+  // ---- card audio: a thin progress line over the waveform of the card that is playing
+  const player = document.getElementById("player");
+  let progressFrame = 0;
+  function tickProgress() {
+    progressFrame = 0;
+    if (!player) return;
+    const vid = (player.dataset.src || "").split("/").pop();
+    const playing = !player.paused && !player.ended && vid;
+    grid.querySelectorAll(".ab-card.ab-playing").forEach((c) => {
+      if (!playing || c.dataset.variant !== vid) { c.classList.remove("ab-playing"); setBar(c, 0); }
+    });
+    if (!playing) return;
+    const c = grid.querySelector(`.asset[data-variant="${CSS.escape(vid)}"]`);
+    if (c) { c.classList.add("ab-playing"); setBar(c, player.duration ? player.currentTime / player.duration : 0); }
+    progressFrame = requestAnimationFrame(tickProgress);
+  }
+  function setBar(c, p) {
+    const bar = c.querySelector(".ab-progress i");
+    if (bar) bar.style.transform = `scaleX(${Math.min(1, Math.max(0, p))})`;
+  }
+  const onPlayerChange = () => { if (!progressFrame) tickProgress(); };
+  if (player) ["play", "pause", "ended", "emptied"].forEach((ev) => player.addEventListener(ev, onPlayerChange));
+
+  // ---- Quick Look: a large preview over everything; ← → step through the grid, A / X review, Space / Esc close
+  const ql = { el: null, audio: null, seq: 0, frame: 0 };
+
+  function openQuickLook(id) {
+    id = id || state.selected;
+    if (!id) return;
+    if (!ql.el) {
+      ql.el = h("div.ab-ql", { role: "dialog", "aria-modal": "true", "aria-label": "Quick Look", tabIndex: -1,
+        onclick: (e) => { if (e.target === ql.el) closeQuickLook(); } });
+      document.body.append(ql.el);
+    }
+    document.activeElement?.blur?.();
+    ql.el.focus({ preventScroll: true });
+    if (state.selected !== id) select(id); else renderQuickLook(id);
+  }
+
+  function stopQuickLookAudio() {
+    cancelAnimationFrame(ql.frame);
+    ql.frame = 0;
+    if (ql.audio) { ql.audio.pause(); ql.audio.removeAttribute("src"); ql.audio.load(); ql.audio = null; }
+  }
+
+  function closeQuickLook() {
+    ql.seq += 1;
+    stopQuickLookAudio();
+    ql.el?.remove();
+    ql.el = null;
+    grid.querySelector(".asset.selected")?.scrollIntoView({ block: "nearest" });
+  }
+
+  function quickLookStep(n) {
+    const next = neighbour(n);
+    if (next && next !== state.selected) select(next);
+  }
+
+  async function renderQuickLook(id) {
+    const token = ++ql.seq;
+    stopQuickLookAudio();
+    let a = state.items.find((x) => x.id === id);
+    if (!a) {
+      try { a = (await api(`/api/assets/${id}`)).asset; }
+      catch (err) { if (token === ql.seq && ql.el) ql.el.replaceChildren(h("div.ab-ql-box", h("div.ab-ql-stage", errorBox(err)))); return; }
+    }
+    if (token !== ql.seq || !ql.el) return;
+    const ids = [...grid.querySelectorAll(".asset")].map((c) => c.dataset.id);
+    const i = ids.indexOf(id);
+    if (i >= ids.length - 4) load();  // keep stepping past the loaded page
+    const v = a.primary_variant;
+    const kind = v?.file?.kind;
+    let stage;
+    if (!v) stage = h("div.ab-ql-none", "No file");
+    else if (kind === "audio") stage = quickLookAudio(a, v);
+    else if (kind === "image" || kind === "vector") {
+      const img = h("img.ab-ql-img", { src: kind === "image" ? fileUrl(v.id) : thumbUrl(v.id, 512), alt: a.name });
+      img.addEventListener("load", () => img.classList.toggle("ab-pixel", Math.max(img.naturalWidth, img.naturalHeight) <= 128));
+      stage = img;
+    } else stage = h("div.ab-ql-none", `${v.file.ext} file`);
+    const more = state.offset < state.total;
+    const facts = [a.type, fmt.file(v?.file), a.project].filter(Boolean).join(" · ");
+    ql.el.replaceChildren(h("div.ab-ql-box",
+      h("div.ab-ql-head",
+        h("div.ab-ql-title", h("b", { title: a.name }, a.name), statusTag(a.status), h("span.muted", facts)),
+        h("span.muted.ab-ql-pos", i >= 0 ? `${fmt.int(i + 1)} of ${fmt.int(Math.max(state.total, ids.length))}` : ""),
+        h("button.ab-ql-close", { type: "button", title: "Close (Space or Esc)", "aria-label": "Close", onclick: closeQuickLook }, "×")),
+      h("div.ab-ql-stage", { class: kind === "audio" ? "audio" : "" }, stage,
+        h("button.ab-ql-nav.prev", { type: "button", title: "Previous (←)", "aria-label": "Previous", disabled: i <= 0, onclick: () => quickLookStep(-1) }, "‹"),
+        h("button.ab-ql-nav.next", { type: "button", title: "Next (→)", "aria-label": "Next", disabled: i < 0 || (i >= ids.length - 1 && !more),
+          onclick: () => quickLookStep(1) }, "›")),
+      h("div.ab-ql-foot",
+        a.status !== "approved" ? h("button.btn.small.primary", { type: "button", onclick: () => review("approve") }, "Approve ", h("kbd", "A")) : null,
+        a.status !== "rejected" ? h("button.btn.small", { type: "button", onclick: () => review("reject") }, "Reject ", h("kbd", "X")) : null,
+        h("button.btn.small", { type: "button", title: "Close Quick Look and keep this asset open in the panel", onclick: closeQuickLook }, "Details"),
+        h("span.ab-spacer"),
+        h("span.help", `← → browse · A approve · X reject${kind === "audio" ? " · P play/pause" : ""} · Space / Esc close`))));
+  }
+
+  function quickLookAudio(a, v) {
+    const audio = h("audio", { src: fileUrl(v.id), preload: "auto", loop: !!a.metadata?.audio?.loop });
+    const fill = h("i");
+    const time = h("span.ab-ql-time.mono", "–");
+    const btn = h("button.ab-ql-play", { type: "button", title: "Play / pause (P)", "aria-label": "Play or pause", onclick: () => toggle() }, "▶");
+    const wave = h("div.ab-ql-wave", { title: "Click to jump", onclick: (e) => {
+      const r = wave.getBoundingClientRect();
+      if (audio.duration && r.width) { audio.currentTime = ((e.clientX - r.left) / r.width) * audio.duration; update(); }
+    } }, h("img", { src: thumbUrl(v.id, 512), alt: "" }), h("div.ab-ql-wave-fill", fill));
+    function update() {
+      const d = audio.duration;
+      fill.style.width = d ? `${(audio.currentTime / d) * 100}%` : "0";
+      time.textContent = `${fmtTime(audio.currentTime)} / ${fmtTime(d)}`;
+    }
+    function tick() { update(); ql.frame = audio.paused ? 0 : requestAnimationFrame(tick); }
+    function toggle() {
+      if (audio.paused) { player?.pause(); audio.play().catch(() => toast("Couldn't play this sound")); } else audio.pause();
+    }
+    audio.addEventListener("play", () => { btn.textContent = "❚❚"; cancelAnimationFrame(ql.frame); tick(); });
+    audio.addEventListener("pause", () => { btn.textContent = "▶"; update(); });
+    audio.addEventListener("ended", () => { btn.textContent = "▶"; update(); });
+    audio.addEventListener("loadedmetadata", update);
+    ql.audio = audio;
+    ql.toggleAudio = toggle;
+    player?.pause();
+    audio.play().catch(() => { /* autoplay refused: the button still works */ });
+    return h("div.ab-ql-audio", wave, h("div.ab-ql-audio-row", btn, time,
+      a.metadata?.audio?.loop ? h("span.help", "seamless loop") : null), audio);
   }
 
   // ---- multi-select + bulk actions
@@ -203,6 +467,10 @@ export async function assets(root, { rest, params }) {
       const n = (v) => (f.statuses || []).find((x) => x.value === v)?.count || 0;
       const labels = STATUS_TABS.map(([v, l]) => (v === "candidate" || v === "archived") && n(v) ? `${l} (${n(v)})` : l);
       statusSeg.setLabels(labels);
+      quickCounts.candidates = n("candidate") || null;
+      quickCounts.images = (f.kinds || []).find((k) => k.value === "image")?.count;
+      quickCounts.audio = (f.kinds || []).find((k) => k.value === "audio")?.count;
+      renderQuick();
     } catch { /* counts are cosmetic */ }
   }
 
@@ -371,12 +639,30 @@ export async function assets(root, { rest, params }) {
   }
 
   const onKey = (e) => {
+    if (ql.el) {  // Quick Look is open: its keys only, nothing reaches the grid behind it
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      const handled = ["Escape", " ", "ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp", "j", "k", "a", "x", "p"].includes(k);
+      if (handled) e.preventDefault();
+      if (k === "Escape" || k === " ") closeQuickLook();
+      else if (k === "ArrowRight" || k === "ArrowDown" || k === "j") quickLookStep(1);
+      else if (k === "ArrowLeft" || k === "ArrowUp" || k === "k") quickLookStep(-1);
+      else if (k === "a" && !e.repeat && state.selected) review("approve");
+      else if (k === "x" && !e.repeat && state.selected) review("reject");
+      else if (k === "p" && ql.audio) ql.toggleAudio?.();
+      return;
+    }
     if (e.target.closest?.("input, textarea, select") || e.metaKey || e.ctrlKey || e.altKey) {
       if ((e.metaKey || e.ctrlKey) && e.key === "f") { e.preventDefault(); search.focus(); search.select(); }
       if ((e.metaKey || e.ctrlKey) && e.key === "a" && !e.target.closest?.("input, textarea, select")) { e.preventDefault(); selectAllShown(); }
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === "=" || e.key === "+")) { e.preventDefault(); stepDensity(1); }
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === "-" || e.key === "_")) { e.preventDefault(); stepDensity(-1); }
       return;
     }
-    if (e.key === "/") { e.preventDefault(); search.focus(); search.select(); }
+    if (e.key === " " && !e.repeat && state.selected && !e.target.closest?.("button, a, summary, audio, video, [contenteditable]")) {
+      e.preventDefault(); openQuickLook(state.selected);
+    }
+    else if (e.key === "/") { e.preventDefault(); search.focus(); search.select(); }
     else if (e.key === "ArrowRight" || e.key === "j") { e.preventDefault(); select(neighbour(1)); }
     else if (e.key === "ArrowLeft" || e.key === "k") { e.preventDefault(); select(neighbour(-1)); }
     else if (e.key === "Escape") { if (picked.size || selectMode) clearPicked(); else select(null); }
@@ -414,14 +700,21 @@ export async function assets(root, { rest, params }) {
       if (known.size && !known.has(a.id)) el.classList.add("fresh");
       return el;
     });
-    grid.replaceChildren(...(cards.length ? cards : [h("div.empty", { style: "grid-column:1/-1" }, "No assets match. Try fewer filters.")]));
+    grid.replaceChildren(...(cards.length ? cards : [emptyState()]));
     const scroller = root.closest("main");
     if (scroller) scroller.scrollTop = top;
+    onPlayerChange();
   }
 
   return {
     refresh,
-    cleanup: () => { observer.disconnect(); document.removeEventListener("keydown", onKey); },
+    cleanup: () => {
+      observer.disconnect();
+      document.removeEventListener("keydown", onKey);
+      closeQuickLook();
+      cancelAnimationFrame(progressFrame);
+      if (player) ["play", "pause", "ended", "emptied"].forEach((ev) => player.removeEventListener(ev, onPlayerChange));
+    },
     update: ({ rest: r, params: p }) => {
       const wanted = new URLSearchParams(p);
       const have = new URLSearchParams(qs({ q: state.q, sort: state.sort !== "newest" ? state.sort : "", ...state.filters }).slice(1));
@@ -486,7 +779,7 @@ function renderDetail({ asset, lineage, job, usage, frames, can_regenerate: canR
   ];
 
   // review bar
-  const statusBadge = h("span", badge(asset.status));
+  const statusBadge = h("span", statusTag(asset.status));
   const reviewBar = h("div.review-bar", statusBadge,
     asset.status !== "approved" ? h("button.btn.small.primary", { onclick: () => onReviewed("approve") }, "Approve ", h("kbd", "A")) : null,
     siblings?.length && asset.status === "candidate" ? h("button.btn.small", { title: "Approve this one and reject the other candidates from the same run", onclick: () => act("pick") }, `Pick (reject ${siblings.length} other${siblings.length > 1 ? "s" : ""})`) : null,
@@ -503,7 +796,7 @@ function renderDetail({ asset, lineage, job, usage, frames, can_regenerate: canR
       const fresh = await api(`/api/assets/${asset.id}`);
       onChanged(fresh.asset);
       statusBadge.innerHTML = "";
-      statusBadge.append(badge(fresh.asset.status));
+      statusBadge.append(statusTag(fresh.asset.status));
     } catch (err) {
       if (err.code === "POLICY_VIOLATION" && action === "approve" && confirm(`${err.message}\n\nApprove anyway?`)) return act(action, true);
       toast(err.message);
@@ -597,6 +890,24 @@ function renderDetail({ asset, lineage, job, usage, frames, can_regenerate: canR
     }).catch(() => similarStrip.append(h("span.muted", "Similarity unavailable (run `assetforge reindex`).")));
   }
 
+  // stories that use this asset (cosmetic: any failure just leaves the section out)
+  const storiesBox = h("div.ab-stories");
+  try {
+    api(`/api/assets/${encodeURIComponent(asset.id)}/stories`).then((data) => {
+      const stories = Array.isArray(data?.stories) ? data.stories : [];
+      if (!stories.length) return;
+      const seen = new Set();
+      const chips = stories.filter((s) => {
+        const k = `${s.story}|${s.role}`;
+        if (!s.story || seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      }).map((s) => h("a.ab-story-chip", { href: `#/story/${encodeURIComponent(s.story)}?tab=assets`, title: s.key ? `as ${s.key}` : "" },
+        h("span", s.title || s.story), s.role ? h("span.ab-role", ` · ${s.role}`) : null));
+      storiesBox.append(h("h3", "Used in stories"), h("div.ab-story-chips", chips));
+    }).catch(() => {});
+  } catch { /* never break the panel */ }
+
   if (current) show(current);
   return h("div",
     preview,
@@ -613,6 +924,7 @@ function renderDetail({ asset, lineage, job, usage, frames, can_regenerate: canR
         isImage ? h("button.btn.small", { onclick: () => onSimilar(asset.id) }, "Find similar ", h("kbd", "F")) : null),
       h("dl.facts", dlRows(facts)),
       asset.tags.length ? h("div", { style: "margin-top:10px" }, asset.tags.map((t) => h("a.tag", { href: `#/assets?q=${encodeURIComponent(t)}` }, t))) : null,
+      storiesBox,
       animBlock,
       soundBlock,
       asset.children ? [h("h3", h("span", `Frames (${asset.children})`), " ", h("a", { href: `#/assets?parent=${asset.id}`, style: "font-weight:400" }, "open as a list")), partsGrid] : "",

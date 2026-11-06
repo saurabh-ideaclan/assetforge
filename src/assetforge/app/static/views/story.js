@@ -1,13 +1,33 @@
-// Stories: write branching visual novels with any signed-in subscription (Claude, ChatGPT/Codex, Gemini) and any
-// model it offers, improve them from your feedback, make their assets and play the demo — all from the app.
-import { api, h, errorBox, toast, segmented, field, fmt, copy } from "/static/lib.js";
+// Stories: write branching visual novels with your own AI subscription (Claude, ChatGPT/Codex, Gemini), watch them
+// being written, read and play every chapter as soon as it exists, improve them from feedback, make their art.
+// Progress comes from the story's files and the library's jobs, so work started from the CLI or by agents shows too.
+import { api, h, errorBox, toast, segmented, field, fmt, copy, thumbUrl, playVariant } from "/static/lib.js";
 
-const TASK_LABEL = { write: "Writing", improve: "Improving from feedback", check: "Continuity check", refine: "Revising scene",
-                     assets_plan: "Estimating assets", assets: "Making assets", export: "Exporting demo" };
+const TASK_LABEL = { write: "Writing", improve: "Improving from feedback", check: "Continuity check", refine: "Revising a chapter",
+                     assets_plan: "Estimating art & sound", assets: "Making art & sound", export: "Exporting for a game" };
+const STAGE = { idea: ["Draft", ""], world: ["Building the world", "running"], cast: ["Creating characters", "running"],
+                writing: ["Writing", "running"], written: ["Ready to play", "approved"] };
 
 export async function story(root, { rest, params }) {
-  if (rest[0]) return detail(root, rest[0], params.get("tab") || "script");
-  return list(root);
+  if (rest[0] === "new") return wizard(root);
+  if (rest[0]) return detail(root, rest[0], params.get("tab") || "chapters", params.get("chapter"));
+  return hub(root);
+}
+
+function elapsed(s) { return s == null ? "" : s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`; }
+
+function cover(s, size = "") {
+  if (s.cover) return h("img.cover" + size, { src: s.cover, alt: "" });
+  let hash = 0;
+  for (const ch of s.title) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  const a = hash % 360, b = (a + 50) % 360;
+  const initials = s.title.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+  return h("div.cover.gen" + size, { style: `background:linear-gradient(135deg,hsl(${a} 45% 32%),hsl(${b} 55% 18%))` }, initials);
+}
+
+function bar(done, total, label) {
+  const pct = total ? Math.round((100 * done) / total) : 0;
+  return h("div.pbar", { title: label || `${done}/${total}` }, h("div.pbar-fill", { style: `width:${pct}%` }));
 }
 
 // ---------------------------------------------------------------------- writer picker (shared)
@@ -131,157 +151,282 @@ function subscriptions(info) {
     h("div.help", "Signing in runs each company's own tool; your password and tokens never pass through AssetForge."));
 }
 
-// ---------------------------------------------------------------------- list + new story
 
-async function list(root) {
-  const [data, info] = await Promise.all([api("/api/stories"), loadProviders()]);
-  root.append(h("div.page-head", h("div", h("h1", "Stories"),
-    h("div.sub", "Branching visual novels written by your own AI subscription, with every sprite, background and sound made for them."))));
-  const cards = data.stories.map((s) => h("a.card.story-card", { href: `#/story/${s.id}` },
-    h("div.row", h("b", s.title), s.busy ? h("span.badge.running", "working") : s.playable ? h("span.badge.approved", "playable") : null),
-    h("div.help", s.premise),
-    h("div.help", `${s.status.scenes_written}/${s.status.scenes_planned || "?"} scenes · ${s.genre} · ${s.provider || "auto"}${s.model ? " " + s.model : ""}`)));
-  root.append(h("div.story-grid", cards.length ? cards : h("div.empty.small", "No stories yet. Start one below.")),
-    h("div.sub-card", subscriptions(info)));
+// ---------------------------------------------------------------------- hub (catalog of every story)
 
-  const title = h("input", { type: "text", placeholder: "The Fog Lantern" });
-  const premise = h("textarea", { placeholder: "A lighthouse keeper's apprentice uncovers a smuggling ring hidden in a fog-bound harbour town." });
-  const genre = h("input", { type: "text", value: "mystery" });
-  const tone = h("input", { type: "text", placeholder: "atmospheric, warm, a little bittersweet" });
-  const audience = h("input", { type: "text", value: "teen" });
-  const scenes = h("input", { type: "number", min: 2, max: 60, value: 8 });
-  const endings = h("input", { type: "number", min: 1, max: 6, value: 2 });
-  const style = h("input", { type: "text", placeholder: "soft painted anime (art preset or any style)" });
-  const writer = writerPicker(info, {}, null);
-  const go = h("button.btn.primary", { type: "button" }, "Create and write");
-  const out = h("div");
-  go.addEventListener("click", async () => {
-    out.innerHTML = "";
-    go.disabled = true;
+async function hub(root) {
+  const head = h("div.page-head",
+    h("div", h("h1", "Stories"), h("div.sub", "Interactive visual novels written by your own AI subscription. Open one to watch it being written, read it, or play it.")),
+    h("a.btn.primary.big", { href: "#/story/new" }, "+ New story"));
+  const search = h("input", { type: "search", placeholder: "Search stories…", "aria-label": "Search stories" });
+  let filter = "all";
+  const seg = segmented([["all", "All"], ["active", "In progress"], ["playable", "Ready to play"]], filter, (v) => { filter = v; draw(); });
+  const grid = h("div.story-grid");
+  const subs = h("div.sub-card");
+  root.append(head, h("div.toolbar", search, seg), grid, h("div.section-head", h("h2", "Your AI writers")), subs);
+  search.addEventListener("input", () => draw());
+  let data = { stories: [] };
+
+  function draw() {
+    const q = search.value.trim().toLowerCase();
+    const items = data.stories.filter((s) =>
+      (filter === "all" || (filter === "active" ? s.progress.stage !== "written" || s.busy : s.playable)) &&
+      (!q || `${s.title} ${s.premise} ${s.genre}`.toLowerCase().includes(q)));
+    grid.replaceChildren(...(items.length ? items.map(card) : [h("div.empty",
+      data.stories.length ? "No stories match." : h("div", h("p", "No stories yet."), h("a.btn.primary", { href: "#/story/new" }, "Write your first story")))]));
+  }
+
+  function card(s) {
+    const p = s.progress;
+    const [done, total] = p.steps.chapters;
+    const [stageLabel, stageClass] = s.busy ? ["Writing…", "running"] : (STAGE[p.stage] || [p.stage, ""]);
+    const now = p.running[0];
+    return h("div.card.story-card",
+      h("a.story-cover", { href: `#/story/${s.id}`, "aria-label": `Open ${s.title}` }, cover(s)),
+      h("div.story-body",
+        h("div.row", h("a.story-title", { href: `#/story/${s.id}` }, s.title), h("span.badge", { class: stageClass }, stageLabel)),
+        h("div.help.clamp2", s.logline),
+        total ? h("div.story-progress", bar(done, total), h("span.help", `${done}/${total} chapters`)) : h("div.help", "Not planned yet"),
+        now ? h("div.live", h("span.spinner"), " ", now.label, h("span.muted", ` · ${elapsed(now.seconds)}`)) : null,
+        h("div.actions.tight",
+          h("a.btn.small", { href: `#/story/${s.id}` }, "Open"),
+          s.playable ? h("a.btn.small.primary", { href: `#/story/${s.id}?tab=play` }, "▶ Play") : null,
+          h("span.muted.small", `${s.genre} · ${s.provider || "auto"}${s.model ? " " + s.model : ""}`))));
+  }
+
+  async function load() {
+    data = await api("/api/stories");
+    draw();
+  }
+  await load();
+  loadProviders().then((info) => subs.replaceChildren(subscriptions(info))).catch((err) => subs.replaceChildren(errorBox(err)));
+  const timer = setInterval(() => { if (data.stories.some((s) => s.busy)) load().catch(() => {}); }, 3000);
+  return { cleanup: () => clearInterval(timer), refresh: load };
+}
+
+// ---------------------------------------------------------------------- new story wizard
+
+const GENRES = ["mystery", "romance", "adventure", "coming-of-age", "comedy", "horror", "fantasy", "sci-fi", "slice of life", "thriller"];
+const STYLES = ["soft painted anime", "watercolor storybook", "clean cel-shaded comic", "pixel art", "semi-realistic painting"];
+const IDEAS = [
+  "A shy 16-year-old joins the school's failing robotics club and discovers its old robot remembers a student who vanished.",
+  "Two rival food-stall kids must team up to win the town festival before a developer buys their street.",
+  "A teenage lighthouse keeper's apprentice finds coded lantern signals in the fog.",
+];
+
+async function wizard(root) {
+  const info = await loadProviders();
+  const st = { step: 1, premise: "", title: "", genre: "mystery", tone: "", audience: "teen", style: "soft painted anime", chapters: 10, endings: 3 };
+  const box = h("div.card.wizard");
+  root.append(h("div.page-head", h("div", h("a.help", { href: "#/story" }, "← Stories"), h("h1", "New story"),
+    h("div.sub", "Four quick steps. Only the idea is required; everything else has a good default."))), box);
+  let writer = null;
+  const chip = (value, current, set) => h("button.chip-btn", { type: "button", class: value === current ? "on" : "", onclick: () => { set(value); render(); } }, value);
+
+  function render() {
+    const steps = ["Idea", "Feel", "Length", "Writer"].map((t, i) => h("span.wstep", { class: i + 1 === st.step ? "on" : i + 1 < st.step ? "done" : "" }, `${i + 1} ${t}`));
+    const body = h("div.wbody");
+    if (st.step === 1) {
+      const premise = h("textarea", { rows: 4, value: st.premise, placeholder: "What is the story about? One or two sentences: who, where, what's at stake." });
+      premise.addEventListener("input", () => (st.premise = premise.value));
+      const title = h("input", { type: "text", value: st.title, placeholder: "Optional — we'll make one up from the idea" });
+      title.addEventListener("input", () => (st.title = title.value));
+      body.append(h("label", h("span.lbl", "Your idea"), premise),
+        h("div.help", "Need inspiration? ", ...IDEAS.map((idea, i) => h("button.linklike", { type: "button", onclick: () => { st.premise = idea; render(); } }, `Example ${i + 1}`))),
+        h("label", h("span.lbl", "Title"), title));
+      setTimeout(() => premise.focus(), 0);
+    } else if (st.step === 2) {
+      const tone = h("input", { type: "text", value: st.tone, placeholder: "e.g. warm, funny, a little eerie" });
+      tone.addEventListener("input", () => (st.tone = tone.value));
+      const custom = h("input", { type: "text", value: STYLES.includes(st.style) ? "" : st.style, placeholder: "or describe your own art style" });
+      custom.addEventListener("input", () => (st.style = custom.value || "soft painted anime"));
+      body.append(h("div.lbl", "Genre"), h("div.chip-row", GENRES.map((g) => chip(g, st.genre, (v) => (st.genre = v)))),
+        h("label", h("span.lbl", "Tone"), tone),
+        h("div.lbl", "For"), h("div.chip-row", ["all ages", "teen", "mature"].map((a) => chip(a, st.audience, (v) => (st.audience = v)))),
+        h("div.lbl", "Art style"), h("div.chip-row", STYLES.map((s) => chip(s, st.style, (v) => (st.style = v)))), custom);
+    } else if (st.step === 3) {
+      const range = h("input", { type: "range", min: 4, max: 20, value: st.chapters });
+      const label = h("b", `${st.chapters} chapters`);
+      range.addEventListener("input", () => { st.chapters = +range.value; label.textContent = `${st.chapters} chapters`; });
+      body.append(h("div.lbl", "Chapters per playthrough"), h("div.row.wrap", range, label),
+        h("div.help", "Each chapter is one scene of about 15–25 lines. Branches add a few extra chapters you only see on some routes."),
+        h("div.lbl", "Endings"), h("div.chip-row", [1, 2, 3, 4].map((n) => chip(String(n), String(st.endings), (v) => (st.endings = +v)))));
+    } else {
+      writer = writerPicker(info, {}, null);
+      body.append(writer, h("div.help", "You can change the writer at any time; finished chapters stay as they are."));
+    }
+    const back = h("button.btn", { type: "button", disabled: st.step === 1, onclick: () => { st.step--; render(); } }, "Back");
+    const next = st.step < 4
+      ? h("button.btn.primary", { type: "button", onclick: () => {
+          if (st.step === 1 && st.premise.trim().length < 10) return toast("Describe the idea in a sentence or two");
+          st.step++; render(); } }, "Next")
+      : h("button.btn.primary", { type: "button", onclick: create }, "Create and start writing");
+    box.replaceChildren(h("div.wsteps", steps), body, h("div.actions", back, next));
+  }
+
+  async function create(e) {
+    const btn = e.target;
+    btn.disabled = true;
+    // no title: a working title until the writer names the story during world-building
+    const title = st.title.trim() || "Untitled story";
     try {
       const made = await api("/api/stories", { method: "POST", body: {
-        title: title.value.trim(), premise: premise.value.trim(), genre: genre.value, tone: tone.value, audience: audience.value,
-        scenes: +scenes.value, endings: +endings.value, art_style: style.value, ...writer.value() } });
+        title, premise: st.premise.trim(), genre: st.genre, tone: st.tone, audience: st.audience, art_style: st.style,
+        scenes: st.chapters + st.endings, endings: st.endings, title_from_writer: !st.title.trim(),
+        ...(writer ? writer.value() : {}) } });
       await api(`/api/stories/${made.id}/run`, { method: "POST", body: { action: "write" } });
       location.hash = `#/story/${made.id}`;
-    } catch (err) { out.append(errorBox(err)); go.disabled = false; }
-  });
-  root.append(h("div.section-head", h("h2", "New story")),
-    h("div.card", h("div.form",
-      field("Title", title), field("Genre", genre), field("Audience / rating", audience),
-      h("label.wide", h("span.lbl", "Premise"), premise),
-      field("Tone", tone), field("Scenes", scenes), field("Endings", endings), field("Art style", style)),
-      h("div.sub-card", writer), h("div.actions", go, h("span.help", "Writing runs in the background; you can leave this page.")), out));
+    } catch (err) { btn.disabled = false; box.append(errorBox(err)); }
+  }
+  render();
   return {};
 }
 
 // ---------------------------------------------------------------------- one story
 
-async function detail(root, sid, tab) {
+async function detail(root, sid, tab, chapterParam) {
   let data = await api(`/api/stories/${sid}`);
-  const info = await loadProviders();
-  let poller = null;
   const head = h("div");
-  const status = h("div");
+  const tracker = h("div");
   const body = h("div");
-  root.append(head, status, body);
+  root.append(head, tracker, body);
+  let timer = null;
+  let selected = chapterParam || null;
+
+  function primaryAction() {
+    const p = data.progress;
+    const task = data.task?.state === "running" ? data.task : null;
+    if (p.active || task) return h("span.btn.big.ghost", h("span.spinner"), " ", task ? (TASK_LABEL[task.action] || task.action) : "Writing…",
+      p.eta_seconds ? h("span.muted", ` · about ${elapsed(p.eta_seconds)} left`) : null);
+    if (!data.progress.steps.world) return h("button.btn.primary.big", { type: "button", onclick: () => run({ action: "write" }) }, "Start writing");
+    if (p.steps.chapters[0] < p.steps.chapters[1]) return h("button.btn.primary.big", { type: "button", onclick: () => run({ action: "write" }) }, "Continue writing");
+    return h("a.btn.primary.big", { href: `#/story/${sid}?tab=play` }, "▶ Play");
+  }
 
   function renderHead() {
     const c = data.config;
-    const writer = writerPicker(info, { provider: c.provider, model: c.model }, async (v) => {
-      try { data.config = (await api(`/api/stories/${sid}/settings`, { method: "POST", body: v })).config; toast("Writer saved"); }
-      catch (err) { toast(err.message); }
-    });
+    window.afCrumb?.(c.title);
     head.replaceChildren(
-      h("div.page-head", h("div", h("a.help", { href: "#/story" }, "← Stories"), h("h1", c.title), h("div.sub", c.premise)),
-        segmented([["script", "Script"], ["improve", "Improve"], ["assets", "Assets"], ["play", "Play"]], tab,
-          (v) => (location.hash = `#/story/${sid}?tab=${v}`))),
-      h("div.card", writer, h("div.help.mono", data.dir)));
+      h("a.help", { href: "#/story" }, "← All stories"),
+      h("div.story-head",
+        cover({ title: c.title, cover: (data.progress && data.cover) || null }, ".lg"),
+        h("div.story-head-text", h("h1", c.title), h("div.sub", data.world?.logline || c.premise),
+          h("div.help", [c.genre, c.audience, c.art_style, `${c.provider || "auto writer"}${c.model ? " · " + c.model : ""}`].filter(Boolean).join(" · "))),
+        h("div.story-head-action", primaryAction())),
+      h("div.tabs-row", segmented([["chapters", "Chapters"], ["play", "▶ Play"], ["assets", "Assets"], ["improve", "Improve"], ["settings", "Settings"]], tab,
+        (v) => (location.hash = `#/story/${sid}?tab=${v}`))));
   }
 
-  function renderStatus() {
-    const s = data.status;
+  function renderTracker() {
+    const p = data.progress;
+    const [done, total] = p.steps.chapters;
+    const step = (label, ok, extra) => h("span.tstep", { class: ok ? "done" : "" }, ok ? "✓ " : "○ ", label, extra || "");
+    const art = p.steps.assets;
+    const items = [step("World", p.steps.world), step("Characters", p.steps.cast), step("Plan", p.steps.outline),
+      h("span.tstep.grow", { class: total && done === total ? "done" : "" }, `Chapters ${done}/${total || "?"}`, total ? bar(done, total) : null),
+      art ? step("Art & sound", art[0] === art[1], ` ${art[0]}/${art[1]}`) : step("Art & sound", false)];
+    const live = p.running.map((r) => h("div.live", h("span.spinner"), " ", r.label, h("span.muted", ` · ${elapsed(r.seconds)}`)));
     const task = data.task;
-    const running = task && task.state === "running";
-    const steps = Object.entries(s.steps).map(([k, v]) => h("span.tag", { class: v ? "done" : "" }, `${v ? "✓" : "·"} ${k}`));
-    const complete = s.steps.script && s.scenes_written === s.scenes_planned;
-    const writeBtn = complete ? h("a.btn", { href: `#/story/${sid}?tab=improve` }, "Improve with feedback")
-      : h("button.btn.primary", { type: "button", disabled: running, onclick: () => run({ action: "write" }) },
-          !s.steps.world ? "Write story" : "Continue writing");
-    const parts = [h("div.row.wrap", ...steps, h("span.help", `${s.scenes_written}/${s.scenes_planned || "?"} scenes`), writeBtn)];
-    if (running) parts.push(h("div.notice", h("span", h("span.spinner"), ` ${TASK_LABEL[task.action] || task.action}… ${task.elapsed ?? ""}s`),
-      h("span.help", "Each model call is saved as it finishes, so nothing is lost if you leave.")));
-    else if (task?.state === "failed") parts.push(errorBox(task.error || {}));
-    else if (task?.state === "done") parts.push(h("div.help", `Last: ${TASK_LABEL[task.action] || task.action} finished.`));
-    const errors = (data.issues || []).filter((i) => i.level === "error");
-    if (errors.length) parts.push(h("div", errors.map((i) => h("span.issue.err", `${i.where}: ${i.message}`))));
-    status.replaceChildren(h("div.card.sub-card", ...parts));
+    if (task?.state === "running" && !p.running.length) live.push(h("div.live", h("span.spinner"), " ", TASK_LABEL[task.action] || task.action, h("span.muted", ` · ${elapsed(task.elapsed)}`)));
+    if (task?.state === "failed") live.push(errorBox(task.error || {}));
+    const feed = p.feed.map((f) => h("div.feed-row", h("span", { class: f.status === "failed" ? "bad" : "good" }, f.status === "failed" ? "✗" : "✓"), " ", f.label,
+      h("span.muted", ` · ${f.seconds}s · ${fmt.date ? fmt.date(f.at) : f.at}${f.model ? " · " + f.model : ""}`), f.error ? h("div.help", f.error) : null));
+    tracker.replaceChildren(h("div.card.tracker", h("div.tsteps", items), ...live,
+      feed.length ? h("details.feed", h("summary.help", "Activity"), feed) : null));
   }
 
   async function run(payload) {
-    try {
-      await api(`/api/stories/${sid}/run`, { method: "POST", body: payload });
-      await refresh();
-    } catch (err) { toast(err.message); }
+    try { await api(`/api/stories/${sid}/run`, { method: "POST", body: payload }); await refresh(true); }
+    catch (err) { toast(err.message); }
   }
 
-  async function refresh() {
+  let lastSignature = "";
+  async function refresh(force = false) {
     data = await api(`/api/stories/${sid}`);
-    renderStatus();
-    const running = data.task?.state === "running";
-    if (running && !poller) poller = setInterval(async () => {
-      try {
-        const t = await api(`/api/story-tasks/${data.task.id}`);
-        data.task = t.task; data.status = t.status || data.status;
-        renderStatus();
-        if (t.task.state !== "running") { clearInterval(poller); poller = null; await refresh(); renderBody(); }
-      } catch { clearInterval(poller); poller = null; }
-    }, 2000);
+    renderHead();
+    renderTracker();
+    const signature = JSON.stringify([data.progress.chapters.map((c) => c.state), data.task?.state]);
+    if (force || signature !== lastSignature) { lastSignature = signature; if (tab === "chapters") renderBody(); }
+    const busy = data.progress.active || data.task?.state === "running";
+    clearTimeout(timer);
+    timer = setTimeout(() => refresh().catch(() => {}), busy ? 2500 : 15000);
   }
 
   function renderBody() {
+    const scroll = body.querySelector(".reader")?.scrollTop;
     body.innerHTML = "";
-    ({ script: scriptTab, improve: improveTab, assets: assetsTab, play: playTab }[tab] || scriptTab)(body, data, sid, run);
+    const views = { chapters: chaptersTab, play: playTab, improve: improveTab, assets: storyAssetsTab, settings: settingsTab };
+    (views[tab] || chaptersTab)(body, data, sid, run, { selected, select: (id) => { selected = id; history.replaceState(null, "", `#/story/${sid}?tab=chapters&chapter=${id}`); renderBody(); } });
+    if (scroll) body.querySelector(".reader") && (body.querySelector(".reader").scrollTop = scroll);
   }
 
   renderHead();
-  renderStatus();
+  renderTracker();
+  lastSignature = JSON.stringify([data.progress.chapters.map((c) => c.state), data.task?.state]);
   renderBody();
-  await refresh();
-  return { cleanup: () => poller && clearInterval(poller) };
+  timer = setTimeout(() => refresh().catch(() => {}), 2500);
+  return { cleanup: () => clearTimeout(timer), refresh: () => refresh() };
 }
 
-// ---------------------------------------------------------------------- tabs
+// ---------------------------------------------------------------------- chapters: rail + reader
 
-function scriptTab(root, data, sid, run) {
-  if (data.world) root.append(h("div.section-head", h("h2", "World")), h("div.card",
-    h("p", h("b", data.world.logline)), h("p.help", data.world.setting), h("p.help", h("b", "Art: "), data.world.art_direction),
-    h("p.help", h("b", "Music: "), data.world.music_direction)));
-  if (data.cast) root.append(h("div.section-head", h("h2", "Cast")), h("div.cols",
-    data.cast.characters.map((c) => h("div.card", h("div.row", h("b", c.name), h("span.tag", c.role)), h("div.help", c.personality),
-      h("div.help", h("i", c.look)), h("div", c.expressions.map((e) => h("span.tag", e)))))));
-  if (!data.scenes) {
-    root.append(h("div.empty.small", data.outline ? "Scenes are being written…" : "Press “Write story” to start."));
+function chaptersTab(root, data, sid, run, { selected, select }) {
+  const chapters = data.progress.chapters;
+  if (!chapters.length) {
+    const working = data.progress.active || data.task?.state === "running";
+    root.append(h("div.empty", working ? h("div", h("span.spinner"), " ", data.progress.running[0]?.label || "Getting started",
+      "… chapters will appear here one by one as they're written.")
+      : h("div", h("p", "Nothing written yet."), h("button.btn.primary", { type: "button", onclick: () => run({ action: "write" }) }, "Start writing"))));
+    if (data.world) root.append(worldCard(data));
     return;
   }
-  const names = Object.fromEntries((data.cast?.characters || []).map((c) => [c.id, c.name]));
-  root.append(h("div.section-head", h("h2", `Script — ${data.scenes.length} scenes`)));
-  for (const s of data.scenes) {
-    const note = h("input", { type: "text", placeholder: "What should change in this scene?" });
-    const lines = s.nodes.map((n) => {
-      if (n.kind === "say") return h("div.vn-line", h("b", names[n.speaker] || n.speaker), n.expression ? h("span.muted", ` (${n.expression})`) : null, ": ", n.text);
-      if (n.kind === "narrate") return h("div.vn-line.narr", n.text);
-      if (n.kind === "choice") return h("div.vn-choice", n.choices.map((c) => h("div", `➜ ${c.text}`, h("span.muted", `  → ${c.goto}`))));
-      if (n.kind === "jump") return h("div.vn-line.muted", `→ ${n.goto}`);
-      if (n.kind === "ending") return h("div.vn-line", h("b", `ENDING: ${n.ending}`));
-      if (n.kind === "cg" || n.kind === "sfx") return h("div.vn-line.muted", `[${n.kind}: ${n.cg || n.cue}] ${n.text || ""}`);
-      return null;
-    });
-    root.append(h("details.section.vn-scene", h("summary", h("span", s.title), h("span.muted", `${s.id} · ${s.location} · ${s.time} · ${s.music}`)),
-      h("div.vn-lines", lines),
-      h("div.actions", note, h("button.btn.small", { type: "button", onclick: () => note.value.trim() && run({ action: "refine", scene: s.id, note: note.value.trim() }) }, "Revise scene"))));
-  }
+  const current = chapters.find((c) => c.id === selected) || chapters.find((c) => c.state === "written") || chapters[0];
+  const icon = { written: "✓", writing: "⟳", revising: "⟳", planned: "○" };
+  const rail = h("div.rail", chapters.map((c) => h("button.rail-item", {
+    type: "button", class: `${c.state}${c.id === current.id ? " on" : ""}`, onclick: () => select(c.id) },
+    h("span.rail-num", c.number), h("span.rail-text", h("b", c.title), h("span.help", `${c.location.replace(/_/g, " ")} · ${c.time}${c.ending ? " · ending" : ""}`)),
+    h("span.rail-icon", { title: c.state }, c.state === "writing" || c.state === "revising" ? h("span.spinner") : icon[c.state]))));
+  root.append(h("div.chapters", rail, h("div.reader", reader(current, data, sid, run, select))));
+  if (data.world) root.append(worldCard(data));
 }
+
+function reader(c, data, sid, run, select) {
+  const titles = Object.fromEntries(data.progress.chapters.map((x) => [x.id, x]));
+  const head = h("div.reader-head", h("div", h("div.help", `Chapter ${c.number}`), h("h2", c.title)),
+    c.state === "written" || c.state === "revising"
+      ? h("a.btn.primary", { href: `#/story/${sid}?tab=play&chapter=${c.id}` }, "▶ Play from here") : null);
+  const scene = data.written?.[c.id];
+  if (!scene) return h("div", head, h("div.planned-card",
+    c.state === "writing" ? h("p", h("span.spinner"), " Being written right now…") : h("p.help", "Not written yet. This is the plan:"),
+    h("p", c.summary), c.choices.length ? h("div.help", "Ends with a choice: ", c.choices.join(" / ")) : null));
+  const names = Object.fromEntries((data.cast?.characters || []).map((ch) => [ch.id, ch.name]));
+  const lines = scene.nodes.map((n) => {
+    if (n.kind === "say") return h("div.vn-line", h("b.speaker", names[n.speaker] || n.speaker), n.expression ? h("span.expr", n.expression) : null, h("div", n.text));
+    if (n.kind === "narrate") return h("div.vn-line.narr", n.text);
+    if (n.kind === "choice") return h("div.vn-choice", h("div.help", "Choice"), n.choices.map((ch) =>
+      h("button.linklike", { type: "button", onclick: () => select(ch.goto) }, `➜ ${ch.text}`, h("span.muted", `  → ${titles[ch.goto]?.title || ch.goto}`))));
+    if (n.kind === "jump") return h("div.vn-next", h("button.linklike", { type: "button", onclick: () => select(n.goto) }, `Next: ${titles[n.goto]?.title || n.goto} →`));
+    if (n.kind === "ending") return h("div.vn-end", `THE END — ${(data.outline?.endings || []).find((e) => e.id === n.ending)?.title || n.ending}`);
+    if (n.kind === "cg") return h("div.vn-stage", `🖼 ${n.text || n.cg}`);
+    if (n.kind === "sfx") return h("div.vn-stage", `🔊 ${n.text || n.cue}`);
+    if (n.kind === "show") return h("div.vn-stage", `${names[n.character] || n.character} enters${n.expression ? ` (${n.expression})` : ""}`);
+    if (n.kind === "hide") return h("div.vn-stage", `${names[n.character] || n.character} leaves`);
+    return null;
+  });
+  const note = h("input", { type: "text", placeholder: "What should change in this chapter?" });
+  return h("div", head, h("div.vn-lines.big", lines),
+    h("div.actions", note, h("button.btn", { type: "button", onclick: () => note.value.trim() && run({ action: "refine", scene: c.id, note: note.value.trim() }) }, "Revise chapter")));
+}
+
+function worldCard(data) {
+  const w = data.world;
+  return h("details.section", h("summary", h("span", "World & characters")),
+    h("div.card", h("p", h("b", w.logline)), h("p.help", w.setting), h("p.help", h("b", "Look: "), w.art_direction), h("p.help", h("b", "Music: "), w.music_direction)),
+    data.cast ? h("div.cols.sub-card", data.cast.characters.map((c) => h("div.card", h("div.row", h("b", c.name), h("span.tag", c.role)),
+      h("div.help", c.personality), h("div.help", h("i", c.look)), h("div", c.expressions.map((e) => h("span.tag", e)))))) : null);
+}
+
+// ---------------------------------------------------------------------- improve, art & sound, play, settings
 
 function improveTab(root, data, sid, run) {
   if (!data.scenes) { root.append(h("div.empty.small", "Write the story first.")); return; }
@@ -336,10 +481,122 @@ function assetsTab(root, data, sid, run) {
   if (a.missing.length) root.append(h("details.section", h("summary", h("span", `Missing (${a.missing.length})`)), h("div.mono", a.missing.map((k) => h("div", k)))));
 }
 
-function playTab(root, data, sid, run) {
-  const frame = data.playable ? h("iframe.vn-frame", { src: `/play/${sid}/?t=${Date.now()}`, title: "Story demo", allow: "autoplay" }) : null;
-  root.append(h("div.toolbar",
-    h("button.btn", { type: "button", onclick: () => run({ action: "export" }) }, data.playable ? "Re-export demo" : "Export demo"),
-    h("span.help", `Files: ${data.dir}/build — open index.html in any browser, or ship the folder.`)),
-    frame || h("div.empty.small", data.scenes ? "Export the demo to play it here." : "Write the story first."));
+
+function playTab(root, data, sid, run, { selected } = {}) {
+  if (!data.progress.playable_chapters) {
+    root.append(h("div.empty", data.progress.active ? h("div", h("span.spinner"), " The first chapter is being written; you can play it as soon as it's done.")
+      : "Write the story first."));
+    return;
+  }
+  const chapter = new URLSearchParams(location.hash.split("?")[1] || "").get("chapter") || selected;
+  const src = () => `/preview/${sid}/${chapter ? `?scene=${encodeURIComponent(chapter)}&` : "?"}t=${Date.now()}`;
+  const frame = h("iframe.vn-frame", { src: src(), title: "Story player", allow: "autoplay" });
+  const [done, total] = data.progress.steps.chapters;
+  root.append(
+    h("div.toolbar",
+      h("button.btn", { type: "button", onclick: () => (frame.src = src()) }, "↻ Reload with latest chapters"),
+      chapter ? h("a.btn", { href: `#/story/${sid}?tab=play` }, "Start from the beginning") : null,
+      h("span.help", done < total ? `${done} of ${total} chapters written — unwritten chapters play as their plan.` : "Every chapter is written.")),
+    frame,
+    h("p.help", "Click or press Space to advance · 1–9 picks a choice · H shows history. Art and sound appear here as soon as they're made."));
+}
+
+function settingsTab(root, data, sid, run) {
+  const c = data.config;
+  const info = loadProviders();
+  const writerBox = h("div", h("span.spinner"));
+  info.then((i) => writerBox.replaceChildren(writerPicker(i, { provider: c.provider, model: c.model }, async (v) => {
+    try { await api(`/api/stories/${sid}/settings`, { method: "POST", body: v }); toast("Writer saved"); }
+    catch (err) { toast(err.message); } })));
+  root.append(
+    h("div.card", h("h3", "Writer"), h("p.help", "Used for the next chapters, revisions and improvements."), writerBox),
+    h("div.card.sub-card", h("h3", "Export for a game"),
+      h("p.help", "Writes a standalone folder (index.html, story.json, art and sound) you can ship or load into an engine."),
+      h("div.actions", h("button.btn", { type: "button", onclick: () => run({ action: "export" }) }, data.exported ? "Export again" : "Export"),
+        h("span.help.mono", `${data.dir}/build`))),
+    h("div.card.sub-card", h("h3", "Files"), h("p.help.mono", data.dir),
+      h("p.help", "story.json, world.json, cast.json, outline.json, scenes/*.json and notes.md (the whole story as readable text).")));
+}
+
+
+// ---------------------------------------------------------------------- story assets (what the story uses, where)
+
+function storyAssetsTab(root, data, sid, run) {
+  const box = h("div", h("div.empty.small", h("span.spinner"), " Loading the story's assets…"));
+  root.append(box);
+  api(`/api/stories/${sid}/assets`).then((a) => renderStoryAssets(box, a, data, sid, run))
+    .catch((err) => box.replaceChildren(errorBox(err)));
+}
+
+function renderStoryAssets(box, a, data, sid, run) {
+  let show = "all";      // all | missing | made
+  let chapter = null;    // chapter id lens
+  const chapterTitles = Object.fromEntries((data.progress?.chapters || []).map((c) => [c.id, `${c.number}. ${c.title}`]));
+  const keep = (e) => (show === "all" || (show === "missing" ? !e.asset : !!e.asset)) && (!chapter || e.chapters.some((c) => c.id === chapter));
+
+  const chips = (e, max = 3) => h("div.sa-chips", e.chapters.length
+    ? e.chapters.slice(0, max).map((c) => h("button.sa-chip", { type: "button", title: `Show only chapter “${c.title}”`, onclick: () => { chapter = c.id; draw(); } }, chapterTitles[c.id] || c.title))
+      .concat(e.chapters.length > max ? [h("span.muted.small", { title: e.chapters.slice(max).map((c) => chapterTitles[c.id] || c.title).join("\n") }, `+${e.chapters.length - max} more`)] : [])
+    : [h("span.muted.small", "not used yet")]);
+  const status = (e) => e.asset ? h("span.sa-status", { class: e.asset.status }, e.asset.status) : h("span.sa-status.missing", "not made");
+  const open = (e) => e.asset && (location.hash = `#/assets/${e.asset.id}`);
+
+  function tile(e, label, { wide = false } = {}) {
+    const v = e.asset?.primary_variant;
+    const img = v && v.file?.kind === "image" ? h("img", { src: thumbUrl(v.id, wide ? 512 : 256), loading: "lazy", alt: label }) : null;
+    return h("div.sa-tile", { class: `${wide ? "wide" : ""}${e.asset ? "" : " missing"}`, title: e.key, onclick: () => open(e) },
+      h("div.sa-thumb", img || h("span.muted.small", e.asset ? "no preview" : "not made yet")),
+      h("div.sa-cap", h("b", label), e.asset ? h("span.sa-dot", { class: e.asset.status, title: e.asset.status }) : h("span.sa-dot.missing", { title: "not made yet" })), chips(e));
+  }
+
+  function soundRow(e, label, extra) {
+    const v = e.asset?.primary_variant;
+    const btn = v ? h("button.sa-play", { type: "button", title: "Play", onclick: (ev) => { ev.stopPropagation(); playVariant(v.id, btn); } }, "▶") : h("span.sa-play.off", "·");
+    return h("div.sa-row", { class: e.asset ? "" : "missing" }, btn,
+      h("div.sa-row-main", h("div", h("b", label), " ", status(e)), extra ? h("div.help", extra) : null),
+      chips(e, 5), e.asset ? h("button.btn.small", { type: "button", onclick: () => open(e) }, "Open") : null);
+  }
+
+  const section = (id, title, count, body) => body.length ? h("section.sa-section", { id: `sa-${id}` },
+    h("h2", title, h("span.muted.small", ` ${count}`)), ...body) : null;
+
+  function draw() {
+    const t = a.totals;
+    const head = h("div.card.sa-head",
+      h("div", h("div.sa-big", `${t.made} of ${t.total}`), h("div.help", `assets made · ${t.approved} approved · ${t.total - t.made} missing`)),
+      segmented([["all", "All"], ["missing", "Missing"], ["made", "Made"]], show, (v) => { show = v; draw(); }),
+      chapter ? h("button.btn.small", { type: "button", onclick: () => { chapter = null; draw(); } }, `Chapter: ${chapterTitles[chapter] || chapter}  ✕`) : null,
+      h("nav.sa-nav", ["characters", "places", "cgs", "ui", "sound"].map((id) => h("a", { href: `#sa-${id}`, onclick: (ev) => { ev.preventDefault(); box.querySelector(`#sa-${id}`)?.scrollIntoView({ behavior: "smooth" }); } },
+        { characters: "Characters", places: "Places", cgs: "Event art", ui: "UI", sound: "Sound" }[id]))));
+
+    const characters = a.characters.map((c) => {
+      const exprs = c.expressions.filter(keep);
+      if (!exprs.length) return null;
+      const used = new Set(c.expressions.flatMap((e) => e.chapters.map((x) => x.id)));
+      return h("div.sa-char", h("div.sa-char-head", h("b", c.name), h("span.tag", c.role),
+        h("span.help", `${c.lines} lines · in ${used.size} chapters`)), h("div.sa-strip", exprs.map((e) => tile(e, e.expression.replace(/_/g, " ")))));
+    }).filter(Boolean);
+
+    const times = ["day", "evening", "night"];
+    const places = a.locations.map((l) => {
+      const cells = times.map((tm) => l.times.find((x) => x.time === tm)).map((e, i) => e && keep(e) ? tile(e, times[i], { wide: true }) : h("div.sa-cell-empty", e ? "" : "—"));
+      const amb = l.ambience && keep(l.ambience) ? soundRow(l.ambience, "Ambience", null) : null;
+      if (!l.times.some(keep) && !amb) return null;
+      return h("div.sa-place", h("div.sa-char-head", h("b", l.name), h("span.help.clamp2", l.description)), h("div.sa-matrix", cells), amb);
+    }).filter(Boolean);
+
+    const cgs = a.cgs.filter(keep).map((e) => h("div", tile(e, e.ref.replace(/_/g, " "), { wide: true }), h("div.help.clamp2", e.text)));
+    const ui = a.ui.filter(keep).map((e) => tile(e, e.ref, { wide: true }));
+    const music = a.music.filter(keep).map((e) => soundRow(e, `Music · ${e.ref}`, e.asset?.description));
+    const sfx = a.sfx.filter(keep).map((e) => soundRow(e, e.ref.replace(/_/g, " "), e.text));
+
+    box.replaceChildren(head,
+      section("characters", "Characters & expressions", a.characters.reduce((n, c) => n + c.expressions.length, 0), characters),
+      section("places", "Places by time of day", a.locations.length, places.length ? [h("div.sa-times", h("span"), ...times.map((tm) => h("span.help", tm))), ...places] : []),
+      section("cgs", "Event art (CGs)", a.cgs.length, cgs.length ? [h("div.sa-grid.wide", cgs)] : []),
+      section("ui", "Title & UI", a.ui.length, ui.length ? [h("div.sa-grid.wide", ui)] : []),
+      section("sound", "Music & sound effects", a.music.length + a.sfx.length, [...music, ...sfx]),
+      h("details.section.sa-make", h("summary", h("span", "Make missing art & sound"), h("span.muted", "estimate first; images use your image API key")), (() => { const d = h("div"); assetsTab(d, data, sid, run); return d; })()));
+  }
+  draw();
 }

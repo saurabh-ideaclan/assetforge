@@ -5,8 +5,8 @@ export async function jobsView(root, { rest, params }) {
   const state = { status: params.get("status") || "", kind: params.get("kind") || "" };
   const status = h("select", ["", "queued", "running", "succeeded", "failed", "cancelled"].map((s) =>
     h("option", { value: s, selected: s === state.status }, s ? `Status: ${s}` : "Status: all")));
-  const kind = h("select", ["", "image", "image_edit", "audio", "audio_vary", "request"].map((k) =>
-    h("option", { value: k, selected: k === state.kind }, k ? `Kind: ${k}` : "Kind: all")));
+  const kind = h("select", ["", "text", "image", "image_edit", "audio", "audio_vary", "request"].map((k) =>
+    h("option", { value: k, selected: k === state.kind }, k ? `Kind: ${k === "text" ? "text (stories)" : k}` : "Kind: all")));
   const list = h("div");
   const detail = h("div");
   [status, kind].forEach((el) => el.addEventListener("change", () => { state.status = status.value; state.kind = kind.value; load(); }));

@@ -281,6 +281,9 @@ def assets_(
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Show what would be made and the estimated cost.")] = False,
     image_provider: Annotated[str, typer.Option(help="Image provider: auto, openai, gemini (or fake).")] = "auto",
     quality: Annotated[str, typer.Option(help="auto, low, medium, high, max.")] = "auto",
+    redo: Annotated[bool, typer.Option("--redo", help="Remake the selected groups (old versions are archived, not "
+                                                      "deleted).")] = False,
+    replan: Annotated[bool, typer.Option("--replan", help="Ask the writer for a new sound plan (sound.json) first.")] = False,  # fmt: skip
     json_: JsonOpt = False,
 ) -> None:
     """Make every asset the script needs (sprites + expressions, backgrounds per time of day, CGs, UI, music,
@@ -290,7 +293,7 @@ def assets_(
     with session(ctx, json_) as s:
         proj = find_dir(directory)
         result = produce(s.lib, proj, only=only, limit=limit, dry_run=dry_run, image_provider=image_provider,
-                         quality=quality)  # fmt: skip
+                         quality=quality, redo=redo, replan=replan)  # fmt: skip
         failed = result["counts"].get("failed", 0) + result["counts"].get("blocked", 0)
         status = "ok" if not failed else "partial" if failed < result["total"] else "error"
 

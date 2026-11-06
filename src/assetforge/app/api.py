@@ -45,7 +45,8 @@ def _job_brief(job: Any) -> dict[str, Any]:
         "id": job.id, "kind": job.kind, "status": job.status.value, "provider": job.provider, "model": job.model,
         "asset_id": job.asset_id, "cost_usd": job.cost_usd, "attempts": job.attempts, "created_at": job.created_at,
         "updated_at": job.updated_at, "error": job.error,
-        "summary": request.get("prompt") or request.get("description") or request.get("recipe"),
+        "summary": request.get("prompt") or request.get("description") or request.get("recipe")
+        or (" · ".join(x for x in (request.get("project"), request.get("task")) if x) if job.kind == "text" else None),
     }  # fmt: skip
 
 
@@ -380,7 +381,7 @@ def _variant(lib: Library, variant_id: str) -> Variant:
     return variant
 
 
-@router.route("GET", r"/media/variant/(?P<variant>var_\d+)")
+@router.route("GET", r"/media/variant/(?P<variant>var_\d+)(?:\.[a-z0-9]{2,4})?")  # optional ext: players pick formats by it
 def media_variant(req: Request, lib: Library) -> FileResponse:
     variant = _variant(lib, req.match["variant"])
     from assetforge.audio.masters import ensure_file

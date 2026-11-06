@@ -271,3 +271,107 @@ def test_gemini_retired_free_tier_is_a_clear_unsupported_error() -> None:
         GeminiCLIProvider(Settings({})).parse(1, out, "", TextCall(prompt="x"))
     assert info.value.kind == "unsupported" and info.value.allows_fallback and not info.value.retryable
     assert "--skip-trust" in GeminiCLIProvider(Settings({})).argv(TextCall(prompt="x"))
+
+
+# ---------------------------------------------------------------------- live progress + preview (work from anywhere)
+
+
+def _written_story(lib: Library, root: Path) -> Any:
+    project = steps.init(root, title="Fog", premise="An apprentice uncovers smugglers.", scenes=5, endings=2, provider="fake")
+    ctx = steps.Ctx(lib, project)
+    steps.world(ctx); steps.cast(ctx); steps.outline(ctx); steps.write(ctx)
+    return project
+
+
+def test_progress_sees_jobs_started_elsewhere(lib: Library, tmp_path: Path, fake: None) -> None:
+    from assetforge.core import jobs
+    from assetforge.story.progress import progress
+
+    project = _written_story(lib, tmp_path / "s")
+    project.scene_path("s03").unlink()
+    # a CLI or agent process is writing s03 right now
+    jobs.create_job(lib, "text", {"task": "story.scene.s03", "project": project.config.asset_project}, fingerprint="x")
+    p = progress(lib, project)
+    assert p["stage"] == "writing" and p["active"] and p["steps"]["chapters"] == [4, 5]
+    assert p["running"][0]["label"].startswith("Writing chapter 3")
+    states = {c["id"]: c["state"] for c in p["chapters"]}
+    assert states["s03"] == "writing" and states["s01"] == "written"
+    assert [c["number"] for c in p["chapters"]][:3] == [1, 2, 3]
+    assert any(f["label"].startswith("Writing chapter") for f in p["feed"])
+
+
+def test_preview_plays_an_unfinished_story(server: AppServer, home: Path) -> None:
+    from assetforge.core import jobs
+    from assetforge.story.project import register
+
+    with Library(home) as lib:
+        project = _written_story(lib, home / "stories" / "fog")
+        project.scene_path("e02").unlink()
+        sid = register(home, project)
+        jobs.create_job(lib, "text", {"task": "story.scene.e02", "project": project.config.asset_project}, fingerprint="y")
+    status, headers, body = call(server, f"/preview/{sid}/")
+    assert status == 200 and b"assetforge-vn-player" in body and "connect-src 'none'" in headers["Content-Security-Policy"]
+    status, headers, body = call(server, f"/preview/{sid}/story.js")
+    data = json.loads(body.decode().removeprefix("window.STORY = ").rstrip().rstrip(";"))
+    draft = [s for s in data["script"]["scenes"] if s.get("draft")]
+    assert data["preview"] and data["version"] and [s["id"] for s in draft] == ["e02"]
+    assert draft[0]["nodes"][-1] == {"kind": "ending", "ending": "end_2"} and draft[0]["summary"]
+    _, act = jcall(server, "/api/activity")
+    assert act["stories"] == [{"id": sid, "title": "Fog", "running": 1}]
+    _, listing = jcall(server, "/api/stories")
+    story = listing["stories"][0]
+    assert story["busy"] and story["playable"] and story["progress"]["steps"]["chapters"] == [4, 5]
+    _, detail = jcall(server, f"/api/stories/{sid}")
+    assert "e02" not in detail["written"] and detail["progress"]["running"][0]["label"].startswith("Writing chapter")
+
+
+def test_no_image_key_still_makes_free_sound(lib: Library, tmp_path: Path, fake: None) -> None:
+    from assetforge.story.assets import produce
+
+    project = _written_story(lib, tmp_path / "s")
+    result = produce(lib, project, image_provider="openai")  # no OpenAI key in tests
+    images = [i["state"] for i in result["items"] if i["group"] in ("char", "expr", "bg", "bg_time", "cg", "ui")]
+    sound = [i["state"] for i in result["items"] if i["group"] in ("music", "ambience", "sfx")]
+    assert images[0] == "failed" and set(images[1:]) == {"skipped"}  # one failure, the rest not even tried
+    assert sound and set(sound) == {"ready"}
+
+
+def test_rewriting_a_scene_asks_again(lib: Library, tmp_path: Path, fake: None) -> None:
+    project = _written_story(lib, tmp_path / "s")
+    ctx = steps.Ctx(lib, project)
+    steps.write(ctx, only=["s02"])
+    assert ctx.calls[-1]["reused"] is False
+
+
+def test_untitled_story_gets_named_by_the_writer(server: AppServer, home: Path) -> None:
+    _, made = jcall(server, "/api/stories", method="POST", body={
+        "title": "Untitled story", "title_from_writer": True, "premise": "A shy boy joins the robotics club at school.",
+        "provider": "fake", "scenes": 4})
+    assert made["id"] == "a-shy-boy-joins-the-robotics"
+    _, run = jcall(server, f"/api/stories/{made['id']}/run", method="POST", body={"action": "write"})
+    wait_task(server, run["task_id"])
+    _, detail = jcall(server, f"/api/stories/{made['id']}")
+    assert detail["config"]["title"] == detail["world"]["title"] and not detail["config"]["title_from_writer"]
+    assert detail["config"]["slug"] == "a-shy-boy-joins-the-robotics"
+
+
+def test_story_assets_and_where_used(server: AppServer, home: Path) -> None:
+    from assetforge.story.assets import produce
+    from assetforge.story.project import register
+
+    with Library(home) as lib:
+        project = _written_story(lib, home / "stories" / "fog")
+        sid = register(home, project)
+        produce(lib, project, only=["chars", "ambience"], image_provider="fake")
+    status, data = jcall(server, f"/api/stories/{sid}/assets")
+    assert status == 200 and data["totals"]["made"] > 0 and data["totals"]["made"] < data["totals"]["total"]
+    hero = data["characters"][0]
+    neutral = next(e for e in hero["expressions"] if e["expression"] == "neutral")
+    assert neutral["asset"] and neutral["chapters"] and neutral["chapters"][0]["title"]
+    assert all(e["asset"] is None for e in data["cgs"])  # not made yet: listed as missing
+    place = next(p for p in data["locations"] if p["ambience"])
+    assert place["ambience"]["asset"] and place["ambience"]["chapters"]
+    status, used = jcall(server, f"/api/assets/{neutral['asset']['id']}/stories")
+    assert used["stories"] == [{"story": sid, "title": "Fog", "key": neutral["key"], "role": "char"}]
+    _, none = jcall(server, f"/api/assets/{data['ui'][0]['asset']['id'] if data['ui'][0]['asset'] else neutral['asset']['id']}/stories")
+    assert none["stories"]

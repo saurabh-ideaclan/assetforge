@@ -36,6 +36,7 @@ class Strict(BaseModel):
 
 class StoryConfig(Strict):
     title: str = Field(min_length=1)
+    title_from_writer: bool = Field(False, description="No title was given: use the one the writer suggests")
     slug: str = Field(description="kebab-case; keys are vn/<slug>/…")
     premise: str = Field(min_length=3)
     genre: str = "drama"
@@ -59,6 +60,7 @@ class StoryConfig(Strict):
 
 
 class World(Strict):
+    title: str = Field("", description="A short, evocative title for the novel (2-5 words)")
     logline: str = Field(description="One sentence hook")
     setting: str = Field(description="Where and when, in 2-3 sentences")
     history: str = Field(description="Backstory that matters to the plot, short")
