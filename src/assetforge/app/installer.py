@@ -122,7 +122,9 @@ def install(dest: Path, *, name: str = "AssetForge", python: Path | None = None,
     dest = dest.expanduser().resolve()
     dest.mkdir(parents=True, exist_ok=True)
 
-    staging = Path(tempfile.mkdtemp(dir=dest, prefix=f".{name}-build-"))
+    # Build and keep the backup OUTSIDE `dest`: a second copy of the bundle inside ~/Applications (even a hidden
+    # staging or .old folder) gets indexed by Spotlight, which then shows two "AssetForge" apps.
+    staging = Path(tempfile.mkdtemp(prefix=f"{name}-build-"))
     try:
         app = staging / f"{name}.app"
         macos_dir = app / "Contents" / "MacOS"
@@ -155,18 +157,24 @@ def install(dest: Path, *, name: str = "AssetForge", python: Path | None = None,
             signed = proc.returncode == 0
 
         final = dest / f"{name}.app"
-        backup = dest / f".{name}.app.old"
-        if backup.exists():
-            shutil.rmtree(backup)
+        stale = dest / f".{name}.app.old"  # left by older installers: remove it so Spotlight forgets it
+        if stale.exists():
+            shutil.rmtree(stale, ignore_errors=True)
+        backup = staging / f"{name}.app.old"
         if final.exists():
-            final.rename(backup)
-        app.rename(final)
-        if backup.exists():
-            shutil.rmtree(backup, ignore_errors=True)
+            shutil.move(str(final), str(backup))
+        try:
+            shutil.move(str(app), str(final))
+        except OSError:
+            if backup.exists() and not final.exists():
+                shutil.move(str(backup), str(final))  # put the previous app back
+            raise
         # Tell LaunchServices about the (new) bundle so Spotlight/Dock pick up the icon immediately.
         lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
         if Path(lsregister).exists():
             subprocess.run([lsregister, "-f", str(final)], capture_output=True)
+        if shutil.which("mdimport"):  # refresh Spotlight's record of the app in place of the old one
+            subprocess.run(["mdimport", str(final)], capture_output=True)
         return {"app": final, "python": python, "repo": repo, "signed": signed, "version": __version__}
     finally:
         shutil.rmtree(staging, ignore_errors=True)
