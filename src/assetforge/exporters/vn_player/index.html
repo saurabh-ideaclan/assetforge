@@ -70,6 +70,12 @@
   #menu button, #h-close { font: 600 1.1cqw var(--ui); padding: .5cqw 1.1cqw; border-radius: 99px; border: 1px solid var(--panel-edge);
                  background: rgba(0,0,0,.45); color: var(--ink); cursor: pointer; }
   #menu button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+  #m-volumes { position: relative; }
+  #m-volumes > summary { list-style: none; cursor: pointer; font: 600 1.1cqw var(--ui); padding: .5cqw 1.1cqw; border-radius: 99px; border: 1px solid var(--panel-edge); background: var(--panel); color: var(--ink); }
+  #m-volumes > summary::-webkit-details-marker { display: none; }
+  .vol-panel { position: absolute; right: 0; top: 110%; background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 1cqw; padding: 1cqw 1.2cqw; display: grid; gap: .5cqw; min-width: 18cqw; z-index: 6; }
+  .vol-panel label { display: grid; grid-template-columns: 6cqw 1fr; align-items: center; gap: .6cqw; font: 1.05cqw var(--ui); color: var(--ink); }
+  .vol-panel input[type=range] { width: 100%; }
   #menu button:focus-visible, #h-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .tag { font: 700 .95cqw var(--ui); letter-spacing: .14em; text-transform: uppercase; padding: .4cqw .9cqw; border-radius: 99px;
          border: 1px solid var(--accent); color: var(--accent); background: rgba(0,0,0,.45); }
@@ -112,7 +118,16 @@
     <button id="m-save" type="button">Save</button><button id="m-load" type="button">Load</button>
     <button id="m-history" type="button" aria-haspopup="dialog" aria-expanded="false" title="History (H)">History</button>
     <button id="m-speed" type="button">Text: Normal</button><button id="m-auto" type="button" aria-pressed="false">Auto</button>
-    <button id="m-mute" type="button" aria-pressed="false">Mute</button><button id="m-title" type="button">Title</button>
+    <button id="m-mute" type="button" aria-pressed="false">Mute</button>
+    <details id="m-volumes"><summary title="Volume">♪</summary>
+      <div class="vol-panel">
+        <label>Master <input id="v-master" type="range" min="0" max="100"></label>
+        <label>Music <input id="v-music" type="range" min="0" max="100"></label>
+        <label>Sounds <input id="v-sfx" type="range" min="0" max="100"></label>
+        <label>Ambience <input id="v-amb" type="range" min="0" max="100"></label>
+      </div>
+    </details>
+    <button id="m-title" type="button">Title</button>
   </div>
   <div class="layer" id="history" role="dialog" aria-modal="true" aria-labelledby="h-head" hidden>
     <div class="h-panel"><div class="h-top"><h2 id="h-head">History</h2><button id="h-close" type="button">Close</button></div>
@@ -167,25 +182,56 @@
   const probe = document.createElement("audio");
   const canOgg = !!probe.canPlayType && probe.canPlayType('audio/ogg; codecs="vorbis"') !== "";
   const pick = (a) => a && a.audio ? (a.audio.find((p) => canOgg ? p.endsWith(".ogg") : p.endsWith(".m4a")) || a.audio[0]) : null;
-  let muted = false;
-  const channels = { music: { el: null, src: null, vol: 0.55 }, amb: { el: null, src: null, vol: 0.4 } };
+  // Volumes (master, music, sfx, ambience, mute) are the reader's own and persist; the story never depends on sound:
+  // every knock, bell or ring is also in the text. Loops crossfade; one-shots are tracked so a scene change, a
+  // restart, a load or a route jump never leaves a stray sound running; a `stop` cue ends a looping sound.
+  const vol = Object.assign({ master: 1, music: 0.55, sfx: 0.8, amb: 0.4, muted: false }, prefs.get().audio || {});
+  let muted = !!vol.muted;
+  const channels = { music: { el: null, src: null, key: "music" }, amb: { el: null, src: null, key: "amb" } };
+  const oneShots = new Set();
+  const loops = new Map();  // looping sfx by cue id
+  const gain = (key, level) => (muted ? 0 : vol.master * vol[key] * (level == null ? 1 : level));
   function fade(el, to, ms, done) {
     const from = el.volume, start = performance.now();
     const tick = (now) => { const k = Math.min(1, (now - start) / ms); el.volume = from + (to - from) * k;
       if (k < 1) requestAnimationFrame(tick); else if (done) done(); };
     requestAnimationFrame(tick);
   }
-  function loop(name, a) {
+  function loop(name, a, { fadeMs = 900, level } = {}) {
     const ch = channels[name], src = pick(a);
-    if (ch.src === src) return;
-    if (ch.el) { const old = ch.el; fade(old, 0, 600, () => old.pause()); }
-    ch.src = src; ch.el = null;
+    if (ch.src === src && ch.el) { ch.level = level; fade(ch.el, gain(ch.key, level), 400); return; }
+    if (ch.el) { const old = ch.el; fade(old, 0, Math.min(fadeMs, 1500), () => old.pause()); }
+    ch.src = src; ch.el = null; ch.level = level;
     if (!src) return;
-    const el = new Audio(src); el.loop = true; el.volume = 0; el.muted = muted;
-    el.play().then(() => fade(el, ch.vol, 900)).catch(() => {});
+    const el = new Audio(src); el.loop = true; el.volume = 0;
+    el.play().then(() => fade(el, gain(ch.key, level), fadeMs)).catch(() => {});
     ch.el = el;
   }
-  function sfx(a) { const src = pick(a); if (!src || muted) return; const el = new Audio(src); el.volume = 0.8; el.play().catch(() => {}); }
+  function sfx(a, n) {
+    const src = pick(a); if (!src) return;
+    if (n && n.loop) { stopLoop(n.cue, 0); }
+    const el = new Audio(src); el.loop = !!(n && n.loop); el.volume = gain("sfx", n && n.level);
+    el.play().catch(() => {});
+    if (el.loop) loops.set(n.cue, el);
+    else { oneShots.add(el); el.addEventListener("ended", () => oneShots.delete(el)); }
+  }
+  function stopLoop(cue, fadeMs) {
+    const el = loops.get(cue); if (!el) return;
+    loops.delete(cue);
+    if (fadeMs) fade(el, 0, fadeMs, () => el.pause()); else el.pause();
+  }
+  function stopAllSfx() { for (const el of oneShots) el.pause(); oneShots.clear(); for (const [cue] of loops) stopLoop(cue, 0); }
+  function applyVolumes() {
+    for (const ch of Object.values(channels)) if (ch.el) ch.el.volume = gain(ch.key, ch.level);
+    for (const el of loops.values()) el.volume = gain("sfx");
+    for (const el of oneShots) el.volume = gain("sfx");
+    prefs.set({ audio: { ...vol, muted } });
+  }
+  document.addEventListener("visibilitychange", () => {  // phones: pause loops in the background, resume in front
+    const on = !document.hidden;
+    for (const ch of Object.values(channels)) if (ch.el) { if (on) ch.el.play().catch(() => {}); else ch.el.pause(); }
+    for (const el of loops.values()) { if (on) el.play().catch(() => {}); else el.pause(); }
+  });
 
   // ---------------------------------------------------------------- visuals
   let bgFront = null;
@@ -314,9 +360,12 @@
       state.vars[a.var] = Math.min(hi, Math.max(lo, v));
     }
   }
-  function stage() {  // background + music + ambience for where the story is now
+  function stage(opts) {  // background + music + ambience for where the story is now
     setBackground(state.place);
-    loop("music", asset("music", state.mood)); loop("amb", asset("amb", state.place.location));
+    const o = opts || {};
+    loop("music", state.mood === "silence" ? null : asset("music", state.mood), { fadeMs: o.musicFade || 900 });
+    const amb = state.amb || state.place.location;  // an `ambience` node can name a catalog scene, or "none"
+    loop("amb", amb === "none" ? null : asset("amb", amb), { fadeMs: o.ambFade || 900, level: state.ambLevel });
   }
   function stopLine() { clearInterval(typing); typing = null; clearTimeout(autoTimer); autoTimer = null; }
   function clearLine() { stopLine(); lineFull = ""; $("name").textContent = ""; $("text").textContent = ""; $("text").className = ""; $("more").classList.remove("on"); }
@@ -324,9 +373,10 @@
     const scene = scenes[sceneId];
     if (!scene) { console.error("unknown scene", sceneId); return end(null); }
     state.scene = sceneId;
+    stopAllSfx();  // nothing from the previous chapter or route keeps ringing
     if (!keepIndex) {
       state.index = 0; state.shown = {}; state.cg = null; state.react = null; state.sceneVars = { ...state.vars };
-      state.place = { location: scene.location, time: scene.time }; state.mood = scene.music;
+      state.place = { location: scene.location, time: scene.time }; state.mood = scene.music; state.amb = null; state.ambLevel = null;
     }
     state.place = state.place || { location: scene.location, time: scene.time }; state.mood = state.mood || scene.music;
     clearLine();
@@ -358,16 +408,19 @@
                                                   pos: n.position || (state.shown[n.character] || {}).pos || freeSlot() }; renderChars(null); break;
         case "hide": if (state.cg) { state.cg = null; setCg(null); }
                      delete state.shown[n.character]; renderChars(null); break;
-        case "sfx": sfx(asset("sfx", n.cue)); break;
+        case "sfx": if (n.stop) stopLoop(n.stop, (n.fade || 0.2) * 1000); else sfx(asset("sfx", n.cue), n); break;
+        case "ambience": state.amb = n.ambience; state.ambLevel = n.level == null ? null : n.level;
+                         stage({ ambFade: (n.fade || 1.5) * 1000 }); break;
         case "cg": state.cg = { id: n.cg, text: n.text }; setCg(n.cg, n.text); break;
         case "set": apply(n.assign); break;
         case "place": state.shown = {}; state.cg = null; setCg(null); renderChars(null);
                       state.place = { location: n.location, time: n.time || state.place.time };
                       if (n.music) state.mood = n.music;
+                      state.amb = null; state.ambLevel = null;  // a new place has its own ambience
                       stage();
                       if (n.text) return say({ kind: "narrate", text: n.text });
                       break;
-        case "music": state.mood = n.music; stage(); break;
+        case "music": state.mood = n.music; stage({ musicFade: (n.fade || 0.9) * 1000 }); break;
         case "say": case "narrate": return say(n);
         case "choice": return choose(n);
         case "branch": { const b = (n.branches || []).find((x) => holds(x.when)); return enter(b ? b.goto : n.goto); }
@@ -508,8 +561,14 @@
   onClick("m-history", () => (histOpen ? closeHistory() : openHistory()));
   onClick("m-speed", () => { speed = (speed + 1) % SPEEDS.length; showSpeed(); prefs.set({ speed: SPEEDS[speed].name }); if (typing && !SPEEDS[speed].step) finishTyping(); });
   onClick("m-auto", () => { auto = !auto; $("m-auto").setAttribute("aria-pressed", String(auto)); scheduleAuto(); });
-  onClick("m-mute", () => { muted = !muted; for (const ch of Object.values(channels)) if (ch.el) ch.el.muted = muted;
+  onClick("m-mute", () => { muted = !muted; applyVolumes();
                             $("m-mute").textContent = muted ? "Unmute" : "Mute"; $("m-mute").setAttribute("aria-pressed", String(muted)); });
+  $("m-mute").textContent = muted ? "Unmute" : "Mute"; $("m-mute").setAttribute("aria-pressed", String(muted));
+  for (const key of ["master", "music", "sfx", "amb"]) {
+    const el = $("v-" + key); if (!el) continue;
+    el.value = String(Math.round(vol[key] * 100));
+    el.addEventListener("input", () => { vol[key] = (+el.value) / 100; applyVolumes(); });
+  }
   onClick("m-title", () => showTitle());
   onClick("h-close", () => closeHistory());
   $("history").addEventListener("click", (e) => { e.stopPropagation(); if (e.target === e.currentTarget) closeHistory(); });

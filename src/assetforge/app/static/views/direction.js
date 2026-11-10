@@ -20,15 +20,17 @@ export function directionForm(info, value = {}, { onChange, compact = false } = 
   const warnBox = h("div.dir-warnings");
   let timer = null;
 
-  const chips = (key, options, { multi = false, labels = null } = {}) => {
+  const chips = (key, options, { multi = false, labels = null, obj = null } = {}) => {
     const row = h("div.chip-row");
     const entries = Array.isArray(options) ? options.map((v) => [v, labels?.[v] || v]) : Object.entries(options);
+    const get = () => (obj ? (st.d[obj] || {})[key] : st.d[key]);
+    const set = (v) => { if (obj) st.d[obj] = { ...(st.d[obj] || {}), [key]: v }; else st.d[key] = v; };
     for (const [v, label] of entries) {
-      const on = multi ? (st.d[key] || []).includes(v) : st.d[key] === v;
+      const on = multi ? (get() || []).includes(v) : get() === v;
       row.append(h("button.chip-btn", { type: "button", class: on ? "on" : "", title: typeof label === "string" && label.length > 28 ? label : "",
         onclick: () => {
-          if (multi) { const cur = new Set(st.d[key] || []); cur.has(v) ? cur.delete(v) : cur.add(v); st.d[key] = [...cur]; }
-          else st.d[key] = v;
+          if (multi) { const cur = new Set(get() || []); cur.has(v) ? cur.delete(v) : cur.add(v); set([...cur]); }
+          else set(v);
           draw();
         } }, typeof label === "string" && label.length > 28 && !multi ? label.split(/[(:]/)[0].trim() : label));
     }
@@ -115,6 +117,15 @@ export function directionForm(info, value = {}, { onChange, compact = false } = 
         field("Environment style", text("environment", "Optional")),
         field("Colour and mood", text("color_mood", "Optional"))),
         { open: !compact }),
+      section("G · Audio direction", h("div.dir-grid",
+        field("Audio profile", chips("profile", o.audio_profiles || {}, { obj: "audio" }), "Balanced is the default for a visual novel: the world feels alive without constant music or effects."),
+        field("Music frequency", chips("music", o.audio_levels || {}, { obj: "audio" })),
+        field("Sound-effect frequency", chips("sfx", o.audio_levels || {}, { obj: "audio" })),
+        field("Ambience intensity", chips("ambience", o.audio_levels || {}, { obj: "audio" })),
+        field("Dramatic accents", chips("accents", o.audio_levels || {}, { obj: "audio" })),
+        field("Preference for silence", chips("silence", o.audio_levels || {}, { obj: "audio" })),
+        field("Audio style notes", text("style", "e.g. restrained orchestral, no synths; period instruments only", { obj: "audio" }))),
+        { open: false }),
       section("F · Advanced / custom instructions", h("div.dir-grid",
         field("Creative direction (highest priority)", text("instructions", "Free text the writer must follow above everything else", { rows: 3, obj: "custom" })),
         field("Special requirements", text("requirements", "", { rows: 2, obj: "custom" })),

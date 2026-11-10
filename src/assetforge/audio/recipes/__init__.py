@@ -7,6 +7,7 @@ from assetforge.audio.recipes import (  # noqa: F401  (registration side effects
     magic,
     mechanical,
     motion,
+    narrative,
     reward,
     ui,
     weapons,

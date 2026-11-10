@@ -538,6 +538,106 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   `modelSelect`), model pickers on Improve/Check/Alternatives; the activity feed shows who chose the model and
   any fallback. Docs: `docs/narrative/12-production-ux-audit.md`.
 
+### Narrative audio direction (post-v1)
+
+- `story/audio_direction.py`: per-chapter `AudioPlan` of `Cue`s (ambience | music | sfx | accent | silence | stop,
+  `what`, `text`, `purpose`, `at` = the line index it plays with, `loop`, `fade`, `level`, `when` for branch-only
+  sounds, `status`) in `audio/<scene>.json`. `plan(ctx, scene)` is a model call (task `audio.<scene>`, kind
+  `audio`, Opus when managed) over the numbered lines, the catalog (recipes, ambience scenes, moods) and
+  `direction.audio_block`; `clean` maps names to the catalog; `review` is deterministic (profile budgets per
+  1,000 words, opening ambience, one accent, silence in tense chapters, loops stopped, repetition, sync, crowded
+  lines); `apply` writes the cues into the chapter as nodes marked with `why` (replacing earlier cues, exit kept
+  last); `statuses` reads the library (needs_generation / needs_review / approved); `intensity` is the per-line
+  strip the panel draws. Nothing is planned during brainstorming; sounds are made by the normal `assets` step.
+- Node model additions (all optional, older scripts unchanged): kind `ambience` (`ambience`: location id, catalog
+  scene or `none`), `Mood` `silence` (music stops; no asset), sfx `loop`/`stop`/`level`, `fade`, `why`. The
+  manifest skips `silence` and makes `vn/<slug>/amb/<scene>` loops for named catalog scenes.
+- `CreativeDirection.audio` (`AudioPrefs`: profile minimal|balanced|cinematic|custom, music/sfx/ambience/accents/
+  silence levels, style) drives the prompt and the review budgets; group G in the direction form.
+- `audio/recipes/narrative.py`: `knock`, `bell` (bronze partials, `cracked`), `phone_ring` (electronic | classic |
+  vibrate), `chain`, `page_turn`, `hooves`, `armor`; presets `distant`/`muffled`/`huge` give material and distance.
+- Player: volume panel (master/music/sounds/ambience, mute; persisted in prefs), crossfaded music/ambience with
+  per-node `fade`, `silence`, `ambience` nodes, looping sfx with `stop`, every sound stopped on scene change, load,
+  restart or route jump; loops pause when the page is hidden. The story never depends on sound.
+- App: `GET/POST /api/stories/{id}/audio/{scene}` (apply | update | remove | add | approve_asset | reject_asset |
+  regenerate), run actions `audio_plan` (scene, note, model) and `audio_make` (= assets audio only, SFX reuse by
+  search). The scene audio panel sits under each chapter in the Chapters tab (plan, intensity strip, review,
+  per-cue preview/approve/replace/regenerate/remove, Preview with audio).
+
+### Audio production revamp (music and ambience)
+
+- Diagnosis and benchmark: `docs/narrative/15-audio-revamp.md`; technology research `16-audio-technology-evaluation.md`;
+  benchmark harness `.dev/audio-bench/bench.py` (ten briefs, `baseline` vs `revamp`, measured metrics, listening page).
+- `audio/production.py`: `MusicDirection` / `AmbienceDirection` (structured briefs), `direct()` (a writer call with the
+  catalog and the project's sound identity; heuristic fallback without a writer; task `audio_direction.<kind>`),
+  `produce_for_brief()` (candidates → `quality.review` → `refine` by the measured problem, at most `MAX_ROUNDS`
+  rounds → the two best kept, the rest rejected, the chosen one's `metadata.production` records brief, direction and
+  score), `style_guide`/`add_reference` (`$ASSETFORGE_HOME/audio_style/<project>.json`: approved references with their
+  measured character, fed into later directions and used as a selection target), `theme_variations` (same melody and
+  harmony seeds, another mood). `audio/quality.py`: `measure` (loudness, centroid, flatness, salient events/s from `events()` (superflux
+  + a median floor, so tremolo strings and rain beds are not "busy"; `features.analyze`'s onset rate is only for search
+  tags), reading-band share,
+  sub share, repetition index, event regularity, dynamic range, clicks, loop seam) and `review` (hard technical
+  failures, brief-adherence misses with weights, `REFINEMENTS` per problem). Nothing listens; a person approves.
+- Composer: five restrained templates (`fantasy_restrained`, `melancholy_piano`, `court_intrigue`, `rising_magic`,
+  `heroic_lift`), a mood map that no longer collapses calm/sad/resolution into one template, and `Brief` controls
+  `melody` (prominence), `percussion` (none|light|full), `arc` (rise|rise_fall|fall: section velocities and layer
+  thinning), `warmth` (top-end roll-off). `generate_music(..., compose_extra=)` passes them through.
+- Ambience: `AmbienceSpec/Request.low_cut`, `high_cut` (bus filters: no rumble under a place, no hiss in the reading
+  band), `evolve` (seamless slow level drift of the beds).
+- App: `app/api_audio.py` (`/api/audio/direct`, `/produce` background tasks with readable steps, `/tasks/{id}`,
+  `/approve` (key, reject siblings, as_reference), `/style/{project}`, `/measure/{asset}`, `/catalog`); view
+  `views/audio_studio.js` at `#/audio` (brief → direction → settings → candidates with measured reasons → feedback
+  chips → refine → approve → sound identity). The scene audio panel's music/ambience cues link there with
+  `kind/brief/project/key/story` in the URL (`studioLink` in `views/story.js`; `_audio_view` returns `project`).
+  Benchmark: `.dev/audio-bench/bench.py baseline|revamp` renders the ten briefs, measures them and rebuilds
+  `index.html`, a blind A/B page (arms shuffled per row, labels and numbers hidden until Reveal, picks kept in
+  localStorage, "Copy results" exports them). Write-up: `docs/narrative/15-audio-revamp.md`.
+
+### Audio Analysis Engine, diagnosis, corrections, Workbench (Computational Audio Intelligence)
+
+- Research: `docs/narrative/17-audio-analysis-tooling.md` (wheels, licences, install tiers; verified against PyPI/HF),
+  `18-audio-science-notes.md` (DSP/MIR/psychoacoustics notes, from memory, tagged), `19-audio-intelligence.md`
+  (the audit, architecture, corpus results, limits), `reviews/opus-review-audio-analysis.md`.
+- `audio/analysis/` (NumPy/SciPy; `onnxruntime` is the optional `analysis` extra): `analyze_file(path, kind)` →
+  `technical` (`signal.py`: true peak 4×, momentary/short-term/integrated LUFS + LRA, clipping runs, DC, silence map,
+  clicks, stereo balance/width/correlation, loop seam), `spectral` (`spectral.py`: one 2048/512 STFT → mel 64, centroid/
+  bandwidth/rolloff/flatness/flux timelines, HPSS percussive share, octave balance + tilt, named bands rumble/mud/
+  dialogue(1–4k)/harsh/hiss), `music` (`music.py`: salient events via `quality.events`, tempo with confidence or
+  "not meaningful", chroma/key/tonal stability, harmonic changes/min, Foote self-similarity sections + repetition index,
+  energy arc, density), `speech` (`speech.py`: four per-second cues — syllabic modulation, harmonicity, LPC formants,
+  pause structure — plus a crowd rule; `silero.py` ONNX VAD corroborates when installed (`audio models install
+  silero-vad --yes`, sha pinned, MIT); verdict confirmed/suspected/unlikely with its basis), `events` (`events.py`:
+  heuristic acoustic signatures rain_like/wind/drips/footsteps/metal/hum/music/speech_like with confidence; `taggers.py`
+  is an adapter slot for a verified ONNX tagger). `to_json` drops the arrays; `visuals.py` renders waveform/spectrogram/
+  mel/chroma/self-similarity PNGs + `timelines.json`.
+- `diagnose.py`: findings `{code, severity hard|problem|note, confidence measured|estimated|listen, cause source|
+  synthesis|composition|sound_design|mix|emotion|method, evidence, where, corrections[{action, kind dsp|layer|
+  composition|regenerate|method, params, why}]}`. Thresholds were calibrated on `.dev/audio-lab` (71 files: owner-
+  approved assets, rejected pieces, the benchmark, constructed cases); `run.py` reports hits of `expect` labels (16/17).
+  A brief decides whether voices belong (`_brief_allows_voices`, negation-aware); with no brief, intent is unknown and
+  such findings are notes. `interpret.py` writes the plain-language reading; nothing in it claims to have listened.
+- `corrections.py`: `plan_corrections` (one correction per finding, DSP first when `prefer="precise"`), `fill_donors`
+  (a voice-like second is patched from the cleanest second ≥ 2 s away), `correct_asset` (the DSP chain as a
+  `process_audio_asset` variant with lineage), `compare` (fixed / remaining / regressions). New ops in `audio/process.py`:
+  highpass, lowpass, peak_eq, shelf, dialogue_dip, dc_remove, declick, reloop, replace_segment, narrow, balance,
+  compress, expand. `production.produce_for_brief` now runs the deep diagnosis on every candidate (a confirmed voice in
+  a voiceless brief is a hard failure) and `_correct_in_place` fixes the best candidate's DSP-fixable problems before
+  any regeneration, keeping the corrected variant only when `compare` says improved; `REFINEMENTS["voice_like"]`
+  drops the `crowd_murmur` bed on the next round.
+- `reference.py`: measured profiles (mean/sd per feature with sd floors) stored under `audio_style/<project>.json`
+  `profiles[kind]`; `place()` gives z-scores and words ("brighter than the identity"); `record_preference` appends
+  approve/reject rows (brief, findings, feedback, features); `rank()` = usable → distance → nearest-approved heuristic.
+- CLI (`cli_analysis.py`): `audio inspect|diagnose|correct|profile`, `audio models status|install`. App: `GET
+  /api/audio/analysis/{ref}`, `/media/analysis/{var}/{png}`, `POST /api/audio/correct` (plan or explicit ops → variant +
+  comparison), `POST /api/audio/preference`, `GET/POST /api/audio/profile/{project}`; view `views/audio_lab.js` at
+  `#/lab/<ref>` (the Workbench: findings with Apply buttons, human-friendly controls mapped to real ops or a Studio hand-
+  off for recompositions, waveform/loudness/spectrum/chroma/self-similarity/voice/event panels, identity placement,
+  approve/reject with feedback). Studio candidates link to it ("Inspect").
+- Corpus and harness: `.dev/audio-lab/corpus.py` builds `corpus/` + `corpus.json` (labels, `expect`, `loop`);
+  `run.py` → `results.json`. Known miss: a murmur 10 dB under wind. Known limits: the event signatures are patterns, not
+  recognition; "repetitive" and "mechanical" are estimates; nothing measures whether a melody is good.
+
 ### Sharing (GitHub)
 
 - Two private repos: this code repo and a library repo made by `assetforge library snapshot DEST`

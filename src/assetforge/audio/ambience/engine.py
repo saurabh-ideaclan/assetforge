@@ -101,6 +101,9 @@ class AmbienceSpec(BaseModel):
     distance: float = Field(0.0, ge=0, le=1)
     stems: bool = False
     intensities: list[float] = Field(default_factory=list, max_length=4)
+    low_cut: float = Field(0.0, ge=0, le=400, description="High-pass the whole soundscape (Hz): no sub rumble under a scene")
+    high_cut: float = Field(0.0, ge=0, le=20000, description="Low-pass the whole soundscape (Hz): tame hiss in the dialogue band")
+    evolve: float = Field(0.0, ge=0, le=1, description="Slow level drift of the beds over the loop (wraps seamlessly)")
 
 
 # ---------------------------------------------------------------------- scenes
@@ -168,6 +171,9 @@ def render_layers(spec: AmbienceSpec, intensity: float, seed: int, sr: int) -> d
         params = {**bed.params, **layer.params}
         # Beds normalize their own level; intensity sets it (±6 dB around 0.5) on top of their character.
         x = bed.render(length + fade, sr, rng, intensity, params, length) * dsp.db(layer.level_db + 12 * (intensity - 0.5))
+        if spec.evolve > 0:  # a slow, seamless breathing of the bed level (± up to 3 dB), one cycle per loop or two
+            curve = dsp.drift(length + fade, sr, 1.5 / spec.length, rng, period=length)
+            x = x * dsp.db(3 * spec.evolve * curve)[:, None] if x.ndim == 2 else x * dsp.db(3 * spec.evolve * curve)
         layers[_unique(layers, layer.bed)] = crossfade_loop(x, length, fade)
     factor = 0.3 + 1.4 * intensity
     for i, layer in enumerate(spec.events):
@@ -190,6 +196,10 @@ def _unique(existing: dict[str, Any], name: str) -> str:
 
 
 def _finish_bus(x: np.ndarray, spec: AmbienceSpec, effects: list[dict[str, Any]], sr: int) -> np.ndarray:
+    if spec.low_cut > 0:
+        x = circular_effects(x, resolve_effects([{"name": "highpass", "params": {"cutoff_hz": spec.low_cut}}]), sr)
+    if spec.high_cut > 0:
+        x = circular_effects(x, resolve_effects([{"name": "lowpass", "params": {"cutoff_hz": spec.high_cut}}]), sr)
     if spec.distance > 0:
         x = circular_effects(x, resolve_effects([{"name": "lowpass", "params": {"cutoff_hz": 800 + 12000 * (1 - spec.distance) ** 2}}]), sr)
     return dsp.width(circular_effects(x, effects, sr), spec.width)
@@ -239,6 +249,9 @@ class AmbienceRequest(pipeline.Common):
     levels: dict[str, float] = Field(default_factory=dict, description="dB offsets per bed/event name")
     stems: bool = Field(False, description="Store each layer as its own variant")
     intensities: list[float] = Field(default_factory=list, max_length=4, description="Extra matched loops, e.g. [0.2, 1]")
+    low_cut: float = Field(0.0, ge=0, le=400, description="High-pass the soundscape (Hz) so it never drones")
+    high_cut: float = Field(0.0, ge=0, le=20000, description="Low-pass the soundscape (Hz) so hiss stays out of the dialogue band")
+    evolve: float = Field(0.0, ge=0, le=1, description="Slow, seamless level drift of the beds (0 static … 1 breathing)")
 
 
 def resolve_spec(lib: Library, req: AmbienceRequest, direction_space: str | None = None) -> tuple[AmbienceSpec, Scene | None]:
@@ -274,7 +287,8 @@ def resolve_spec(lib: Library, req: AmbienceRequest, direction_space: str | None
     spec = AmbienceSpec(scene=scene.name if scene else None, beds=beds, events=events, length=req.length,
                         intensity=req.intensity, space=space, width=req.width if req.width is not None else
                         (scene.width if scene else 1.0), distance=req.distance, stems=req.stems,
-                        intensities=sorted(set(req.intensities)))  # fmt: skip
+                        intensities=sorted(set(req.intensities)), low_cut=req.low_cut, high_cut=req.high_cut,
+                        evolve=req.evolve)  # fmt: skip
     return spec, scene
 
 

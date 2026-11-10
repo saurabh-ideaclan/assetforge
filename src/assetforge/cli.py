@@ -20,6 +20,7 @@ from assetforge import __version__
 from assetforge.cli_art import art_app
 from assetforge.cli_sprite import sprite_app
 from assetforge.cli_audio import audio_app
+from assetforge import cli_analysis  # noqa: F401  (registers `audio inspect|diagnose|correct|profile|models`)
 from assetforge.cli_image import image_app, style_app
 from assetforge.cli_export import register as register_export_command
 from assetforge.cli_jobs import jobs_app

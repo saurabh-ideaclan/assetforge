@@ -140,7 +140,7 @@ def manifest(script: Script, config: StoryConfig, world: World | None, *, image_
     cues = {c.mood: c for c in sound_plan.music} if sound_plan else {}
     # a location the plan left empty (no scene, beds or events) falls back to matching its description
     places = {p.location: p for p in sound_plan.locations if p.scene or p.beds or p.events} if sound_plan else {}
-    for mood in sorted({st.music for s in script.scenes for st in walk(s)}):
+    for mood in sorted({st.music for s in script.scenes for st in walk(s)} - {"silence", None}):
         sound(story_key(slug, "music", mood), "music", f"Music: {mood}", AssetType.MUSIC,
               f"{mood} visual novel background music loop. {direction}", name=f"{slug}_music_{mood}",
               sound_opts=music_options(cues[mood]) if mood in cues else {"mood": MUSIC_MOOD.get(mood, mood), "form": "loop"})  # fmt: skip
@@ -149,6 +149,13 @@ def manifest(script: Script, config: StoryConfig, world: World | None, *, image_
             sound(story_key(slug, "amb", loc.id), "ambience", f"Ambience: {loc.name}", AssetType.AMBIENCE,
                   f"{loc.ambience} ({loc.name})", name=f"{slug}_amb_{loc.id}",
                   sound_opts=ambience_options(places[loc.id]) if loc.id in places else None)  # fmt: skip
+    # ambience nodes that name a catalog scene (not a location): one loop per named scene
+    location_ids = {loc.id for loc in script.locations}
+    named = {n.ambience for s in script.scenes for n in s.nodes if n.kind == "ambience" and n.ambience}
+    for name in sorted(named - location_ids - {"none"}):
+        sound(story_key(slug, "amb", name), "ambience", f"Ambience: {name.replace('_', ' ')}", AssetType.AMBIENCE,
+              f"{name.replace('_', ' ')} ambience loop for a visual novel", name=f"{slug}_amb_{name}",
+              sound_opts={"scene": name, "length": 60.0})  # fmt: skip
     cues: dict[str, str] = {}
     for scene in script.scenes:
         for node in scene.nodes:

@@ -129,7 +129,8 @@ def _score_from_request(req: MusicRequest) -> Score | None:
     return None
 
 
-def generate_music(lib: Library, req: MusicRequest, *, source_id: str | None = None) -> dict[str, Any]:
+def generate_music(lib: Library, req: MusicRequest, *, source_id: str | None = None,
+                   compose_extra: dict[str, Any] | None = None) -> dict[str, Any]:  # fmt: skip
     from assetforge import sound
     from assetforge.core.models import AssetType
 
@@ -149,6 +150,8 @@ def generate_music(lib: Library, req: MusicRequest, *, source_id: str | None = N
         kind = "music"
     else:
         brief, _ = build_brief(lib, req)
+        if compose_extra:  # production controls (melody prominence, percussion, arc, warmth)
+            brief = brief.model_copy(update={k: v for k, v in compose_extra.items() if k in type(brief).model_fields})
         spec["compose"] = brief.model_dump(mode="json", exclude_defaults=True)
         if req.intensity_layers:
             from assetforge.audio.ambience.engine import intensity_label

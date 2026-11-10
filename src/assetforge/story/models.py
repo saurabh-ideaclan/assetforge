@@ -19,10 +19,11 @@ from assetforge.story.direction import CreativeDirection
 Id = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]*$", max_length=48)]
 TimeOfDay = Literal["day", "evening", "night"]
 Position = Literal["left", "center", "right"]
-Mood = Literal["calm", "happy", "playful", "romantic", "tense", "sad", "mysterious", "eerie", "heroic", "triumphant", "dark"]
+Mood = Literal["calm", "happy", "playful", "romantic", "tense", "sad", "mysterious", "eerie", "heroic", "triumphant", "dark",
+               "silence"]  # silence: the music stops (deliberate quiet); no music asset is made for it
 EndingKind = Literal["good", "bad", "neutral", "true"]
 NodeKind = Literal["say", "narrate", "show", "hide", "sfx", "cg", "set", "place", "music", "choice", "branch", "jump",
-                   "ending"]  # fmt: skip
+                   "ending", "ambience"]  # fmt: skip
 TERMINAL: frozenset[str] = frozenset({"choice", "branch", "jump", "ending"})  # kinds that *can* end a scene
 VariableKind = Literal["relationship", "personality", "resource", "flag", "world"]
 
@@ -265,6 +266,13 @@ class Node(Strict):
     music: Mood | None = None
     branches: list[Branch] = Field(default_factory=list)
     when: list[Condition] = Field(default_factory=list, description="Only play this node when all of these hold")
+    # audio direction (all optional; older scripts have none of these)
+    ambience: str | None = Field(None, description="kind ambience: a location id, a catalog ambience scene, or 'none'")
+    loop: bool = Field(False, description="sfx: keep playing until a node with `stop` names this cue")
+    stop: Id | None = Field(None, description="sfx: stop the looping cue with this id (no new sound)")
+    fade: float | None = Field(None, description="music/ambience/stop: transition seconds")
+    level: float | None = Field(None, description="sfx/ambience: relative level 0.1-1")
+    why: str = Field("", description="The audio cue's narrative purpose (set by the audio direction)")
 
 
 def is_exit(node: Node) -> bool:

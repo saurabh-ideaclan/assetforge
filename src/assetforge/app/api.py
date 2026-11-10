@@ -653,3 +653,8 @@ def kinds(req: Request, lib: Library) -> dict[str, Any]:
 from assetforge.app.api_story import register_routes as _register_story_routes  # noqa: E402
 
 _register_story_routes(router)
+
+# Music & Ambience Studio: see api_audio.py
+from assetforge.app.api_audio import register_routes as _register_audio_routes  # noqa: E402
+
+_register_audio_routes(router)

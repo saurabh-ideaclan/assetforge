@@ -140,8 +140,10 @@ def _check_node(node: Node, at: str, chars: dict, scenes: dict, endings: set[str
             out.append(issue("error", "unknown_expression", at, f"{who} has no {node.expression!r} expression"))
     if node.kind in ("say", "narrate") and not (node.text or "").strip():
         out.append(issue("error", "empty_text", at, f"{node.kind} has no text"))
-    if node.kind == "sfx" and not node.cue:
-        out.append(issue("error", "missing_cue", at, "sfx needs a cue id"))
+    if node.kind == "sfx" and not node.cue and not node.stop:
+        out.append(issue("error", "missing_cue", at, "sfx needs a cue id (or `stop` naming a looping cue)"))
+    if node.kind == "ambience" and not node.ambience:
+        out.append(issue("error", "missing_ambience", at, "ambience needs a location id, a catalog scene or 'none'"))
     if node.kind == "cg" and not node.cg:
         out.append(issue("error", "missing_cg", at, "cg needs a cg id"))
     if node.kind == "jump" and node.goto not in scenes:

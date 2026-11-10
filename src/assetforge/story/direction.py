@@ -131,6 +131,42 @@ class WorldPrefs(Strict):
         return [f"{k.capitalize()}: {v.strip()}" for k, v in self.model_dump().items() if v and v.strip()]
 
 
+AUDIO_PROFILES = {
+    "minimal": "Minimal: mostly ambience and the essential event sounds",
+    "balanced": "Balanced: ambience, selective music, meaningful sound effects (default)",
+    "cinematic": "Cinematic: stronger musical transitions and dramatic accents",
+    "custom": "Custom: your own preferences below",
+}
+AUDIO_LEVELS = {"low": "Low", "medium": "Medium", "high": "High"}
+# cue budgets per 1,000 words of chapter (the review warns above them): music changes, sfx, accents
+AUDIO_BUDGETS: dict[str, dict[str, float]] = {
+    "minimal": {"music": 1, "sfx": 3, "accent": 0.5, "silence": 1},
+    "balanced": {"music": 2, "sfx": 5, "accent": 1, "silence": 1},
+    "cinematic": {"music": 3, "sfx": 7, "accent": 2, "silence": 0.5},
+}
+
+
+class AudioPrefs(Strict):
+    """How much sound the story wants, and in what style. Balanced is the default."""
+
+    profile: str = Field("balanced", description="minimal | balanced | cinematic | custom")
+    music: str = Field("medium", description="Music frequency: low | medium | high")
+    sfx: str = Field("medium", description="Sound-effect frequency")
+    ambience: str = Field("medium", description="Ambience intensity")
+    accents: str = Field("low", description="Dramatic accent intensity")
+    silence: str = Field("medium", description="Preference for deliberate silence")
+    style: str = Field("", description="Genre-specific audio style notes, e.g. restrained orchestral, no synths")
+
+    def budgets(self) -> dict[str, float]:
+        base = dict(AUDIO_BUDGETS.get(self.profile) or AUDIO_BUDGETS["balanced"])
+        scale = {"low": 0.6, "medium": 1.0, "high": 1.5}
+        base["music"] *= scale.get(self.music, 1.0)
+        base["sfx"] *= scale.get(self.sfx, 1.0)
+        base["accent"] *= scale.get(self.accents, 1.0)
+        base["silence"] *= scale.get(self.silence, 1.0)
+        return base
+
+
 class Custom(Strict):
     instructions: str = Field("", description="Free-text creative direction (highest priority)")
     requirements: str = Field("", description="Special requirements")
@@ -178,6 +214,8 @@ class CreativeDirection(Strict):
     color_mood: str = ""
     # F. custom
     custom: Custom = Field(default_factory=Custom)
+    # G. audio
+    audio: AudioPrefs = Field(default_factory=AudioPrefs)
 
     @field_validator("subgenres", "themes", "tone", "reserved_names", mode="before")
     @classmethod
@@ -230,6 +268,7 @@ def options() -> dict[str, Any]:
         "regions": REGIONS, "readers": READERS, "writing_styles": WRITING_STYLES, "world_types": WORLD_TYPES,
         "cultures": CULTURES, "naming": NAMING, "tones": TONES, "pacing": PACING, "levels": LEVELS, "levels3": LEVELS_3,
         "progression": PROGRESSION, "depth": DEPTH, "choices": CHOICES, "cliffhangers": CLIFFHANGERS, "art_styles": ART_STYLES,
+        "audio_profiles": AUDIO_PROFILES, "audio_levels": AUDIO_LEVELS,
         "genres": [{"id": k, "name": v.get("name", k), "promise": v.get("promise", ""), "default_subgenres": v.get("default_subgenres", [])}
                    for k, v in g["primary"].items()],
         "subgenres": [{"id": k, "name": v.get("name", k), "kind": v.get("kind", ""), "primary": v.get("primary", []),
@@ -343,7 +382,7 @@ def resolve(data: dict[str, Any] | CreativeDirection | None, *, preset: str | No
         base = get_preset(name, home).direction.model_dump()
         base["preset"] = name
     for key, value in explicit.items():
-        if key in ("world", "custom") and isinstance(value, dict):
+        if key in ("world", "custom", "audio") and isinstance(value, dict):
             base[key] = {**(base.get(key) or {}), **{k: v for k, v in value.items() if v is not None}}
         elif value is not None:
             base[key] = value
@@ -602,6 +641,32 @@ def scene_block(d: CreativeDirection) -> str:
         "again, acknowledge it with `when` lines instead.",
     ]  # fmt: skip
     return "\n".join(lines)
+
+
+def audio_block(d: CreativeDirection) -> str:
+    """Guidance for the audio-direction step: how much sound, in what style, and the genre's palette."""
+    a = d.audio
+    palette = {
+        "power-fantasy": "restrained orchestral or atmospheric fantasy music, magical resonance, weapon and armour "
+                         "sounds, castle and dungeon ambience, heroic musical payoffs, dark tension, power awakenings",
+        "romance-drama": "gentle atmospheric music, subtle everyday ambience, emotional transitions, restrained accents, "
+                         "natural everyday sound effects",
+        "mystery-thriller": "sparse suspense textures, room tones, small telling sounds, long silences before reveals",
+        "horror": "near-silence, low drones, single sharp events, ambience that thins before a scare",
+        "slice-of-life": "warm ambience, light acoustic music, everyday sounds, little or no accents",
+        "sci-fi": "electronic textures, machine hums, interface sounds, wide synthetic ambience",
+    }.get(d.genre, "music and sounds that fit the world and the mood of each scene")
+    world = {"modern-fantasy": "phones, traffic, electronics and supernatural effects", "urban-supernatural": "city ambience and supernatural effects",
+             "contemporary": "phones, doors, traffic, everyday objects"}.get(d.world_type, "period-appropriate objects and spaces")  # fmt: skip
+    return "\n".join([
+        f"AUDIO PROFILE: {AUDIO_PROFILES.get(a.profile, a.profile)}. Music frequency {a.music}; sound effects {a.sfx}; "
+        f"ambience {a.ambience}; dramatic accents {a.accents}; preference for silence {a.silence}."
+        + (f" Style: {a.style.strip()}" if a.style.strip() else ""),
+        f"GENRE PALETTE: {palette}. World objects: {world}.",
+        "Every sound needs a narrative, emotional, environmental or interaction purpose. Silence is a choice: a tense "
+        "confrontation may be stronger with thin ambience and no music. Never add a sound only because an object is "
+        "mentioned; never a stinger after ordinary lines; music follows the emotional progression, not every scene.",
+    ])  # fmt: skip
 
 
 def check_block(d: CreativeDirection) -> str:

@@ -150,6 +150,186 @@ def op_loop(audio: Audio, crossfade_ms: float = 50.0) -> Audio:
     return out, sr
 
 
+# ---------------------------------------------------------------------- corrections (audio/analysis/corrections.py plans them)
+
+
+def _per_channel(data: np.ndarray, fn, *, wrap_s: float = 0.5, sr: int | None = None) -> np.ndarray:
+    """Apply `fn` per channel on a signal padded with its own tail before and head after (half a second each):
+    a filter's start-up transient then lands in the padding, so a loop keeps its seam instead of gaining a
+    click where the first filtered samples settle."""
+    pad = int(wrap_s * sr) if sr else 0
+    pad = min(pad, len(data) // 2)
+    cols = []
+    for c in range(data.shape[1]):
+        x = data[:, c]
+        if pad:
+            x = np.concatenate([x[-pad:], x, x[:pad]])
+        y = fn(x)
+        cols.append(y[pad:len(y) - pad] if pad else y)
+    return np.stack(cols, axis=1)
+
+
+def op_polarity(audio: Audio, channel: int = 1) -> Audio:
+    """Flip one channel's polarity: anti-phase stereo becomes in-phase (the fix for a negative L/R correlation)."""
+    data, sr = audio
+    if data.shape[1] <= channel:
+        return audio
+    out = data.copy()
+    out[:, channel] *= -1
+    return out, sr
+
+
+def op_highpass(audio: Audio, hz: float = 80.0, order: int = 4) -> Audio:
+    """Remove rumble below `hz` (Butterworth, zero-phase so transients keep their shape)."""
+    from scipy.signal import butter, sosfiltfilt
+
+    data, sr = audio
+    sos = butter(order, min(hz, sr / 2 - 1) / (sr / 2), "high", output="sos")
+    return _per_channel(data, lambda x: sosfiltfilt(sos, x), sr=sr), sr
+
+
+def op_lowpass(audio: Audio, hz: float = 8000.0, order: int = 4) -> Audio:
+    """Remove hiss above `hz`."""
+    from scipy.signal import butter, sosfiltfilt
+
+    data, sr = audio
+    sos = butter(order, min(hz, sr / 2 - 1) / (sr / 2), "low", output="sos")
+    return _per_channel(data, lambda x: sosfiltfilt(sos, x), sr=sr), sr
+
+
+def op_peak_eq(audio: Audio, hz: float = 3000.0, q: float = 1.0, gain_db: float = -3.0) -> Audio:
+    """A parametric bell: cut harshness (2–5 kHz) or mud (200–500 Hz)."""
+    from assetforge.audio import dsp
+
+    data, sr = audio
+    return _per_channel(data, lambda x: dsp.filt(x, "peak", hz, sr, q=q, gain_db=gain_db), sr=sr), sr
+
+
+def op_shelf(audio: Audio, hz: float = 6000.0, gain_db: float = -3.0, high: bool = True) -> Audio:
+    """A high (or low) shelf: warm a bright render or lift a dull one."""
+    from assetforge.audio import dsp
+
+    data, sr = audio
+    kind = "highshelf" if high else "lowshelf"
+    return _per_channel(data, lambda x: dsp.filt(x, kind, hz, sr, q=0.707, gain_db=gain_db), sr=sr), sr
+
+
+def op_dialogue_dip(audio: Audio, db: float = -4.0) -> Audio:
+    """A broad dip across 1–4 kHz (two bells), so music or a bed leaves room for the text."""
+    from assetforge.audio import dsp
+
+    data, sr = audio
+    return _per_channel(data, lambda x: dsp.filt(dsp.filt(x, "peak", 1500, sr, q=0.8, gain_db=db), "peak", 3000, sr, q=0.8, gain_db=db), sr=sr), sr
+
+
+def op_dc_remove(audio: Audio) -> Audio:
+    data, sr = audio
+    return op_highpass((data - data.mean(axis=0, keepdims=True), sr), hz=10.0, order=2)
+
+
+def op_declick(audio: Audio, threshold: float = 8.0) -> Audio:
+    """Interpolate across sample-level jumps far above the local envelope (the detector in analysis/signal.py)."""
+    data, sr = audio
+    out = data.copy()
+    for c in range(out.shape[1]):
+        x = out[:, c]
+        env = np.convolve(np.abs(x), np.ones(256) / 256, mode="same") + 1e-5
+        hits = np.flatnonzero(np.abs(np.diff(x)) > threshold * env[1:])
+        for h in hits:
+            a, b = max(0, h - 4), min(len(x) - 1, h + 5)
+            x[a:b] = np.linspace(x[a], x[b], b - a)
+    return out, sr
+
+
+def op_reloop(audio: Audio, crossfade_ms: float = 120.0) -> Audio:
+    """Equal-power crossfade of the tail into the head. The loop gets `crossfade_ms` shorter, which is harmless
+    for a bed and breaks the bar grid of music: for music the diagnosis prefers a bar-aligned re-render."""
+    data, sr = audio
+    n = int(crossfade_ms / 1000 * sr)
+    if n <= 0 or 2 * n >= len(data):
+        raise InvalidInputError("reloop crossfade must be shorter than half the sound")
+    ramp = np.sin(np.linspace(0.0, np.pi / 2, n))[:, None]
+    out = data[:-n].copy()
+    out[:n] = data[:n] * ramp + data[-n:] * ramp[::-1]
+    return out, sr
+
+
+def op_replace_segment(audio: Audio, start_s: float, end_s: float, donor_start_s: float, crossfade_ms: float = 60.0) -> Audio:
+    """Patch `start_s`–`end_s` with the same length of material from `donor_start_s`, crossfaded at both ends:
+    how a suspicious second of an ambience is removed without touching the rest."""
+    data, sr = audio
+    a, b = int(start_s * sr), int(end_s * sr)
+    d = int(donor_start_s * sr)
+    n = b - a
+    if n <= 0 or d < 0 or d + n > len(data) or b > len(data):
+        raise InvalidInputError("replace_segment: the segment or its donor is out of range")
+    f = min(int(crossfade_ms / 1000 * sr), n // 2)
+    out = data.copy()
+    patch = data[d:d + n].copy()
+    if f > 0:
+        ramp = np.sin(np.linspace(0.0, np.pi / 2, f))[:, None]
+        patch[:f] = patch[:f] * ramp + data[a:a + f] * ramp[::-1]
+        patch[-f:] = patch[-f:] * ramp[::-1] + data[b - f:b] * ramp
+    out[a:b] = patch
+    return out, sr
+
+
+def op_narrow(audio: Audio, width: float = 0.6) -> Audio:
+    """Scale the side signal (0 = mono, 1 = unchanged)."""
+    data, sr = audio
+    if data.shape[1] < 2:
+        return audio
+    mid, side = (data[:, 0] + data[:, 1]) / 2, (data[:, 0] - data[:, 1]) / 2 * width
+    return np.stack([mid + side, mid - side], axis=1), sr
+
+
+def op_balance(audio: Audio, db: float = 0.0) -> Audio:
+    """Shift the image: positive moves level to the right channel."""
+    data, sr = audio
+    if data.shape[1] < 2:
+        return audio
+    out = data.copy()
+    out[:, 0] *= 10 ** (-db / 40)
+    out[:, 1] *= 10 ** (db / 40)
+    return out, sr
+
+
+def _envelope_db(mono: np.ndarray, sr: int, attack_ms: float, release_ms: float) -> np.ndarray:
+    a_c, r_c = np.exp(-1 / (attack_ms / 1000 * sr)), np.exp(-1 / (release_ms / 1000 * sr))
+    env = np.zeros(len(mono))
+    level = 1e-6
+    ax = np.abs(mono)
+    for i in range(len(mono)):
+        c = a_c if ax[i] > level else r_c
+        level = c * level + (1 - c) * ax[i]
+        env[i] = level
+    return 20 * np.log10(env + 1e-9)
+
+
+def op_compress(audio: Audio, threshold_db: float = -18.0, ratio: float = 2.0, attack_ms: float = 30.0, release_ms: float = 200.0) -> Audio:
+    """Gentle downward compression on the stereo link (one gain for all channels), makeup to the old RMS."""
+    data, sr = audio
+    mono = data.mean(axis=1)
+    env = _envelope_db(mono, sr, attack_ms, release_ms)
+    over = np.maximum(env - threshold_db, 0)
+    gain = 10 ** (-(over - over / ratio) / 20)
+    out = data * gain[:, None]
+    before, after = np.sqrt(np.mean(data**2)), np.sqrt(np.mean(out**2)) + 1e-9
+    return out * (before / after), sr
+
+
+def op_expand(audio: Audio, threshold_db: float = -24.0, ratio: float = 1.3, attack_ms: float = 20.0, release_ms: float = 250.0) -> Audio:
+    """Gentle upward expansion above the threshold: peaks grow a little, so an over-compressed render breathes."""
+    data, sr = audio
+    mono = data.mean(axis=1)
+    env = _envelope_db(mono, sr, attack_ms, release_ms)
+    over = np.maximum(env - threshold_db, 0)
+    gain = 10 ** ((over * (ratio - 1)) / 20)
+    out = data * gain[:, None]
+    peak = np.max(np.abs(out)) + 1e-9
+    return (out * min(1.0, 0.98 / peak)), sr
+
+
 OPS: dict[str, Callable[..., Audio]] = {
     "trim_silence": op_trim_silence,
     "cut": op_cut,
@@ -159,6 +339,20 @@ OPS: dict[str, Callable[..., Audio]] = {
     "channels": op_channels,
     "resample": op_resample,
     "loop": op_loop,
+    "highpass": op_highpass,
+    "lowpass": op_lowpass,
+    "peak_eq": op_peak_eq,
+    "shelf": op_shelf,
+    "dialogue_dip": op_dialogue_dip,
+    "dc_remove": op_dc_remove,
+    "declick": op_declick,
+    "reloop": op_reloop,
+    "replace_segment": op_replace_segment,
+    "narrow": op_narrow,
+    "polarity": op_polarity,
+    "balance": op_balance,
+    "compress": op_compress,
+    "expand": op_expand,
 }
 
 

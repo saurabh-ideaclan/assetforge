@@ -60,6 +60,13 @@ def test_app_story_flow(server: AppServer, home: Path) -> None:
     assert status == 200 and made["id"] == "fog-lantern" and made["dir"].startswith(str(home))
     sid = made["id"]
 
+    # a new story is guided: the first write stops at the characters gate for the operator's approval
+    _, run = jcall(server, f"/api/stories/{sid}/run", method="POST", body={"action": "write"})
+    paused = wait_task(server, run["task_id"])
+    assert paused["state"] == "done" and paused["result"]["paused_at"] == "characters", paused
+    status, wf = jcall(server, f"/api/stories/{sid}/workflow", method="POST", body={"action": "mode", "mode": "auto"})
+    assert status == 200 and wf["mode"] == "auto"
+
     _, run = jcall(server, f"/api/stories/{sid}/run", method="POST", body={"action": "write"})
     # one task per story at a time
     assert jcall(server, f"/api/stories/{sid}/run", method="POST", body={"action": "check"})[0] in (409, 200)

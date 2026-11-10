@@ -60,6 +60,27 @@ MAJOR_POOL = ("I V vi IV", "I IV V I", "vi IV I V", "I vi IV V", "I IV vi V", "I
 MINOR_POOL = ("i VI III VII", "i iv v i", "i VI iv V", "i VII VI VII", "i iv VI V", "i III VII iv")
 
 GENRES: dict[str, Genre] = {g.name: g for g in (
+    Genre("fantasy_restrained", "Restrained fantasy underscore: harp and low strings, a flute phrase now and then, no drums",
+          (60, 78), ("dorian", "major", "minor"), ("I vi IV I", "i VI III i", "I IV I V", "i iv i VII"),
+          {"melody": "flute", "harmony": "strings", "bass": "strings"}, "none", "pedal", "pad", (67, 81), 0.3, 0.15,
+          extra={"arp": "harp"}, space="hall", chord_bars=2, tags=("exploration", "calm", "fantasy", "underscore", "dialogue")),
+    Genre("melancholy_piano", "Grief and resolve: sparse piano over slow strings, no percussion", (56, 72),
+          ("minor", "aeolian", "major"), ("i VI iv v", "i iv VI VII", "i III VII iv", "I vi ii V"),
+          {"melody": "piano", "harmony": "strings", "bass": "strings"}, "none", "pedal", "pad", (60, 79), 0.25, 0.15,
+          space="hall", chord_bars=2, tags=("sad", "loss", "betrayal", "emotional", "piano", "resolution")),
+    Genre("court_intrigue", "Political suspense: muted low strings, a slow pizzicato pulse, unresolved harmony", (64, 84),
+          ("dorian", "harmonic_minor", "minor"), ("i i VI VII", "i iv i bII", "i VI i V", "i VII i iv"),
+          {"melody": "clarinet", "harmony": "strings", "bass": "pizzicato"}, "sparse", "pedal", "pad", (62, 76), 0.2, 0.1,
+          extra={"arp": "pizzicato"}, space="hall", chord_bars=2, tags=("suspense", "intrigue", "court", "political", "tense", "quiet")),
+    Genre("rising_magic", "Magical tension: a low drone, shimmering high textures, slowly climbing harmony", (62, 80),
+          ("lydian", "harmonic_minor", "phrygian"), ("i bII i III", "I II I bVII", "i VI bII i", "i i iv bII"),
+          {"melody": "celesta", "harmony": "strings", "bass": "warm_pad"}, "none", "pedal", "pad", (72, 91), 0.3, 0.3,
+          extra={"arp": "bell"}, space="hall", chord_bars=2, tags=("magic", "mysterious", "tension", "awakening", "arcane")),
+    Genre("heroic_lift", "A heroic lift: strings and horns carrying a clear rising motif, restrained percussion", (84, 104),
+          ("major", "mixolydian", "lydian"), ("I V vi IV", "I bVII IV I", "vi IV I V", "I IV V I"),
+          {"melody": "brass", "harmony": "strings", "bass": "strings", "drums": "drums_orchestral"}, "march", "root", "pad",
+          (64, 81), 0.4, 0.25, extra={"counter": "flute"}, space="hall", chord_bars=1,
+          tags=("heroic", "awakening", "triumph", "power", "lift", "payoff")),
     Genre("chiptune", "8-bit console music: square leads, triangle bass, noise drums", (128, 160), ("major", "minor"),
           MAJOR_POOL, {"melody": "chip_pulse", "harmony": "chip_square", "bass": "chip_triangle", "drums": "drums_chip"},
           "chip", "octave", "arp", (72, 91), 0.7, 0.3, space="dry", tags=("retro", "8bit", "arcade", "pixel", "nes")),
@@ -133,11 +154,12 @@ GENRES: dict[str, Genre] = {g.name: g for g in (
 
 MINOR_MOODS = {"sad", "dark", "tense", "scary", "melancholy", "mysterious", "ominous", "sinister", "danger", "angry",
                "epic", "dramatic", "gloomy", "eerie", "serious", "suspense"}  # fmt: skip
-MOOD_GENRE = {"calm": "ambient_drone", "peaceful": "fantasy_village", "happy": "puzzle_casual", "playful": "puzzle_casual",
-              "cute": "puzzle_casual", "heroic": "orchestral_adventure", "epic": "epic_battle", "tense": "mystery",
-              "scary": "horror", "spooky": "horror", "intense": "boss_fight", "retro": "chiptune", "chill": "lofi",
-              "relaxed": "lofi", "mysterious": "mystery", "dark": "horror", "sad": "ambient_drone",
-              "energetic": "action", "triumphant": "orchestral_adventure"}  # fmt: skip
+MOOD_GENRE = {"calm": "fantasy_restrained", "peaceful": "fantasy_restrained", "exploration": "fantasy_restrained",
+              "happy": "fantasy_village", "playful": "puzzle_casual", "cute": "puzzle_casual", "heroic": "heroic_lift",
+              "epic": "epic_battle", "tense": "court_intrigue", "suspense": "court_intrigue", "scary": "horror",
+              "spooky": "horror", "intense": "boss_fight", "retro": "chiptune", "chill": "lofi", "relaxed": "lofi",
+              "mysterious": "rising_magic", "dark": "court_intrigue", "sad": "melancholy_piano", "grief": "melancholy_piano",
+              "romantic": "melancholy_piano", "energetic": "action", "triumphant": "heroic_lift", "eerie": "horror"}  # fmt: skip
 
 
 class Brief(BaseModel):
@@ -160,6 +182,10 @@ class Brief(BaseModel):
     swing: float | None = Field(None, ge=0, le=1)
     space: str | None = None
     fixed: dict[str, int] = Field(default_factory=dict, description="Pin aspect seeds: structure, melody, harmony, bass, drums")
+    melody: float = Field(1.0, ge=0, le=1, description="Melody prominence: 0 none (pads and bass only), 1 full")
+    percussion: Literal["auto", "none", "light", "full"] = Field("auto", description="Drums: none, light (no fills/crashes) or full")
+    arc: Literal["flat", "rise", "rise_fall", "fall"] = Field("flat", description="Dynamic shape over the piece")
+    warmth: float = Field(0.0, ge=0, le=1, description="Rolls off the top end for a softer, under-dialogue mix")
 
     @field_validator("genre")
     @classmethod
@@ -597,22 +623,28 @@ def compose(brief: Brief, seed: int) -> Score:
     plan = plan_structure(brief, seed)
     g = plan.genre
     roles = {**g.instruments, **brief.instruments}
+    from assetforge.audio.music.drums import KITS
+    if "drums" in roles and roles["drums"] not in KITS:  # a melodic pick for the drum role: keep the template's kit
+        roles["drums"] = g.instruments.get("drums", "drums")
     energy = brief.energy
     tracks: list[dict[str, Any]] = []
     if brief.form == "stinger":
         tracks = stinger(brief, plan, _rng(plan.seeds, "melody"))
     else:
-        if "melody" in roles and energy >= 0.1:
+        if "melody" in roles and energy >= 0.1 and brief.melody >= 0.2:
             tracks.append({"name": "melody", "instrument": roles["melody"], "role": "melody",
-                           "notes": melody(plan, _rng(plan.seeds, "melody"), g.density), "gain_db": 0.0})  # fmt: skip
+                           "notes": melody(plan, _rng(plan.seeds, "melody"), g.density * (0.6 + 0.4 * brief.melody)),
+                           "gain_db": -6.0 * (1 - brief.melody)})  # fmt: skip
         if "harmony" in roles:
             tracks.append({"name": "harmony", "instrument": roles["harmony"], "role": "harmony",
                            "notes": accompaniment(plan, g.comp, _rng(plan.seeds, "harmony"), energy), "gain_db": -4.0})  # fmt: skip
         if "bass" in roles and energy >= 0.2:
             tracks.append({"name": "bass", "instrument": roles["bass"], "role": "bass",
                            "notes": bassline(plan, g.bass, _rng(plan.seeds, "bass"), energy), "gain_db": -2.0})  # fmt: skip
-        if "drums" in roles and energy >= 0.25:
-            drum_notes = drum_part(plan, g.drums, _rng(plan.seeds, "drums"), energy)
+        drums_on = brief.percussion != "none" and (brief.percussion != "auto" or energy >= 0.25)
+        if "drums" in roles and drums_on and g.drums != "none":
+            drum_energy = min(energy, 0.4) if brief.percussion == "light" else energy
+            drum_notes = drum_part(plan, g.drums, _rng(plan.seeds, "drums"), drum_energy)
             if drum_notes:
                 kit_gain = {"drums_chip": -7.0, "drums_orchestral": -5.0}.get(roles["drums"], -3.0)
                 tracks.append({"name": "drums", "instrument": roles["drums"], "role": "drums", "notes": drum_notes,
@@ -632,11 +664,41 @@ def compose(brief: Brief, seed: int) -> Score:
     tracks = [t for t in tracks if t["notes"]]
     if not tracks:
         raise InvalidInputError("Nothing to play at this energy; raise `energy`")
+    if brief.arc != "flat":
+        _apply_arc(tracks, plan, brief.arc)
+    if brief.warmth > 0:
+        for t in tracks:
+            if t["role"] in ("melody", "harmony", "arp", "counter"):
+                t.setdefault("effects", []).append({"name": "lowpass", "params": {"cutoff_hz": 9000 - 5500 * brief.warmth}})
     sections = [{"name": name, "start": first * plan.beats_per_bar, "beats": count * plan.beats_per_bar}
                 for name, first, count in plan.sections]  # fmt: skip
     swing = brief.swing if brief.swing is not None else g.swing
     return Score(tempo=plan.tempo, meter=plan.meter, key=plan.key.name, bars=plan.bars, loop=brief.form == "loop",
                  swing=swing, space=brief.space or g.space, tracks=tracks, sections=sections if brief.form != "stinger" else [])  # fmt: skip
+
+
+def _apply_arc(tracks: list[dict[str, Any]], plan: Plan, arc: str) -> None:
+    """Shape the dynamics over the piece: velocities scale by section (rise: A soft → B full; rise_fall: back
+    down in the last phrase; fall: the reverse), and at low points the busiest layers thin out."""
+    total = plan.bars * plan.beats_per_bar
+
+    def level(start: float) -> float:
+        pos = start / max(total, 1)
+        if arc == "rise":
+            return 0.7 + 0.3 * pos
+        if arc == "fall":
+            return 1.0 - 0.3 * pos
+        return 0.7 + 0.3 * np.sin(np.pi * pos) ** 0.8  # rise_fall
+
+    for t in tracks:
+        kept = []
+        for n in t["notes"]:
+            k = level(float(n["start"]))
+            if t["role"] in ("arp", "counter", "drums") and k < 0.8 and (hash((t["role"], round(n["start"], 2))) % 3 == 0):
+                continue  # thin the busy layers where the arc is low
+            n = {**n, "velocity": float(np.clip(n["velocity"] * k, 0.05, 1.0))}
+            kept.append(n)
+        t["notes"] = kept
 
 
 def seeds_for(brief: Brief, seed: int) -> dict[str, int]:

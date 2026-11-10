@@ -44,9 +44,10 @@ TASK_KINDS: dict[str, str] = {
     "review": "Editorial review",
     "rewrite": "Story rewriting and revisions",
     "alternatives": "Alternative versions",
+    "audio": "Audio direction (soundscape per chapter)",
 }
 # which task kinds benefit from the strongest model when Fable chooses
-HEAVY_KINDS = frozenset({"premise", "outline", "character", "review", "evaluation", "alternatives"})
+HEAVY_KINDS = frozenset({"premise", "outline", "character", "review", "evaluation", "alternatives", "audio"})
 LIGHT_KINDS = frozenset({"research", "brainstorm"})
 
 
@@ -106,7 +107,7 @@ def task_kind(task: str) -> str:
     return {"scene": "scene", "refine": "rewrite", "improve": "rewrite", "fix": "rewrite", "check": "evaluation",
             "lint": "evaluation", "review": "review", "world": "world", "names": "names", "cast": "cast",
             "outline": "outline", "premise": "premise", "brainstorm": "brainstorm", "research": "research",
-            "character": "character", "alternatives": "alternatives", "sound": "world"}.get(name, name)  # fmt: skip
+            "character": "character", "alternatives": "alternatives", "sound": "world", "audio": "audio"}.get(name, name)  # fmt: skip
 
 
 def managed_steps(kind: str, settings: Settings) -> list[Step]:

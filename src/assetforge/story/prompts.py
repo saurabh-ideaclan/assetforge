@@ -284,6 +284,10 @@ def _plain_line(node: Any) -> str:
         return f"(move to {node.location} {node.time or ''} {node.text or ''})".replace("  ", " ")
     if node.kind == "music":
         return f"(music {node.music})"
+    if node.kind == "ambience":
+        return f"(ambience {node.ambience})"
+    if node.kind == "sfx" and node.stop:
+        return f"(stop sound {node.stop})"
     if node.kind == "branch":
         return "BRANCH: " + " | ".join(f"{' and '.join(f'{c.var} {c.op} {c.value}' for c in b.when)} -> {b.goto}"
                                        for b in node.branches) + f" | else -> {node.goto}"  # fmt: skip

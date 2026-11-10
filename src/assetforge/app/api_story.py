@@ -22,13 +22,14 @@ from assetforge.core.catalog import Library
 from assetforge.core.util import slugify
 from assetforge.errors import AssetForgeError, ConflictError, InternalError, InvalidInputError, NotFoundError
 from assetforge.llm import plans
-from assetforge.story import characters, workflow
+from assetforge.story import audio_direction, characters, workflow
 from assetforge.story import direction as creative
 from assetforge.story import steps
 from assetforge.story.models import StoryConfig
 from assetforge.story.project import StoryProject, register, registered
 
-ACTIONS = ("write", "improve", "check", "assets_plan", "assets", "export", "refine", "character", "alternatives", "concepts")
+ACTIONS = ("write", "improve", "check", "assets_plan", "assets", "export", "refine", "character", "alternatives", "concepts",
+           "audio_plan", "audio_make")  # fmt: skip
 _tasks: dict[str, dict[str, Any]] = {}
 _busy: dict[str, str] = {}  # story id → running task id
 _lock = threading.Lock()
@@ -309,6 +310,54 @@ def register_routes(router: Router) -> None:  # noqa: C901 - one place for all s
         sid, project = _story(lib, req.match["sid"])
         return workflow.character_impact(project, req.match["cid"])
 
+    @router.route("GET", r"/api/stories/(?P<sid>[a-z0-9-]+)/audio/(?P<scene>[a-z0-9_]+)")
+    def story_audio(req: Request, lib: Library) -> dict[str, Any]:
+        sid, project = _story(lib, req.match["sid"])
+        return _audio_view(lib, project, req.match["scene"])
+
+    @router.route("POST", r"/api/stories/(?P<sid>[a-z0-9-]+)/audio/(?P<scene>[a-z0-9_]+)")
+    def story_audio_change(req: Request, lib: Library) -> dict[str, Any]:
+        """action: apply (approved_only) | update (cue, patch) | remove (cue) | add (cue) | regenerate (cue) |
+        approve_asset (cue) | reject_asset (cue)."""
+        from assetforge.core import review
+        from assetforge.core.models import Status
+        from assetforge.exporters.vn import export_story
+
+        sid, project = _story(lib, req.match["sid"])
+        scene_id = req.match["scene"]
+        body = dict(req.body or {})
+        action = str(body.get("action", ""))
+        cue = str(body.get("cue", ""))
+        if action == "apply":
+            result = audio_direction.apply(project, scene_id, approved_only=bool(body.get("approved_only")))
+            result["export"] = export_story(lib, project, project.root / "build")
+            view = _audio_view(lib, project, scene_id)
+            view["applied"] = result
+            return view
+        if action == "update":
+            audio_direction.update_cue(project, scene_id, cue, dict(body.get("patch") or {}))
+        elif action == "remove":
+            audio_direction.remove_cue(project, scene_id, cue)
+        elif action == "add":
+            audio_direction.add_cue(project, scene_id, dict(body.get("cue_data") or {}))
+        elif action in ("approve_asset", "reject_asset", "regenerate"):
+            view = _audio_view(lib, project, scene_id)
+            row = next((r for r in view["cues"] if r["id"] == cue), None)
+            if row is None or not row.get("asset"):
+                raise NotFoundError(f"No generated sound for cue {cue!r}")
+            if action == "approve_asset":
+                review.approve(lib, [row["asset"]["id"]], note="approved in the scene audio panel", force=True)
+                audio_direction.update_cue(project, scene_id, cue, {"status": "approved"})
+            elif action == "reject_asset":
+                lib.set_status([row["asset"]["id"]], Status.REJECTED, note=str(body.get("note", "rejected in the scene audio panel")))
+                audio_direction.update_cue(project, scene_id, cue, {"status": "revision"})
+            else:  # regenerate: archive the sound and let audio_make remake it
+                review.archive(lib, [row["asset"]["id"]], note="regenerate requested")
+                audio_direction.update_cue(project, scene_id, cue, {"status": "needs_generation", "note": str(body.get("note", ""))})
+        else:
+            raise InvalidInputError("action must be apply, update, remove, add, regenerate, approve_asset or reject_asset")
+        return _audio_view(lib, project, scene_id)
+
     @router.route("GET", r"/api/stories/(?P<sid>[a-z0-9-]+)/alternatives/(?P<scene>[a-z0-9_]+)")
     def story_alternatives(req: Request, lib: Library) -> dict[str, Any]:
         sid, project = _story(lib, req.match["sid"])
@@ -447,6 +496,24 @@ def register_routes(router: Router) -> None:  # noqa: C901 - one place for all s
         return FileResponse(target, mime, "no-cache", headers={"Content-Security-Policy": PLAYER_CSP})
 
 
+def _audio_view(lib: Library, project: StoryProject, scene_id: str) -> dict[str, Any]:
+    """The scene audio panel's data: the plan with library statuses, the chapter's lines, the review and the
+    intensity strip."""
+    scene = project.load_scene(scene_id)
+    if scene is None:
+        raise NotFoundError(f"Chapter {scene_id!r} is not written yet")
+    plan = audio_direction.load(project, scene_id)
+    lines = audio_direction.lines(scene.model_copy(update={"nodes": [n for n in scene.nodes if not n.why]}))
+    if plan is None:
+        return {"scene": scene_id, "plan": None, "cues": [], "lines": lines, "intensity": [], "review": None,
+                "applied_nodes": sum(1 for n in scene.nodes if n.why)}  # fmt: skip
+    bare = scene.model_copy(update={"nodes": [n for n in scene.nodes if not n.why]})
+    return {"scene": scene_id, "plan": {k: v for k, v in plan.model_dump(mode="json").items() if k != "cues"},
+            "project": project.config.asset_project, "cues": audio_direction.statuses(lib, project, plan), "lines": lines,
+            "intensity": audio_direction.intensity(plan, bare), "review": audio_direction.review(plan, bare, project.config),
+            "applied_nodes": sum(1 for n in scene.nodes if n.why)}  # fmt: skip
+
+
 def _story(lib: Library, sid: str) -> tuple[str, StoryProject]:
     root = registered(lib.paths.home).get(sid)
     if root is None:
@@ -513,6 +580,15 @@ def _run_action(lib: Library, project: StoryProject, ctx: steps.Ctx, body: dict[
     if action == "character":
         proposal = characters.revise(ctx, str(body.get("character", "")), str(body.get("request", "")))
         return {"character": body.get("character"), "proposal": proposal.model_dump(mode="json")}
+    if action == "audio_plan":
+        plan = audio_direction.plan(ctx, str(body.get("scene", "")), note=str(body.get("note", "")))
+        return {"scene": plan.scene, "plan": plan.model_dump(mode="json")}
+    if action == "audio_make":  # the sounds the applied cues need (free, local synthesis; SFX reuse by search first)
+        result = produce(lib, project, only=["audio"], image_provider="auto", redo=False)
+        if body.get("scene"):
+            result["audio"] = _audio_view(lib, project, str(body["scene"]))
+        result["export"] = export_story(lib, project, project.root / "build")
+        return result
     if action == "alternatives":
         return steps.alternatives(ctx, str(body.get("scene", "")), n=int(body.get("n") or 3), note=str(body.get("note", "")))
     if action == "concepts":

@@ -21,6 +21,12 @@ the working set for that initiative; future agents reuse it for every story, any
 | 11 | [Genre and tradition research](11-genre-and-tradition-research.md) | Sources behind `story/genres.yaml` and `story/traditions.yaml`; what must be right for Korean-webnovel-style power fantasy in this format | **done** (Sonnet) |
 | 12 | [Production UX audit](12-production-ux-audit.md) | What existed for providers, workflow, characters and approvals; the revised flow behind the AI plans, workflow gates and Character Studio | **done** |
 | 13 | [Pilot QA: The Unrung](13-unrung-pilot-qa.md) | Chapters 1–3 measured against the direction: what held, what the writer ignored, what the system caught | **done** |
+| 14 | [Audio direction](14-audio-direction.md) | Audit of the synthesis system, the per-chapter audio direction design, the player mechanism, and the validation on three Unrung chapters | **done** |
+| 15 | [Music and ambience revamp](15-audio-revamp.md) | Measured audit of the old loops, the direction → candidates → measured review loop, the Studio, the ten-brief benchmark with a blind listening page, the Unrung regeneration | **done** (listening pending) |
+| 16 | [Audio technology evaluation](16-audio-technology-evaluation.md) | Local open-weight models, hosted APIs, sample libraries and evaluation tools with licences read and commercial verdicts | **done** (Sonnet, checked by Fable) |
+| 17 | [Audio analysis tooling](17-audio-analysis-tooling.md) | Analysis libraries and models: wheels for Python 3.14 on Apple Silicon, code and weight licences, disk cost, install tiers | **done** (Sonnet, verified against PyPI/HF) |
+| 18 | [Audio science notes](18-audio-science-notes.md) | DSP, MIR and psychoacoustics notes behind the analysis engine, with parameters and failure modes | **done** (Sonnet, from memory; tagged) |
+| 19 | [Computational audio intelligence](19-audio-intelligence.md) | The Audio Analysis Engine, the diagnosis taxonomy, the voice-artifact workflow, corrections, the Workbench, corpus results, limits | **done** (Opus-reviewed) |
 
 **Gate 1 outcome (2026-11-10, owner's brief):** the pilot is a *new* Power Fantasy story for a global adult
 audience in simple English (medieval high fantasy, Western-inspired names, Korean web-novel techniques, manhwa

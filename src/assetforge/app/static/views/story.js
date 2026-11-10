@@ -443,9 +443,91 @@ function reader(c, data, sid, run, select) {
     if (n.kind === "hide") return h("div.vn-stage", `${names[n.character] || n.character} leaves`);
     return null;
   }
+  const audioPanel = h("div.card.audio-panel");
+  sceneAudioPanel(audioPanel, data, sid, c.id, run);
   const note = h("input", { type: "text", placeholder: "What should change in this chapter?" });
   return h("div", head, h("div.vn-lines.big", lines),
-    h("div.actions", note, h("button.btn", { type: "button", onclick: () => note.value.trim() && run({ action: "refine", scene: c.id, note: note.value.trim() }) }, "Revise chapter")));
+    h("div.actions", note, h("button.btn", { type: "button", onclick: () => note.value.trim() && run({ action: "refine", scene: c.id, note: note.value.trim() }) }, "Revise chapter")),
+    audioPanel);
+}
+
+// ---------------------------------------------------------------------- scene audio panel
+
+const CUE_KIND = { ambience: "Ambience", music: "Music", sfx: "Sound", accent: "Accent", silence: "Silence", stop: "Stop" };
+const LIB_STATUS = { needs_generation: "needs generation", needs_review: "generated · needs review", approved: "approved", revision: "requires revision" };
+
+/** The Studio takes the cue as a brief: what it is for, where and when it plays, under the story's project and key. */
+function studioLink(c, v, sid) {
+  const parts = [`${c.kind === "music" ? "Music" : "Ambience"} for a visual-novel chapter: ${c.what}.`];
+  if (c.purpose) parts.push(`Purpose: ${c.purpose}.`);
+  if (v.plan?.summary) parts.push(`Chapter: ${v.plan.summary}`);
+  const q = new URLSearchParams({ kind: c.kind, brief: parts.join(" "), project: v.project || `vn-${sid}`, key: c.asset_key, story: sid });
+  return `#/audio?${q}`;
+}
+
+function sceneAudioPanel(root, data, sid, sceneId, run) {
+  root.replaceChildren(h("h3", "Audio direction"), h("div.help", h("span.spinner"), " Loading the audio plan…"));
+  let picker = null;
+  loadAI().then((info) => { picker = modelSelect(info.providers, {}); }).catch(() => {});
+  api(`/api/stories/${sid}/audio/${sceneId}`).then(draw).catch((err) => root.replaceChildren(h("h3", "Audio direction"), errorBox(err)));
+
+  async function post(body) {
+    try { const v = await api(`/api/stories/${sid}/audio/${sceneId}`, { method: "POST", body }); draw(v); }
+    catch (err) { toast(err.message); }
+  }
+  function draw(v) {
+    const lineText = Object.fromEntries(v.lines.map((l) => [l.i, l.text]));
+    const head = h("div.ap-head", h("h3", "Audio direction"),
+      h("div.actions",
+        h("button.btn.small", { type: "button", onclick: () => run({ action: "audio_plan", scene: sceneId, ...(picker ? pickerValue(picker) : {}) }) }, v.plan ? "Plan again" : "Plan the soundscape"),
+        v.plan ? h("button.btn.small.primary", { type: "button", onclick: () => post({ action: "apply" }) }, "Apply to chapter") : null,
+        v.plan ? h("button.btn.small", { type: "button", onclick: () => run({ action: "audio_make", scene: sceneId }) }, "Make missing sounds") : null,
+        v.applied_nodes ? h("a.btn.small", { href: `#/story/${sid}?tab=play&chapter=${sceneId}` }, "▶ Preview with audio") : null));
+    if (!v.plan) { root.replaceChildren(head, h("p.help", "No audio plan yet. Fable reads the chapter, the sound profile and the catalog, then proposes ambience, music, sound events and silence with a purpose each.")); return; }
+    const p = v.plan;
+    const strip = h("div.ap-strip", v.intensity.map((s) => h("div.ap-col", { title: `line ${s.i}${s.silent ? " · silence" : ""}${s.events.length ? " · " + s.events.map((e) => e.what).join(", ") : ""}` },
+      h("div.ap-music", { style: `height:${Math.round(s.music * 100)}%` }), h("div.ap-amb", { style: `height:${Math.round(s.ambience * 60)}%` }),
+      s.events.length ? h("div.ap-ev", { class: s.events.some((e) => e.kind === "accent") ? "accent" : "" }) : null)));
+    const review = v.review ? h("div.ap-review", h("span.help", `Profile budget for ~${v.review.words} words: music ${v.review.budget.music}, sfx ${v.review.budget.sfx}, accents ${v.review.budget.accent}. `),
+      ...v.review.issues.map((i) => h("div.dir-warn", `${i.level === "error" ? "✗" : "⚠"} ${i.message}`)),
+      v.review.issues.length ? null : h("span.good", "No review warnings")) : null;
+    const rows = v.cues.map((c) => {
+      const play = c.asset?.variant_id ? h("button.sa-play", { type: "button", title: "Preview", onclick: (ev) => { ev.stopPropagation(); playVariant(c.asset.variant_id, ev.currentTarget); } }, "▶") : h("span.sa-play.off", "·");
+      const where = c.at === 0 ? "before the first line" : `line ${c.at}: “${(lineText[c.at] || "").slice(0, 70)}”`;
+      const status = c.library_status ? h("span.sa-status", { class: c.library_status === "approved" ? "approved" : c.library_status === "needs_review" ? "candidate" : "missing" }, LIB_STATUS[c.library_status] || c.library_status)
+        : h("span.sa-status", { class: "planned" }, c.kind === "silence" || c.kind === "stop" ? "no asset needed" : "planned");
+      const atInput = h("input", { type: "number", min: 0, max: v.lines.length, value: c.at, title: "Line it plays with" });
+      atInput.addEventListener("change", () => post({ action: "update", cue: c.id, patch: { at: +atInput.value } }));
+      const purpose = h("input", { type: "text", value: c.purpose, title: "Purpose" });
+      purpose.addEventListener("change", () => post({ action: "update", cue: c.id, patch: { purpose: purpose.value } }));
+      return h("div.ap-cue", { class: c.status },
+        play,
+        h("div.ap-main",
+          h("div", h("b", CUE_KIND[c.kind] || c.kind), ` · ${c.what}`, c.loop ? h("span.tag", "loops") : null, c.when?.length ? h("span.tag", `only if ${c.when.map((w) => `${w.var} ${w.op} ${w.value}`).join(" & ")}`) : null, " ", status),
+          c.text ? h("div.help", c.text) : null,
+          h("div.ap-fields", h("label", h("span.lbl", "Why"), purpose), h("label", h("span.lbl", "At"), atInput), h("span.help", where))),
+        h("div.ap-actions",
+          c.asset && c.library_status !== "approved" ? h("button.btn.small.primary", { type: "button", onclick: () => post({ action: "approve_asset", cue: c.id }) }, "Approve sound") : null,
+          c.asset ? h("button.btn.small", { type: "button", onclick: () => post({ action: "regenerate", cue: c.id }) }, "Regenerate") : null,
+          c.asset ? h("button.btn.small", { type: "button", onclick: () => post({ action: "reject_asset", cue: c.id }) }, "Reject sound") : null,
+          h("button.btn.small", { type: "button", onclick: () => { const w = window.prompt("Replace with (recipe, catalog scene, mood or a description)", c.what); if (w) post({ action: "update", cue: c.id, patch: { what: w, status: "planned" } }); } }, "Replace"),
+          h("button.btn.small", { type: "button", onclick: () => post({ action: "remove", cue: c.id }) }, "Remove"),
+          (c.kind === "music" || c.kind === "ambience") && c.asset_key
+            ? h("a.btn.small", { href: studioLink(c, v, sid), title: "Direct, render and compare candidates for this cue in the Music & Ambience Studio" }, "Open in Studio") : null));
+    });
+    const add = h("button.btn.small", { type: "button", onclick: () => {
+      const kind = window.prompt("Cue kind: ambience, music, sfx, accent, silence or stop", "sfx"); if (!kind) return;
+      const what = window.prompt(kind === "music" ? "Mood" : kind === "ambience" ? "Catalog scene or location id" : kind === "silence" ? "music" : "Recipe or description", ""); if (what === null) return;
+      const at = window.prompt("Line number it plays with (0 = before the first line)", "0"); if (at === null) return;
+      const purpose = window.prompt("Why is this sound here?", ""); if (!purpose) return;
+      post({ action: "add", cue_data: { id: `${kind}_${Date.now().toString(36).slice(-4)}`, kind, what: what || "music", purpose, at: +at, text: kind === "sfx" ? what : "" } }); } }, "+ Add a cue");
+    root.replaceChildren(head,
+      h("p.help", h("b", p.environment), p.mood ? ` · ${p.mood}` : "", h("br"), p.summary),
+      h("div.lbl", "Audio intensity along the chapter (music height, ambience, events; dark = silence)"), strip, review,
+      h("div.ap-cues", rows), h("div.actions", add),
+      p.applied_at ? h("div.help", `Applied to the chapter ${new Date(p.applied_at).toLocaleString()} (${v.applied_nodes} cue nodes).`) : h("div.help", "Not applied yet: the chapter plays without these cues until you apply them."),
+      picker ? field("Model for the next plan", picker) : null);
+  }
 }
 
 function worldCard(data) {
