@@ -23,13 +23,14 @@ from typing import TypeVar
 from pydantic import BaseModel
 
 from assetforge.errors import InvalidInputError, NotFoundError
-from assetforge.story.models import Cast, ContinuityReport, Outline, Scene, Script, StoryConfig, World
+from assetforge.story.models import Cast, ContinuityReport, NamingGuide, Outline, Scene, Script, StoryConfig, World
 from assetforge.story.sound import SoundPlan
 
 M = TypeVar("M", bound=BaseModel)
 FILES: dict[str, tuple[str, type[BaseModel]]] = {
     "config": ("story.json", StoryConfig),
     "world": ("world.json", World),
+    "names": ("names.json", NamingGuide),
     "cast": ("cast.json", Cast),
     "outline": ("outline.json", Outline),
     "script": ("script.json", Script),

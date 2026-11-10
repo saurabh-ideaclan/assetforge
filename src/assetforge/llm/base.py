@@ -23,6 +23,9 @@ class TextCall:
     prompt: str
     system: str = ""
     schema: dict[str, Any] | None = None  # strict JSON schema of the answer (see structured.strict_schema)
+    # The model's own schema (optional fields may be left out). Providers that don't need strict mode use it: a long
+    # answer with every null spelled out is slower, and Claude's validator retried it until it gave up.
+    loose_schema: dict[str, Any] | None = None
     model: str | None = None
     timeout: float = 600.0
     task: str = "text"  # e.g. story.world; recorded on the job, used by the offline provider

@@ -9,7 +9,7 @@ from collections import defaultdict
 from typing import TYPE_CHECKING, Any
 
 from assetforge.request import by_key
-from assetforge.story.models import Script
+from assetforge.story.models import Script, walk
 from assetforge.story.project import StoryProject, registered
 
 if TYPE_CHECKING:
@@ -41,10 +41,10 @@ def _chapters(script: Script) -> dict[str, dict[str, list[str]]]:
             out[group][ref].append(sid)
 
     for scene in script.scenes:
-        add("bg", f"{scene.location}/{scene.time}", scene.id)
-        add("amb", scene.location, scene.id)
-        add("music", scene.music, scene.id)
-        for node in scene.nodes:
+        for node, where, when, mood in walk(scene):
+            add("bg", f"{where}/{when}", scene.id)
+            add("amb", where, scene.id)
+            add("music", mood, scene.id)
             who = node.speaker if node.kind == "say" else node.character if node.kind == "show" else None
             if who:
                 add("char", f"{who}/{node.expression or 'neutral'}", scene.id)
@@ -90,7 +90,7 @@ def story_assets(lib: Library, project: StoryProject) -> dict[str, Any] | None:
         exprs = [e for e in by_group["char"] if e["ref"].split("/")[0] == c.id]
         characters.append({"id": c.id, "name": c.name, "role": c.role, "look": c.look,
                            "expressions": [{**e, "expression": e["ref"].split("/")[1]} for e in exprs],
-                           "lines": sum(1 for s in script.scenes for n in s.nodes if n.kind == "say" and n.speaker == c.id)})  # fmt: skip
+                           "lines": sum(1 for s in script.scenes for n, *_ in walk(s) if n.kind == "say" and n.speaker == c.id)})  # fmt: skip
     locations = []
     for loc in script.locations:
         times = [{**e, "time": e["ref"].split("/")[1]} for e in by_group["bg"] if e["ref"].split("/")[0] == loc.id]

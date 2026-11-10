@@ -1,0 +1,190 @@
+{
+  "id": "s_beach",
+  "title": "Wind Day",
+  "chapter": "ch2",
+  "location": "beach",
+  "time": "evening",
+  "music": "tense",
+  "nodes": [
+    {
+      "kind": "narrate",
+      "text": "Saturday. The beach is a forest of strings and colour.",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "show",
+      "character": "ira",
+      "expression": "neutral",
+      "position": "center",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "show",
+      "character": "ravi",
+      "expression": "nervous",
+      "position": "left",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "say",
+      "speaker": "ira",
+      "expression": "neutral",
+      "text": "The wind's coming off the sea in gusts. We get one launch.",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "choice",
+      "assign": [],
+      "choices": [
+        {
+          "text": "Launch now, before it gets worse.",
+          "set": [
+            {
+              "var": "bold",
+              "op": "add",
+              "value": 1
+            }
+          ],
+          "reaction": [
+            {
+              "text": "The kite leaps, dips, and catches. Your arms burn."
+            }
+          ]
+        },
+        {
+          "text": "Wait for the boat flags to settle.",
+          "set": [
+            {
+              "var": "bold",
+              "op": "add",
+              "value": -1
+            }
+          ],
+          "reaction": [
+            {
+              "text": "You watch the flags, the way Mr. D'Souza said. Then: one long, steady breath of wind."
+            },
+            {
+              "speaker": "ira",
+              "text": "Now!",
+              "expression": "smile"
+            }
+          ]
+        }
+      ],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "music",
+      "assign": [],
+      "choices": [],
+      "music": "heroic",
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "narrate",
+      "text": "Halfway up, a gust bends the new spine like a bow.",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "choice",
+      "assign": [],
+      "choices": [
+        {
+          "text": "Hand Ira the reel. It's her kite.",
+          "set": [
+            {
+              "var": "trust_ira",
+              "op": "add",
+              "value": 1
+            }
+          ],
+          "reaction": [
+            {
+              "speaker": "ira",
+              "text": "Together?",
+              "expression": "surprised"
+            },
+            {
+              "speaker": "ravi",
+              "text": "Together.",
+              "expression": "smile"
+            }
+          ]
+        },
+        {
+          "text": "Hold the line yourself.",
+          "set": [
+            {
+              "var": "bold",
+              "op": "add",
+              "value": 1
+            }
+          ],
+          "reaction": [
+            {
+              "text": "The string sings in your fingers. The kite shudders, and holds."
+            }
+          ]
+        },
+        {
+          "text": "Brace it with the spare spine from the box.",
+          "set": [],
+          "require": {
+            "var": "parts",
+            "op": ">=",
+            "value": 2
+          },
+          "reaction": [
+            {
+              "text": "The spare strip slides in behind the spine. When the next gust hits, the kite doesn't even flinch."
+            }
+          ]
+        }
+      ],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "branch",
+      "assign": [],
+      "choices": [],
+      "goto": "e_solo_scene",
+      "branches": [
+        {
+          "when": [
+            {
+              "var": "trust_ira",
+              "op": ">=",
+              "value": 3
+            },
+            {
+              "var": "parts",
+              "op": ">=",
+              "value": 2
+            }
+          ],
+          "goto": "e_together_scene"
+        }
+      ],
+      "when": []
+    }
+  ]
+}

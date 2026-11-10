@@ -90,6 +90,37 @@
         ".dev/vn-demo"
       ],
       "port": 8771
+    },
+    {
+      "name": "assetforge-main",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": [
+        "-m",
+        "assetforge",
+        "--home",
+        "~/.assetforge",
+        "ui",
+        "--port",
+        "8772",
+        "--token",
+        "dev"
+      ],
+      "port": 8772,
+      "url": "http://localhost:8772"
+    },
+    {
+      "name": "kite-season",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8773",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        ".dev/kite-play"
+      ],
+      "port": 8773
     }
   ]
 }

@@ -1,0 +1,46 @@
+{
+  "id": "e_together_scene",
+  "title": "Two Hands, One String",
+  "chapter": "ch2",
+  "location": "beach",
+  "time": "evening",
+  "music": "triumphant",
+  "nodes": [
+    {
+      "kind": "show",
+      "character": "ira",
+      "expression": "laugh",
+      "position": "center",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "narrate",
+      "text": "Two hands on one reel. The kite climbs above every other kite on the beach.",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "say",
+      "speaker": "ira",
+      "expression": "laugh",
+      "text": "Dad would have hated your knots. He'd have loved this.",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "ending",
+      "assign": [],
+      "choices": [],
+      "ending": "e_together",
+      "branches": [],
+      "when": []
+    }
+  ]
+}

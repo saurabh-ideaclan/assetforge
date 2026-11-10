@@ -22,7 +22,7 @@ from assetforge import art
 from assetforge.core.models import AssetType
 from assetforge.errors import AssetForgeError
 from assetforge.request import AssetRequest, by_key, handle
-from assetforge.story.models import Script, StoryConfig, World
+from assetforge.story.models import Script, StoryConfig, World, walk
 from assetforge.story.project import StoryProject
 from assetforge.story.sound import SoundPlan, ambience_options, music_options
 
@@ -110,14 +110,14 @@ def manifest(script: Script, config: StoryConfig, world: World | None, *, image_
     chars = {c.id: c for c in script.characters}
     for scene in script.scenes:
         on_stage = _scene_characters(scene)
-        for node in scene.nodes:
+        for node, where, when, _ in walk(scene):
             if node.kind == "cg" and node.cg and not any(i.key == story_key(slug, "cg", node.cg) for i in items):
-                loc = locs.get(scene.location)
+                loc = locs.get(where)
                 refs = [story_key(slug, "char", cid, "neutral") for cid in on_stage if cid in chars][:3]
                 who = ", ".join(f"{chars[c].name} ({chars[c].look})" for c in on_stage if c in chars)
                 image(story_key(slug, "cg", node.cg), "cg", f"CG {node.cg}", AssetType.IMAGE,
                       f"Visual novel event illustration (CG), cinematic full scene: {node.text or scene.title}. "
-                      f"Setting: {loc.description if loc else scene.location}, {LIGHT[scene.time]}. "
+                      f"Setting: {loc.description if loc else where}, {LIGHT.get(when, LIGHT['day'])}. "
                       + (f"Characters, matching the reference images: {who}." if who else ""),
                       aspect="16:9", transparent=False, refs=refs, name=f"{slug}_cg_{node.cg}")  # fmt: skip
 
@@ -140,7 +140,7 @@ def manifest(script: Script, config: StoryConfig, world: World | None, *, image_
     cues = {c.mood: c for c in sound_plan.music} if sound_plan else {}
     # a location the plan left empty (no scene, beds or events) falls back to matching its description
     places = {p.location: p for p in sound_plan.locations if p.scene or p.beds or p.events} if sound_plan else {}
-    for mood in sorted({s.music for s in script.scenes}):
+    for mood in sorted({st.music for s in script.scenes for st in walk(s)}):
         sound(story_key(slug, "music", mood), "music", f"Music: {mood}", AssetType.MUSIC,
               f"{mood} visual novel background music loop. {direction}", name=f"{slug}_music_{mood}",
               sound_opts=music_options(cues[mood]) if mood in cues else {"mood": MUSIC_MOOD.get(mood, mood), "form": "loop"})  # fmt: skip
@@ -163,7 +163,7 @@ def manifest(script: Script, config: StoryConfig, world: World | None, *, image_
 def _used_expressions(script: Script) -> dict[str, set[str]]:
     used: dict[str, set[str]] = {}
     for scene in script.scenes:
-        for node in scene.nodes:
+        for node, *_ in walk(scene):
             who = node.speaker if node.kind == "say" else node.character if node.kind == "show" else None
             if who and node.expression:
                 used.setdefault(who, set()).add(node.expression)
@@ -173,13 +173,14 @@ def _used_expressions(script: Script) -> dict[str, set[str]]:
 def _used_times(script: Script) -> dict[str, set[str]]:
     used: dict[str, set[str]] = {}
     for scene in script.scenes:
-        used.setdefault(scene.location, set()).add(scene.time)
+        for _, where, when, _ in walk(scene):
+            used.setdefault(where, set()).add(when)
     return used
 
 
 def _scene_characters(scene: Any) -> list[str]:
     seen: list[str] = []
-    for node in scene.nodes:
+    for node, *_ in walk(scene):
         who = node.speaker if node.kind == "say" else node.character if node.kind == "show" else None
         if who and who not in seen:
             seen.append(who)
@@ -190,10 +191,20 @@ def ensure_art_profile(lib: Library, config: StoryConfig, world: World | None) -
     """Give the story's project one art direction (from the world's art_direction) unless it already has one."""
     if art.find_profile(lib, config.asset_project) is not None or world is None:
         return False
-    direction = art.ArtDirection(style=config.art_style, description=world.art_direction, genre=config.genre,
-                                 notes="Visual novel: consistent character design and painting style across all images.")  # fmt: skip
-    art.set_profile(lib, config.asset_project, direction)
+    art.set_profile(lib, config.asset_project, story_art_direction(config, world))
     return True
+
+
+def story_art_direction(config: StoryConfig, world: World | None) -> art.ArtDirection:
+    """The one art direction every image of the story follows: the creative direction's visual preset and notes
+    (independent of the narrative influence), with the world's own look as the description."""
+    look = world.art_direction if world else ""
+    if config.direction is not None:
+        from assetforge.story import direction as creative
+
+        return creative.art_direction(config.direction, look)
+    return art.ArtDirection(style=config.art_style, description=look or None, genre=config.genre,
+                            notes="Visual novel: consistent character design and painting style across all images.")  # fmt: skip
 
 
 def load_sound_plan(lib: Library, project: StoryProject, *, make: bool, fresh: bool = False) -> tuple[SoundPlan | None, str | None]:

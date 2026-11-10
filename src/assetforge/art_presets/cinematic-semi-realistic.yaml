@@ -1,0 +1,13 @@
+summary: Semi-realistic cinematic illustration
+best_for: [character, background, ui]
+description: Semi-realistic digital painting with film-still lighting; believable faces with stylised polish, dramatic colour grading
+mood: cinematic, intense, moody
+lighting: film lighting with strong key and fill contrast, colour-graded teal and amber, volumetric light
+shapes: realistic proportions with slightly idealised faces; costume and props with real weight
+outline: no outlines
+shading: smooth realistic rendering with soft subsurface skin and crisp specular highlights
+texture: fine fabric and skin detail, atmospheric particles
+detail: high
+composition: shallow depth of field framing for characters; wide anamorphic feel for backgrounds
+avoid: [anime stylisation, cel shading, cartoon exaggeration, flat lighting]
+quality: high

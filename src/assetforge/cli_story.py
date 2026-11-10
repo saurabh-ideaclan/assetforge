@@ -11,9 +11,10 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
-from assetforge.cli_common import JsonOpt, session
+from assetforge.cli_common import JsonOpt, parse_pairs, session
 from assetforge.config import load_settings
-from assetforge.errors import ExitCode, InvalidInputError, NotFoundError
+from assetforge.errors import ConflictError, ExitCode, InvalidInputError, NotFoundError
+from assetforge.story import direction as creative
 from assetforge.story import steps
 from assetforge.story.project import StoryProject, register
 
@@ -74,10 +75,15 @@ def init_(
     language: Annotated[str, typer.Option(help="Language of the text.")] = "English",
     tone: Annotated[str, typer.Option(help="e.g. 'cozy with a bittersweet edge'.")] = "",
     behaviour: Annotated[str | None, typer.Option(help="Author style rules, or @file to read them from a file.")] = None,
-    scenes: Annotated[int, typer.Option(help="Target number of scenes (2-60).")] = 8,
+    scenes: Annotated[int, typer.Option(help="Target number of chapters (2-60).")] = 8,
     endings: Annotated[int, typer.Option(help="Number of endings (1-6).")] = 2,
+    chapter_words: Annotated[int, typer.Option(help="Words per chapter (benchmark ~1,500).")] = 1500,
+    chapter_choices: Annotated[int, typer.Option(help="Choices per chapter (benchmark 6-8).")] = 6,
     style: Annotated[str | None, typer.Option(help="Art preset (`art presets`) or free style text.")] = None,
     project: Annotated[str | None, typer.Option(help="AssetForge project for the assets (default vn-<slug>).")] = None,
+    preset: Annotated[str | None, typer.Option(help="Creative-direction preset (`story presets`).")] = None,
+    direction: Annotated[str | None, typer.Option(help="Creative direction as JSON, or @file.json/@file.yaml; "
+                                                       "fields override the preset.")] = None,  # fmt: skip
     provider: Provider = None,
     model: Model = None,
     force: Annotated[bool, typer.Option(help="Replace an existing story.json.")] = False,
@@ -87,13 +93,116 @@ def init_(
     with session(ctx, json_) as s:
         if behaviour and behaviour.startswith("@"):
             behaviour = Path(behaviour[1:]).expanduser().read_text().strip()
+        resolved = _direction(s.lib.paths.home, preset, direction)
         proj = steps.init(directory, title=title, premise=premise, force=force, genre=genre, audience=audience,
                           language=language, tone=tone, behaviour=behaviour, scenes=scenes, endings=endings,
-                          art_style=style, project=project, provider=provider, model=model)  # fmt: skip
+                          chapter_words=chapter_words, chapter_choices=chapter_choices, art_style=style, project=project, provider=provider, model=model,
+                          direction=resolved)  # fmt: skip
         config = proj.config
         register(s.lib.paths.home, proj)
-        s.out.emit({"dir": str(proj.root), "config": config.model_dump(mode="json")},
-                   lambda c: c.print(f"Story [bold]{escape(config.title)}[/bold] in {proj.root}\nNext: assetforge story make --dir {proj.root}  (or world → cast → outline → write)"))  # fmt: skip
+        warnings = creative.warnings(resolved) if resolved else []
+
+        def human(c: Console) -> None:
+            c.print(f"Story [bold]{escape(config.title)}[/bold] in {proj.root}")
+            if resolved:
+                c.print(f"Direction: {escape(creative.summary(resolved))}")
+            for w in warnings:
+                c.print(f"[yellow]warning[/yellow] {escape(w['message'])}")
+            c.print(f"Next: assetforge story make --dir {proj.root}  (or world → names → cast → outline → write)")
+
+        s.out.emit({"dir": str(proj.root), "config": config.model_dump(mode="json"), "warnings": warnings}, human)
+
+
+def _direction(home: Path, preset: str | None, text: str | None) -> creative.CreativeDirection | None:
+    """`--preset` and/or `--direction` (JSON, or @file in JSON/YAML) → a resolved direction; neither → None."""
+    if not preset and not text:
+        return None
+    data: dict[str, Any] = {}
+    if text:
+        raw = Path(text[1:]).expanduser().read_text() if text.startswith("@") else text
+        import yaml
+
+        loaded = yaml.safe_load(raw) or {}
+        if not isinstance(loaded, dict):
+            raise InvalidInputError("--direction must be a JSON/YAML mapping")
+        data = loaded
+    return creative.resolve(data, preset=preset or data.pop("preset", None), home=home)
+
+
+@story_app.command("presets")
+def presets_(
+    ctx: typer.Context,
+    save: Annotated[str | None, typer.Option(help="Save a story's direction as a user preset with this name.")] = None,
+    directory: Dir = None,
+    delete: Annotated[str | None, typer.Option(help="Delete a user preset.")] = None,
+    json_: JsonOpt = False,
+) -> None:
+    """Creative-direction presets: built-in ones, and yours in $ASSETFORGE_HOME/story_presets/."""
+    with session(ctx, json_) as s:
+        home = s.lib.paths.home
+        if delete:
+            creative.delete_preset(home, delete)
+        if save:
+            project = StoryProject(directory or Path.cwd())
+            if project.config.direction is None:
+                raise InvalidInputError("This story has no creative direction to save")
+            path = creative.save_preset(home, save, project.config.direction, title=save)
+            s.out.warn(f"Saved {path}")
+        items = [p.model_dump(mode="json") for p in creative.presets(home)]
+
+        def human(c: Console) -> None:
+            for p in items:
+                c.print(f"[bold]{p['name']}[/bold] ({p['source']}): {escape(p['summary'] or p['title'])}")
+
+        s.out.emit({"presets": items}, human)
+
+
+@story_app.command("direction")
+def direction_(
+    ctx: typer.Context,
+    directory: Dir = None,
+    preset: Annotated[str | None, typer.Option(help="Apply this preset to the story (keeps explicit fields).")] = None,
+    set_: Annotated[list[str] | None, typer.Option("--set", help="field=value (lists comma-separated), e.g. romance=medium")] = None,
+    yes: Annotated[bool, typer.Option("--yes", help="Apply even when written parts would be left stale.")] = False,
+    json_: JsonOpt = False,
+) -> None:
+    """Show or change a story's creative direction, with an impact review before anything written is affected."""
+    with session(ctx, json_) as s:
+        project = StoryProject(directory or Path.cwd())
+        config = project.config
+        current = config.direction
+        payload: dict[str, Any] = {"dir": str(project.root)}
+        if preset or set_:
+            data = dict(parse_pairs(set_ or [], "--set"))
+            for key in ("subgenres", "themes", "tone", "reserved_names"):
+                if key in data:
+                    data[key] = [v.strip() for v in str(data[key]).split(",") if v.strip()]
+            base = current.model_dump(exclude_defaults=True) if current else {}
+            new = creative.resolve({**base, **data}, preset=preset or (current.preset if current else None), home=s.lib.paths.home)
+            written = {"world": project.has("world"), "cast": project.has("cast"), "outline": project.has("outline"),
+                       "chapters": bool(project.scenes()), "assets": project.has("script")}  # fmt: skip
+            impact = creative.impact(current, new, written)
+            payload["impact"] = impact
+            if impact and not yes:
+                raise ConflictError("Changing the direction would leave written parts stale: " + " ".join(impact),
+                                    hint="Re-run with --yes to apply anyway")  # fmt: skip
+            project.save("config", config.model_copy(update={"direction": new}))
+            current = new
+        payload["direction"] = current.model_dump(mode="json") if current else None
+        payload["summary"] = creative.summary(current) if current else ""
+        payload["warnings"] = creative.warnings(current) if current else []
+
+        def human(c: Console) -> None:
+            if not current:
+                c.print("No creative direction (pre-direction story). Set one with --preset or --set.")
+                return
+            c.print(escape(payload["summary"]))
+            for w in payload["warnings"]:
+                c.print(f"[yellow]warning[/yellow] {escape(w['message'])}")
+            for note in payload.get("impact", []):
+                c.print(f"[yellow]impact[/yellow] {escape(note)}")
+
+        s.out.emit(payload, human)
 
 
 def _step(name: str, doc: str):  # noqa: ANN202 - small command factory for world/cast/outline
@@ -123,6 +232,7 @@ def _step(name: str, doc: str):  # noqa: ANN202 - small command factory for worl
 
 
 _step("world", "Worldbuilding: setting, history, culture, rules, art and music direction (world.json).")
+_step("names", "Naming guide for people and places, from the creative direction (names.json); the cast follows it.")
 _step("cast", "Characters (look, voice, expressions) and locations (times of day, ambience) (cast.json).")
 _step("outline", "Branching plan: scenes, choices, variables and endings (outline.json), fixed to be playable.")
 
@@ -375,8 +485,10 @@ def make(
     genre: Annotated[str, typer.Option()] = "drama",
     audience: Annotated[str, typer.Option()] = "teen",
     tone: Annotated[str, typer.Option()] = "",
-    scenes: Annotated[int, typer.Option()] = 8,
+    scenes: Annotated[int, typer.Option(help="Chapters.")] = 8,
     endings: Annotated[int, typer.Option()] = 2,
+    chapter_words: Annotated[int, typer.Option()] = 1500,
+    chapter_choices: Annotated[int, typer.Option()] = 6,
     style: Annotated[str | None, typer.Option(help="Art preset or style text.")] = None,
     provider: Provider = None, model: Model = None,
     assets: Annotated[bool, typer.Option("--assets", help="Also make the assets (images cost money: try "
@@ -394,7 +506,7 @@ def make(
         proj = StoryProject(directory or steps.default_dir(name))
         if not proj.has("config"):
             steps.init(proj.root, title=name, premise=premise, genre=genre, audience=audience, tone=tone, scenes=scenes,
-                       endings=endings, art_style=style, provider=provider, model=model)  # fmt: skip
+                       endings=endings, chapter_words=chapter_words, chapter_choices=chapter_choices, art_style=style, provider=provider, model=model)  # fmt: skip
         register(s.lib.paths.home, proj)
         c = steps.Ctx(lib=s.lib, project=proj, provider=provider, model=model)
         done: dict[str, Any] = {"dir": str(proj.root)}
@@ -482,3 +594,39 @@ def test(ctx: typer.Context, provider: Annotated[str, typer.Option(help="Provide
                                                f"{result.data.model_dump()}"))  # fmt: skip
         if not ok:
             raise NotFoundError("The provider answered but not as asked")
+
+
+@story_app.command("lint")
+def lint_(ctx: typer.Context, directory: Dir = None,
+          fix: Annotated[bool, typer.Option("--fix", help="Rewrite failing chapters from the findings (kept only "
+                                                          "when better).")] = False,
+          scene: Annotated[list[str] | None, typer.Option("--scene", "-s", help="With --fix: only these.")] = None,
+          rounds: Annotated[int, typer.Option(min=1, max=4, help="With --fix: rewrites per chapter.")] = 2,
+          provider: Provider = None, model: Model = None,
+          json_: JsonOpt = False) -> None:  # fmt: skip
+    """Measure every chapter against the benchmark: words, choices, first choice, longest stretch without a choice,
+    callbacks. Errors are the hard rules a freshly written chapter is repaired for. --fix rewrites the ones failing."""
+    from assetforge.story.lint import lint_story
+    from assetforge.story.usage import current_script
+
+    with session(ctx, json_) as s:
+        proj = find_dir(directory)
+        if fix:
+            steps.fix_lint(steps.Ctx(s.lib, proj, provider=provider, model=model), scenes=scene, rounds=rounds)
+        script = current_script(proj)
+        if script is None:
+            raise NotFoundError("Nothing written yet", hint="Run `assetforge story outline` and `story write` first")
+        report = lint_story(script, proj.config)
+
+        def human(con: Console) -> None:
+            sm = report["summary"]
+            con.print(f"{sm['passing']}/{sm['chapters']} chapters pass · avg {sm['avg_words']} words, "
+                      f"{sm['avg_choices']} choices · longest stretch {sm['worst_stretch']} words · {sm['minutes']} min")
+            for c in report["chapters"]:
+                mark = "[green]✓[/green]" if c["ok"] else "[red]✗[/red]"
+                con.print(f" {mark} {c['chapter']:>2} {escape(c['title'])[:34]:<34} {c['words']:>5}w {c['choices']:>2}ch "
+                          f"first@{c['first_choice_box'] or '-':<3} stretch {c['max_stretch']['words']:>3} cb {c['callbacks']}")
+                for i in c["issues"]:
+                    con.print(f"     [{'red' if i['level'] == 'error' else 'yellow'}]{i['code']}[/]: {escape(i['message'])}")
+
+        s.out.emit({"lint": report}, human)

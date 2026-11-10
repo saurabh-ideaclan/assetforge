@@ -120,8 +120,8 @@ The gaps are in **the structure of play**, not the prose.
 
 | Phase | What | Done when |
 |---|---|---|
-| 1. Format | Gaps 1–6: in-chapter choices with reactions, conditional lines/options, location nodes, stat model, ending gates, chapters made of scenes. Validator, preview and player support them | A hand-made sample chapter with 7 choices, 2 callbacks and 2 locations plays correctly |
-| 2. Writing | Gaps 8–12: beat template, multi-call chapters, choice rules, narrative linter and repair, season arc | A generated chapter meets the benchmark: ≥ 1,500 words, ≥ 6 choices, first choice by line 15, no 400-word stretch, ≥ 1 callback from chapter 3 on, hook ending |
+| 1. Format ✅ done (`examples/kite-season`) | Gaps 1–6: in-chapter choices with reactions, conditional lines/options, location nodes, stat model, ending gates, chapters made of scenes. Validator, preview and player support them | A hand-made sample chapter with 7 choices, 2 callbacks and 2 locations plays correctly |
+| 2. Writing ✅ built (`story lint`, beat passes, repair round) | Gaps 8–12: beat template, multi-call chapters, choice rules, narrative linter and repair, season arc | A generated chapter meets the benchmark: ≥ 1,500 words, ≥ 6 choices, first choice by line 15, no 400-word stretch, ≥ 1 callback from chapter 3 on, hook ending |
 | 3. Player/app | Gaps 13–16: consequence toasts, chapter-end card, quality panel, box length | Visible in the app |
 | 4. Benchmark story | An **original** 10-chapter teen story written to this formula, measured with the linter, then played end to end | Every chapter green on the quality panel; endings depend on earlier choices |
 

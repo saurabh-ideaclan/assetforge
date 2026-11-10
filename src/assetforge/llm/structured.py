@@ -48,6 +48,7 @@ class Structured:
     reused: bool = False
     usage: dict[str, Any] = field(default_factory=dict)
     attempts: list[dict[str, Any]] = field(default_factory=list)
+    choice: dict[str, Any] = field(default_factory=dict)  # requested vs used, who chose, fallbacks
 
 
 # ---------------------------------------------------------------------- schema + parsing
@@ -143,12 +144,29 @@ def _persist(lib: Library, job_id: str, name: str, content: str) -> None:
 
 
 def generate(lib: Library, call: TextCall, model: type[M], *, provider: str | None = None, fallback: bool = True,
-             fresh: bool = False, settings: Settings | None = None, project: str | None = None) -> Structured:  # fmt: skip
-    """Return a validated `model` instance (in `.data`) for `call`, reusing an identical earlier answer."""
+             fresh: bool = False, settings: Settings | None = None, project: str | None = None,
+             resolved: Any | None = None) -> Structured:  # fmt: skip
+    """Return a validated `model` instance (in `.data`) for `call`, reusing an identical earlier answer.
+
+    With `resolved` (an `llm.plans.Resolved`), the providers and the model per step come from the execution plan,
+    and the job records what was requested, what ran, who chose it and any fallback (`result.choice`)."""
     settings = settings or load_settings(lib.paths.home)
     call.schema = strict_schema(model)
+    call.loose_schema = model.model_json_schema()
+    steps: list[tuple[TextProvider, str | None]]
+    if resolved is not None:
+        from assetforge.llm import get_provider
+
+        steps = [(get_provider(s.provider, settings), s.model) for s in resolved.steps]
+        first = resolved.steps[0] if resolved.steps else None
+        requested_provider = first.provider if first else "auto"
+        requested_model = (first.model if first else None) or call.model
+    else:
+        steps = [(p, call.model) for p in provider_chain(provider, settings, fallback=fallback)]
+        requested_provider = provider or settings.get("ASSETFORGE_TEXT_PROVIDER") or "auto"
+        requested_model = call.model
     fp = jobs.fingerprint({"task": call.task, "system": call.system, "prompt": call.prompt, "schema": call.schema,
-                           "provider": provider or settings.get("ASSETFORGE_TEXT_PROVIDER") or "auto", "model": call.model})  # fmt: skip
+                           "provider": requested_provider, "model": requested_model})  # fmt: skip
     if not fresh and (row := _cached(lib, fp)) is not None:
         stored = loads(row["result"], {})
         try:
@@ -157,20 +175,27 @@ def generate(lib: Library, call: TextCall, model: type[M], *, provider: str | No
                               billing=stored.get("billing", ""), reused=True, usage=stored.get("usage", {}))  # fmt: skip
         except ValidationError:
             pass  # the model changed since: ask again
-    chain = provider_chain(provider, settings, fallback=fallback)
-    if not chain:
+    if not steps:
+        if resolved is not None and resolved.needs_confirmation is not None:
+            from assetforge.llm.plans import confirmation_error
+
+            raise confirmation_error(resolved, call.task)
         raise ProviderError(
             "No text provider is available", provider="auto", kind="not_configured",
             hint="Install and sign in to a CLI (claude, codex or gemini); see `assetforge llm providers`.")  # fmt: skip
-    job_id = jobs.create_job(lib, "text", {"task": call.task, "provider": provider or "auto", "model": call.model,
-                                           "project": project, "prompt_chars": len(call.prompt)}, fingerprint=fp)  # fmt: skip
+    choice = {"kind": getattr(resolved, "kind", None), "chosen_by": getattr(resolved, "chosen_by", "override" if provider else "auto"),
+              "requested": {"provider": requested_provider, "model": requested_model}}  # fmt: skip
+    job_id = jobs.create_job(lib, "text", {"task": call.task, "provider": requested_provider, "model": requested_model,
+                                           "project": project, "prompt_chars": len(call.prompt), "choice": choice},
+                             fingerprint=fp)  # fmt: skip
     _persist(lib, job_id, "prompt.md", f"# system\n\n{call.system}\n\n# prompt\n\n{call.prompt}\n")
     _persist(lib, job_id, "schema.json", json.dumps(call.schema, indent=2))
     attempts: list[dict[str, Any]] = []
     errors: list[ProviderError] = []
-    for prov in chain:
+    for prov, step_model in steps:
+        step_call = call if step_model == call.model else _with_model(call, step_model)
         try:
-            response, data = _ask(lib, job_id, prov, call, model, attempts)
+            response, data = _ask(lib, job_id, prov, step_call, model, attempts)
         except ProviderError as exc:
             errors.append(exc)
             if exc.kind == "bad_response":  # answered, but not in the required shape (other errors are logged in _ask)
@@ -178,18 +203,34 @@ def generate(lib: Library, call: TextCall, model: type[M], *, provider: str | No
             if not exc.allows_fallback:
                 break
             continue
+        fallbacks = [{"provider": e.provider, "kind": e.kind, "message": e.message[:300]} for e in errors]
+        full_choice = {**choice, "used": {"provider": response.provider, "model": response.model, "billing": response.billing},
+                       "fallbacks": fallbacks, "held_back": list(getattr(resolved, "skipped", []) or [])}  # fmt: skip
         result = {"data": data.model_dump(mode="json"), "billing": response.billing, "usage": response.usage,
-                  "task": call.task, "attempts": attempts}  # fmt: skip
+                  "task": call.task, "attempts": attempts, "choice": full_choice}  # fmt: skip
         jobs.update_job(lib, job_id, status=JobStatus.SUCCEEDED.value, provider=response.provider, model=response.model,
                         result=result, cost_usd=0.0 if response.billing != "api" else None, attempts=len(attempts))  # fmt: skip
         return Structured(data=data, job_id=job_id, provider=response.provider, model=response.model,
-                          billing=response.billing, usage=response.usage, attempts=attempts)  # fmt: skip
+                          billing=response.billing, usage=response.usage, attempts=attempts, choice=full_choice)  # fmt: skip
+    if resolved is not None and resolved.needs_confirmation is not None and all(e.allows_fallback for e in errors):
+        from assetforge.llm.plans import confirmation_error
+
+        exc = confirmation_error(resolved, call.task)
+        every = [{"provider": e.provider, "kind": e.kind, "message": e.message[:500]} for e in errors]
+        jobs.update_job(lib, job_id, status=JobStatus.FAILED.value, error={**exc.to_dict(), "errors": every,
+                                                                           "attempts": attempts}, attempts=len(attempts))  # fmt: skip
+        raise ProviderError(exc.message, provider=exc.provider, kind=exc.kind, hint=exc.hint, job_id=job_id, errors=every)
     best = _most_useful(errors)
     every = [{"provider": e.provider, "kind": e.kind, "message": e.message[:500]} for e in errors]
     jobs.update_job(lib, job_id, status=JobStatus.FAILED.value, error={**best.to_dict(), "errors": every,
                                                                        "attempts": attempts}, attempts=len(attempts))  # fmt: skip
     raise ProviderError(best.message, provider=best.provider, kind=best.kind, hint=best.hint, job_id=job_id,
                         tried=list(dict.fromkeys(e.provider for e in errors)), errors=every)  # fmt: skip
+
+
+def _with_model(call: TextCall, model: str | None) -> TextCall:
+    return TextCall(prompt=call.prompt, system=call.system, schema=call.schema, loose_schema=call.loose_schema, model=model,
+                    timeout=call.timeout, task=call.task, offline=call.offline)  # fmt: skip
 
 
 def _most_useful(errors: list[ProviderError]) -> ProviderError:
@@ -212,7 +253,8 @@ def _ask(lib: Library, job_id: str, prov: TextProvider, call: TextCall, model: t
         prompt=(f"{call.prompt}\n\n---\n\nYour previous answer did not match the required JSON schema:\n{problems}\n\n"
                 f"Previous answer:\n{response.text[:12000] or json.dumps(response.data)[:12000]}\n\n"
                 "Return the complete corrected JSON answer."),
-        system=call.system, schema=call.schema, model=call.model, timeout=call.timeout, task=f"{call.task}.repair",
+        system=call.system, schema=call.schema, loose_schema=call.loose_schema, model=call.model, timeout=call.timeout,
+        task=f"{call.task}.repair",
         offline=call.offline)  # fmt: skip
     response = _with_retries(lib, job_id, prov, repair, attempts)
     try:

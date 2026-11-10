@@ -137,6 +137,8 @@
   const byId = (list) => Object.assign(Object.create(null), Object.fromEntries((list || []).map((x) => [x.id, x])));
   const scenes = byId(S.scenes), chars = byId(S.characters), locs = byId(S.locations), endings = byId(S.endings);
   const VERSION = DATA.version ?? null;
+  const chapterList = S.chapters || [], chapterIndex = new Map(chapterList.map((c, i) => [c.id, i]));
+  const ranges = Object.fromEntries((S.variables || []).map((v) => [v.name, [v.min ?? -Infinity, v.max ?? Infinity]]));
   const SAVE = `vn-${slug}-save`, PREFS = "vn-player-prefs";
   const store = { get() { try { return JSON.parse(localStorage.getItem(SAVE) || "null"); } catch { return null; } },
                   set(v) { try { localStorage.setItem(SAVE, JSON.stringify(v)); return true; } catch { return false; } } };
@@ -154,7 +156,8 @@
     while (queue.length) {
       const id = queue.shift();
       for (const n of scenes[id].nodes || []) {
-        const exits = n.kind === "choice" ? (n.choices || []).map((c) => c.goto) : n.kind === "jump" ? [n.goto] : [];
+        const exits = n.kind === "choice" ? (n.choices || []).map((c) => c.goto)
+          : n.kind === "branch" ? [...(n.branches || []).map((b) => b.goto), n.goto] : n.kind === "jump" ? [n.goto] : [];
         for (const to of exits) if (to != null && scenes[to] && !depth.has(to)) { depth.set(to, depth.get(id) + 1); queue.push(to); }
       }
     }
@@ -186,14 +189,14 @@
 
   // ---------------------------------------------------------------- visuals
   let bgFront = null;
-  function setBackground(scene) {
-    const loc = locs[scene.location] || { name: scene.location, times: [scene.time] };
-    const a = asset("bg", scene.location, scene.time) || asset("bg", scene.location, (loc.times || [])[0] || "day");
-    const id = `${scene.location}/${scene.time}`;
+  function setBackground(place) {
+    const loc = locs[place.location] || { name: place.location, times: [place.time] };
+    const a = asset("bg", place.location, place.time) || asset("bg", place.location, (loc.times || [])[0] || "day");
+    const id = `${place.location}/${place.time}`;
     if (bgFront && bgFront.dataset.id === id) return;
     let el;
     if (a && a.image) { el = new Image(); el.src = a.image; el.alt = ""; }
-    else { el = document.createElement("div"); el.className = `placeholder-bg t-${scene.time}`; el.textContent = String(loc.name ?? ""); }
+    else { el = document.createElement("div"); el.className = `placeholder-bg t-${place.time}`; el.textContent = String(loc.name ?? ""); }
     el.classList.add("bg"); el.dataset.id = id;
     $("bgs").appendChild(el);
     requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add("on")));
@@ -281,9 +284,9 @@
   let cardTimer = null, cardDone = null;
   function showCard(sceneId, done) {
     hideCard();
-    const scene = scenes[sceneId], n = depth.get(sceneId);
+    const scene = scenes[sceneId], ci = chapterIndex.get(scene.chapter), n = ci ?? depth.get(sceneId);
     $("c-kind").textContent = n === undefined ? "Chapter" : `Chapter ${n + 1}`;
-    $("c-title").textContent = String(scene.title ?? "");
+    $("c-title").textContent = String((ci !== undefined ? chapterList[ci].title : scene.title) ?? "");
     waiting = "card"; cardDone = done;
     $("card").classList.add("on");
     cardTimer = setTimeout(skipCard, CARD_MS);
@@ -297,31 +300,58 @@
 
   // ---------------------------------------------------------------- engine
   let state = null, typing = null, waiting = null, lineFull = "";
-  const fresh = () => ({ scene: S.start, index: 0, vars: Object.fromEntries((S.variables || []).map((v) => [v.name, v.initial || 0])), shown: {}, cg: null });
+  const fresh = () => ({ scene: S.start, index: 0, vars: Object.fromEntries((S.variables || []).map((v) => [v.name, v.initial || 0])),
+                         shown: {}, cg: null, place: null, mood: null, react: null, chapter: null });
   function test(cond) {
     if (!cond) return true;
     const v = state.vars[cond.var] || 0, x = cond.value;
     return { "==": v === x, "!=": v !== x, ">=": v >= x, "<=": v <= x, ">": v > x, "<": v < x }[cond.op] ?? true;
   }
-  function apply(assigns) { for (const a of assigns || []) state.vars[a.var] = a.op === "set" ? a.value : (state.vars[a.var] || 0) + a.value; }
+  const holds = (conds) => (conds || []).every(test);
+  function apply(assigns) {
+    for (const a of assigns || []) {
+      const v = a.op === "set" ? a.value : (state.vars[a.var] || 0) + a.value, [lo, hi] = ranges[a.var] || [-Infinity, Infinity];
+      state.vars[a.var] = Math.min(hi, Math.max(lo, v));
+    }
+  }
+  function stage() {  // background + music + ambience for where the story is now
+    setBackground(state.place);
+    loop("music", asset("music", state.mood)); loop("amb", asset("amb", state.place.location));
+  }
   function stopLine() { clearInterval(typing); typing = null; clearTimeout(autoTimer); autoTimer = null; }
   function clearLine() { stopLine(); lineFull = ""; $("name").textContent = ""; $("text").textContent = ""; $("text").className = ""; $("more").classList.remove("on"); }
   function enter(sceneId, keepIndex) {
     const scene = scenes[sceneId];
     if (!scene) { console.error("unknown scene", sceneId); return end(null); }
     state.scene = sceneId;
-    if (!keepIndex) { state.index = 0; state.shown = {}; state.cg = null; state.sceneVars = { ...state.vars }; }
+    if (!keepIndex) {
+      state.index = 0; state.shown = {}; state.cg = null; state.react = null; state.sceneVars = { ...state.vars };
+      state.place = { location: scene.location, time: scene.time }; state.mood = scene.music;
+    }
+    state.place = state.place || { location: scene.location, time: scene.time }; state.mood = state.mood || scene.music;
     clearLine();
     $("draft").hidden = !scene.draft;
-    setBackground(scene); setCg(state.cg && state.cg.id, state.cg && state.cg.text);
-    loop("music", asset("music", scene.music)); loop("amb", asset("amb", scene.location));
+    stage(); setCg(state.cg && state.cg.id, state.cg && state.cg.text);
     renderChars(null);
-    if (keepIndex) run(); else showCard(sceneId, run);
+    const chapter = scene.chapter || sceneId;  // without chapters, every scene is one
+    if (keepIndex || chapter === state.chapter) { state.chapter = chapter; run(); return; }
+    state.chapter = chapter; showCard(sceneId, run);
+  }
+  function reactionLine() {
+    const r = state.react, n = r && (scenes[state.scene].nodes || [])[r.node], c = n && (n.choices || [])[r.option];
+    const line = c && (c.reaction || [])[r.line];
+    return line ? { kind: line.speaker ? "say" : "narrate", speaker: line.speaker, text: line.text, expression: line.expression } : null;
   }
   function run() {
     const scene = scenes[state.scene], nodes = scene.nodes || [];
+    if (state.react) {  // the lines answering an in-chapter choice, then the chapter carries on
+      const line = reactionLine();
+      if (line) return say(line);
+      state.react = null; state.index++;
+    }
     while (state.index < nodes.length) {
       const n = nodes[state.index];
+      if (!holds(n.when)) { state.index++; continue; }  // a callback for another path
       switch (n.kind) {
         case "show": if (state.cg) { state.cg = null; setCg(null); }  // staging characters ends the CG
                      state.shown[n.character] = { expr: n.expression || (state.shown[n.character] || {}).expr || "neutral",
@@ -331,8 +361,16 @@
         case "sfx": sfx(asset("sfx", n.cue)); break;
         case "cg": state.cg = { id: n.cg, text: n.text }; setCg(n.cg, n.text); break;
         case "set": apply(n.assign); break;
+        case "place": state.shown = {}; state.cg = null; setCg(null); renderChars(null);
+                      state.place = { location: n.location, time: n.time || state.place.time };
+                      if (n.music) state.mood = n.music;
+                      stage();
+                      if (n.text) return say({ kind: "narrate", text: n.text });
+                      break;
+        case "music": state.mood = n.music; stage(); break;
         case "say": case "narrate": return say(n);
         case "choice": return choose(n);
+        case "branch": { const b = (n.branches || []).find((x) => holds(x.when)); return enter(b ? b.goto : n.goto); }
         case "jump": return enter(n.goto);
         case "ending": return end(n.ending);
       }
@@ -370,21 +408,25 @@
     if (!options.length) { waiting = null; state.index++; return run(); }
     const choiceSkin = asset("ui", "choice");
     options.forEach((c, i) => {
+      const at = all.indexOf(c);
       const b = document.createElement("button"); b.type = "button"; b.className = "choice";
       if (choiceSkin && choiceSkin.image) { b.style.backgroundImage = cssUrl(choiceSkin.image); b.classList.add("skin"); }
       const num = document.createElement("span"); num.className = "n"; num.textContent = String(i + 1);
       b.append(num, String(c.text ?? ""));
-      b.addEventListener("click", (ev) => { ev.stopPropagation(); pickChoice(c); });
+      b.addEventListener("click", (ev) => { ev.stopPropagation(); pickChoice(c, at); });
       layer.appendChild(b);
     });
     layer.classList.add("on");
     const first = layer.querySelector("button"); if (first) first.focus({ preventScroll: true });
   }
-  function pickChoice(c) {
+  function pickChoice(c, at) {
     if (waiting !== "choice" || histOpen) return;
     $("choices").classList.remove("on"); waiting = null;
     remember(null, String(c.text ?? ""), "choice");
-    apply(c.set); enter(c.goto);
+    apply(c.set);
+    if (c.goto) { enter(c.goto); return; }
+    state.react = { node: state.index, option: at, line: 0 };  // in-chapter choice: its reaction, then onward
+    run();
   }
   function end(id) {
     stopLine(); hideCard(); closeHistory(false);
@@ -401,7 +443,9 @@
     if (waiting !== "line") return;
     if (typing) { finishTyping(); return; }
     clearTimeout(autoTimer); autoTimer = null;
-    waiting = null; state.index++; run();
+    waiting = null;
+    if (state.react) state.react.line++; else state.index++;
+    run();
   }
 
   // ---------------------------------------------------------------- screens + saves
@@ -442,7 +486,8 @@
       begin({ ...base, scene: st.scene, vars: { ...base.vars, ...(st.sceneVars || st.vars || {}) } }, false);
       toast(CHANGED, 3200); return false;
     }
-    begin({ ...base, ...st, vars: { ...base.vars, ...(st.vars || {}) }, shown: st.shown || {}, cg: st.cg || null }, true);
+    begin({ ...base, ...st, vars: { ...base.vars, ...(st.vars || {}) }, shown: st.shown || {}, cg: st.cg || null,
+            place: st.place || null, mood: st.mood || null, react: st.react || null }, true);
     return true;
   }
 

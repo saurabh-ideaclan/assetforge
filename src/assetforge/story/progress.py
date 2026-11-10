@@ -10,6 +10,7 @@ the outline, art and sound straight from the library.
 from __future__ import annotations
 
 import hashlib
+import re
 import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -34,18 +35,29 @@ def _ts(value: str | None) -> float:
         return 0.0
 
 
+def _base(task: str) -> str:
+    """story.scene.s01.p2 / .fix / .repair → story.scene.s01 (one chapter, however many calls write it)."""
+    return re.sub(r"(\.p\d+|\.fix|\.repair)+$", "", task)
+
+
 def _label(task: str, titles: dict[str, str], numbers: dict[str, int]) -> str:
-    kind, _, ref = task.removeprefix("story.").partition(".")
+    step = ""
+    if m := re.search(r"\.p(\d+)", task):
+        step = f" (part {m.group(1)})"
+    elif ".fix" in task:
+        step = " (fixing what the quality check found)"
+    kind, _, ref = _base(task).removeprefix("story.").partition(".")
     chapter = f"chapter {numbers[ref]} · {titles[ref]}" if ref in titles else ref
     return {
         "world": "Building the world", "cast": "Creating the characters and places", "outline": "Planning the chapters",
         "scene": f"Writing {chapter}", "refine": f"Revising {chapter}", "improve": "Editor pass on your feedback",
         "check": "Continuity check",
-    }.get(kind, task) + (" (fixing the answer's format)" if task.endswith(".repair") else "")  # fmt: skip
+    }.get(kind, task) + step + (" (fixing the answer's format)" if task.endswith(".repair") else "")  # fmt: skip
 
 
 def chapter_numbers(plan: Outline) -> dict[str, int]:
-    """Chapter number = shortest distance from the start + 1 (branches share numbers)."""
+    """Chapter number = the declared chapter's position, else the shortest distance from the start + 1
+    (branches share numbers)."""
     by_id = {s.id: s for s in plan.scenes}
     depth = {plan.start: 1}
     queue = [plan.start]
@@ -54,12 +66,15 @@ def chapter_numbers(plan: Outline) -> dict[str, int]:
         s = by_id.get(sid)
         if s is None:
             continue
-        for nxt in [c.goto for c in s.choices] + ([s.next] if s.next else []):
+        for nxt in s.exits():
             if nxt not in depth:
                 depth[nxt] = depth[sid] + 1
                 queue.append(nxt)
     for s in plan.scenes:
         depth.setdefault(s.id, max(depth.values(), default=0) + 1)
+    if plan.chapters:  # declared chapters (several scenes each) win over the scene depth
+        index = {c.id: i + 1 for i, c in enumerate(plan.chapters)}
+        depth = {s.id: index.get(s.chapter or "", depth[s.id]) for s in plan.scenes}
     return depth
 
 
@@ -85,7 +100,7 @@ def progress(lib: Library, project: StoryProject, *, with_assets: bool = False) 
     for r in rows:
         if r["status"] == "running" and now - _ts(r["created_at"]) < STALE_SECONDS:
             task = (loads(r["request"], {}) or {}).get("task", "")
-            running_tasks.setdefault(task.removesuffix(".repair"), {
+            running_tasks.setdefault(_base(task), {
                 "job_id": r["id"], "task": task, "label": _label(task, titles, numbers),
                 "since": r["created_at"], "seconds": round(now - _ts(r["created_at"]))})  # fmt: skip
     if plan:
@@ -99,21 +114,26 @@ def progress(lib: Library, project: StoryProject, *, with_assets: bool = False) 
                              "location": s.location, "time": s.time, "state": state,
                              "ending": s.ending, "choices": [c.text for c in s.choices]})  # fmt: skip
     feed = []
-    durations = []
+    per_chapter: dict[str, int] = {}
     for r in rows:
         if r["status"] == "running":
             continue
         task = (loads(r["request"], {}) or {}).get("task", "")
         seconds = round(_ts(r["updated_at"]) - _ts(r["created_at"]))
         if r["status"] == "succeeded" and task.startswith("story.scene."):
-            durations.append(seconds)
+            per_chapter[_base(task)] = per_chapter.get(_base(task), 0) + seconds  # all calls that wrote it
         if len(feed) < 12:
             error = loads(r["error"], None)
+            request = loads(r["request"], {}) or {}
+            choice = (loads(r["result"], {}) or {}).get("choice") or request.get("choice") or {}
             feed.append({"job_id": r["id"], "label": _label(task, titles, numbers), "status": r["status"],
                          "provider": r["provider"], "model": r["model"], "at": r["updated_at"], "seconds": seconds,
-                         "error": (error or {}).get("message") if r["status"] == "failed" else None})  # fmt: skip
+                         "error": (error or {}).get("message") if r["status"] == "failed" else None,
+                         "chosen_by": choice.get("chosen_by"), "requested": choice.get("requested"),
+                         "fallbacks": choice.get("fallbacks") or [], "billing": (choice.get("used") or {}).get("billing")})  # fmt: skip
     remaining = sum(1 for c in chapters if c["state"] in ("planned", "writing"))
     eta = None
+    durations = list(per_chapter.values())
     if remaining and durations and running_tasks:
         per = sum(durations[:10]) / len(durations[:10])
         eta = round(per * remaining / max(1, min(2, len(running_tasks))))
@@ -145,11 +165,13 @@ def _stand_in(plan: PlannedScene) -> dict[str, Any]:
         from assetforge.story.models import Choice
 
         nodes.append(Node(kind="choice", choices=[Choice(text=c.text, goto=c.goto) for c in plan.choices]))
+    elif plan.branches:
+        nodes.append(Node(kind="branch", branches=plan.branches, goto=plan.next))
     elif plan.ending:
         nodes.append(Node(kind="ending", ending=plan.ending))
     else:
         nodes.append(Node(kind="jump", goto=plan.next))
-    return {"id": plan.id, "title": plan.title, "location": plan.location, "time": plan.time, "music": plan.music,
+    return {"id": plan.id, "title": plan.title, "chapter": plan.chapter, "location": plan.location, "time": plan.time, "music": plan.music,
             "nodes": [n.model_dump(mode="json", exclude_none=True, exclude_defaults=True) | {"kind": n.kind} for n in nodes],
             "draft": True, "summary": plan.summary}  # fmt: skip
 
@@ -164,6 +186,7 @@ def preview_script(project: StoryProject) -> dict[str, Any] | None:
               for s in plan.scenes]  # fmt: skip
     return {"format": "assetforge-vn/1", "title": config.title, "slug": config.slug, "language": config.language,
             "start": plan.start, "variables": [v.model_dump() for v in plan.variables],
+            "chapters": [c.model_dump() for c in plan.chapters],
             "characters": [c.model_dump(mode="json") for c in cast.characters],
             "locations": [loc.model_dump(mode="json") for loc in cast.locations],
             "endings": [e.model_dump(mode="json") for e in plan.endings], "scenes": scenes}  # fmt: skip

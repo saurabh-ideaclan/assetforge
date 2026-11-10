@@ -1,0 +1,175 @@
+{
+  "start": "s_roof",
+  "variables": [
+    {
+      "name": "trust_ira",
+      "initial": 1,
+      "meaning": "How much Ira trusts Ravi (0-5); 3+ means she flies the kite with him",
+      "kind": "relationship",
+      "character": "ira",
+      "min": 0,
+      "max": 5
+    },
+    {
+      "name": "bold",
+      "initial": 0,
+      "meaning": "Bold (+) or careful (-)",
+      "kind": "personality",
+      "min": -3,
+      "max": 3
+    },
+    {
+      "name": "parts",
+      "initial": 0,
+      "meaning": "Kite parts gathered (0-3)",
+      "kind": "resource",
+      "min": 0,
+      "max": 3
+    },
+    {
+      "name": "told_truth",
+      "initial": 0,
+      "meaning": "Ravi admitted he broke the kite",
+      "kind": "flag",
+      "min": 0,
+      "max": 1
+    }
+  ],
+  "chapters": [
+    {
+      "id": "ch1",
+      "title": "The Broken Kite",
+      "hook": "Ira wants a new spine by Saturday. Ravi has two days and no money."
+    },
+    {
+      "id": "ch2",
+      "title": "Wind Day",
+      "hook": ""
+    }
+  ],
+  "scenes": [
+    {
+      "id": "s_roof",
+      "title": "The Broken Kite",
+      "chapter": "ch1",
+      "location": "school_roof",
+      "time": "day",
+      "characters": [
+        "ira",
+        "ravi",
+        "dsouza"
+      ],
+      "summary": "Ira finds her kite broken; Ravi, who broke it, decides what to say. They go to the repair shop for parts.",
+      "music": "calm",
+      "next": "s_workbench",
+      "choices": [],
+      "branches": []
+    },
+    {
+      "id": "s_workbench",
+      "title": "After Closing",
+      "chapter": "ch1",
+      "location": "repair_shop",
+      "time": "evening",
+      "characters": [
+        "ira",
+        "dsouza"
+      ],
+      "summary": "They fix the line and learn why the kite matters to Ira.",
+      "music": "calm",
+      "next": "s_beach",
+      "choices": [],
+      "branches": []
+    },
+    {
+      "id": "s_beach",
+      "title": "Wind Day",
+      "chapter": "ch2",
+      "location": "beach",
+      "time": "evening",
+      "characters": [
+        "ira",
+        "ravi"
+      ],
+      "summary": "Festival day: the launch, and who holds the line.",
+      "music": "tense",
+      "next": "e_solo_scene",
+      "choices": [],
+      "branches": [
+        {
+          "when": [
+            {
+              "var": "trust_ira",
+              "op": ">=",
+              "value": 3
+            },
+            {
+              "var": "parts",
+              "op": ">=",
+              "value": 2
+            }
+          ],
+          "goto": "e_together_scene"
+        }
+      ]
+    },
+    {
+      "id": "e_together_scene",
+      "title": "Two Hands, One String",
+      "chapter": "ch2",
+      "location": "beach",
+      "time": "evening",
+      "characters": [
+        "ira",
+        "ravi"
+      ],
+      "summary": "They fly it together.",
+      "music": "triumphant",
+      "choices": [],
+      "branches": [],
+      "ending": "e_together"
+    },
+    {
+      "id": "e_solo_scene",
+      "title": "Flying Alone",
+      "chapter": "ch2",
+      "location": "beach",
+      "time": "evening",
+      "characters": [
+        "ira"
+      ],
+      "summary": "Ira flies alone.",
+      "music": "sad",
+      "choices": [],
+      "branches": [],
+      "ending": "e_solo"
+    }
+  ],
+  "endings": [
+    {
+      "id": "e_together",
+      "title": "Two Hands, One String",
+      "kind": "good",
+      "summary": "Ira and Ravi fly the rebuilt kite together, and it stays up longer than any kite on the beach.",
+      "requires": [
+        {
+          "var": "trust_ira",
+          "op": ">=",
+          "value": 3
+        },
+        {
+          "var": "parts",
+          "op": ">=",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": "e_solo",
+      "title": "Flying Alone",
+      "kind": "neutral",
+      "summary": "The kite flies, but Ira flies it alone. Ravi watches from the boats, still owing her the truth.",
+      "requires": []
+    }
+  ]
+}

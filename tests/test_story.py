@@ -243,12 +243,12 @@ def test_write_keeps_finished_scenes_when_one_fails(lib: Library, tmp_path: Path
     steps.outline(ctx)
     real = offline.scene
 
-    def flaky(plan, cast):  # noqa: ANN001, ANN202
+    def flaky(plan, cast, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN202
         if plan.id == "s02":
             def boom(_):  # noqa: ANN001, ANN202
                 raise ProviderError("usage limit reached", provider="fake", kind="quota")
             return boom
-        return real(plan, cast)
+        return real(plan, cast, *args, **kwargs)
 
     monkeypatch.setattr(offline, "scene", flaky)
     with pytest.raises(ProviderError):

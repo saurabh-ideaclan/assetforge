@@ -1,0 +1,44 @@
+{
+  "id": "e_solo_scene",
+  "title": "Flying Alone",
+  "chapter": "ch2",
+  "location": "beach",
+  "time": "evening",
+  "music": "sad",
+  "nodes": [
+    {
+      "kind": "narrate",
+      "text": "The kite flies. Ira flies it alone, and you watch from the boats.",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "say",
+      "speaker": "ira",
+      "expression": "smile",
+      "text": "Thanks for the help, Ravi. Really.",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "narrate",
+      "text": "You still owe her something. Maybe next season.",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "ending",
+      "assign": [],
+      "choices": [],
+      "ending": "e_solo",
+      "branches": [],
+      "when": []
+    }
+  ]
+}

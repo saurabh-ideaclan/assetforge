@@ -21,11 +21,14 @@ from assetforge.config import load_settings
 from assetforge.core.catalog import Library
 from assetforge.core.util import slugify
 from assetforge.errors import AssetForgeError, ConflictError, InternalError, InvalidInputError, NotFoundError
+from assetforge.llm import plans
+from assetforge.story import characters, workflow
+from assetforge.story import direction as creative
 from assetforge.story import steps
 from assetforge.story.models import StoryConfig
 from assetforge.story.project import StoryProject, register, registered
 
-ACTIONS = ("write", "improve", "check", "assets_plan", "assets", "export", "refine")
+ACTIONS = ("write", "improve", "check", "assets_plan", "assets", "export", "refine", "character", "alternatives", "concepts")
 _tasks: dict[str, dict[str, Any]] = {}
 _busy: dict[str, str] = {}  # story id → running task id
 _lock = threading.Lock()
@@ -179,6 +182,147 @@ def register_routes(router: Router) -> None:  # noqa: C901 - one place for all s
                                "text/javascript; charset=utf-8")  # fmt: skip
         raise NotFoundError("Not part of the preview")
 
+    @router.route("GET", "/api/story/direction")
+    def direction_options(req: Request, lib: Library) -> dict[str, Any]:
+        """Everything the creative-direction form needs: option lists, help, the taxonomy and the presets."""
+        return {"options": creative.options(),
+                "presets": [p.model_dump(mode="json") for p in creative.presets(lib.paths.home)]}  # fmt: skip
+
+    @router.route("POST", "/api/story/direction/check")
+    def direction_check(req: Request, lib: Library) -> dict[str, Any]:
+        """Resolve a (partial) direction against its preset and report contradictions and a readable summary."""
+        body = dict(req.body or {})
+        resolved = creative.resolve(body.get("direction") or {}, preset=body.get("preset") or None, home=lib.paths.home)
+        return {"direction": resolved.model_dump(mode="json"), "warnings": creative.warnings(resolved),
+                "summary": creative.summary(resolved)}  # fmt: skip
+
+    @router.route("POST", "/api/story/presets")
+    def preset_save(req: Request, lib: Library) -> dict[str, Any]:
+        body = dict(req.body or {})
+        resolved = creative.resolve(body.get("direction") or {}, preset=body.get("from_preset") or None, home=lib.paths.home)
+        path = creative.save_preset(lib.paths.home, str(body.get("name", "")), resolved, title=str(body.get("title", "")),
+                                    summary=str(body.get("summary", "")))  # fmt: skip
+        return {"preset": creative.get_preset(path.stem, lib.paths.home).model_dump(mode="json"), "path": str(path)}
+
+    @router.route("POST", r"/api/story/presets/(?P<name>[a-z0-9-]+)/delete")
+    def preset_delete(req: Request, lib: Library) -> dict[str, Any]:
+        creative.delete_preset(lib.paths.home, req.match["name"])
+        return {"deleted": req.match["name"]}
+
+    # ------------------------------------------------------------------ AI execution plan (library-wide)
+
+    @router.route("GET", "/api/ai/plan")
+    def ai_plan(req: Request, lib: Library) -> dict[str, Any]:
+        return {"plan": plans.load_plan(lib.paths.home).model_dump(mode="json"), "task_kinds": plans.TASK_KINDS,
+                "providers": providers(req, lib)["providers"]}  # fmt: skip
+
+    @router.route("POST", "/api/ai/plan")
+    def ai_plan_save(req: Request, lib: Library) -> dict[str, Any]:
+        plan = plans.ExecutionPlan(**dict(req.body or {}))
+        plans.save_plan(lib.paths.home, plan)
+        return {"plan": plan.model_dump(mode="json")}
+
+    # ------------------------------------------------------------------ workflow, approvals, characters, alternatives
+
+    @router.route("GET", r"/api/stories/(?P<sid>[a-z0-9-]+)/workflow")
+    def story_workflow(req: Request, lib: Library) -> dict[str, Any]:
+        from assetforge.story.progress import progress
+
+        sid, project = _story(lib, req.match["sid"])
+        return workflow.status(lib, project, progress(lib, project))
+
+    @router.route("POST", r"/api/stories/(?P<sid>[a-z0-9-]+)/workflow")
+    def story_workflow_change(req: Request, lib: Library) -> dict[str, Any]:
+        """action: mode (mode) | approve (stage, note) | changes (stage, note) | reopen (stage, note)."""
+        from assetforge.story.progress import progress
+
+        sid, project = _story(lib, req.match["sid"])
+        body = dict(req.body or {})
+        action, stage, note = str(body.get("action", "")), str(body.get("stage", "")), str(body.get("note", ""))
+        if action == "mode":
+            workflow.set_mode(project, str(body.get("mode", "")))
+        elif action == "approve":
+            workflow.approve(project, stage, note=note)
+        elif action == "changes":
+            workflow.request_changes(project, stage, note)
+        elif action == "reopen":
+            workflow.unapprove(project, stage, note)
+        else:
+            raise InvalidInputError("action must be mode, approve, changes or reopen")
+        return workflow.status(lib, project, progress(lib, project))
+
+    @router.route("GET", r"/api/stories/(?P<sid>[a-z0-9-]+)/characters")
+    def story_characters(req: Request, lib: Library) -> dict[str, Any]:
+        sid, project = _story(lib, req.match["sid"])
+        if not project.has("cast"):
+            return {"cast": [], "profiles": {}, "sections": list(characters.SECTIONS)}
+        return {"cast": characters.overview(lib, project), "sections": list(characters.SECTIONS),
+                "profiles": {k: v.model_dump(mode="json") for k, v in characters.profiles(project).items()}}  # fmt: skip
+
+    @router.route("POST", r"/api/stories/(?P<sid>[a-z0-9-]+)/characters/(?P<cid>[a-z0-9_]+)")
+    def story_character_edit(req: Request, lib: Library) -> dict[str, Any]:
+        sid, project = _story(lib, req.match["sid"])
+        body = dict(req.body or {})
+        profile = characters.update(project, req.match["cid"], dict(body.get("patch") or {}), note=str(body.get("note", "")),
+                                    unlock=bool(body.get("unlock")))  # fmt: skip
+        return {"profile": profile.model_dump(mode="json"), "impact": workflow.character_impact(project, req.match["cid"])}
+
+    @router.route("POST", r"/api/stories/(?P<sid>[a-z0-9-]+)/characters/(?P<cid>[a-z0-9_]+)/approval")
+    def story_character_approval(req: Request, lib: Library) -> dict[str, Any]:
+        sid, project = _story(lib, req.match["sid"])
+        body = dict(req.body or {})
+        profile = characters.set_approval(project, req.match["cid"], str(body.get("section", "all")), str(body.get("state", "approved")),
+                                          str(body.get("note", "")))  # fmt: skip
+        return {"profile": profile.model_dump(mode="json")}
+
+    @router.route("POST", r"/api/stories/(?P<sid>[a-z0-9-]+)/characters/(?P<cid>[a-z0-9_]+)/lock")
+    def story_character_lock(req: Request, lib: Library) -> dict[str, Any]:
+        sid, project = _story(lib, req.match["sid"])
+        body = dict(req.body or {})
+        profile = characters.set_lock(project, req.match["cid"], str(body.get("section", "")), bool(body.get("locked", True)))
+        return {"profile": profile.model_dump(mode="json")}
+
+    @router.route("POST", r"/api/stories/(?P<sid>[a-z0-9-]+)/characters/(?P<cid>[a-z0-9_]+)/proposals/(?P<pid>[a-z0-9]+)")
+    def story_character_proposal(req: Request, lib: Library) -> dict[str, Any]:
+        """apply (optional `sections`) or discard a proposal."""
+        sid, project = _story(lib, req.match["sid"])
+        body = dict(req.body or {})
+        if body.get("discard"):
+            profile = characters.discard_proposal(project, req.match["cid"], req.match["pid"])
+        else:
+            profile = characters.apply_proposal(project, req.match["cid"], req.match["pid"], sections=body.get("sections") or None)
+        return {"profile": profile.model_dump(mode="json")}
+
+    @router.route("POST", r"/api/stories/(?P<sid>[a-z0-9-]+)/characters/(?P<cid>[a-z0-9_]+)/master")
+    def story_character_master(req: Request, lib: Library) -> dict[str, Any]:
+        sid, project = _story(lib, req.match["sid"])
+        profile = characters.set_master(lib, project, req.match["cid"], str((req.body or {}).get("asset_id", "")))
+        return {"profile": profile.model_dump(mode="json")}
+
+    @router.route("GET", r"/api/stories/(?P<sid>[a-z0-9-]+)/characters/(?P<cid>[a-z0-9_]+)/consistency")
+    def story_character_consistency(req: Request, lib: Library) -> dict[str, Any]:
+        sid, project = _story(lib, req.match["sid"])
+        return characters.consistency(lib, project, req.match["cid"])
+
+    @router.route("GET", r"/api/stories/(?P<sid>[a-z0-9-]+)/characters/(?P<cid>[a-z0-9_]+)/impact")
+    def story_character_impact(req: Request, lib: Library) -> dict[str, Any]:
+        sid, project = _story(lib, req.match["sid"])
+        return workflow.character_impact(project, req.match["cid"])
+
+    @router.route("GET", r"/api/stories/(?P<sid>[a-z0-9-]+)/alternatives/(?P<scene>[a-z0-9_]+)")
+    def story_alternatives(req: Request, lib: Library) -> dict[str, Any]:
+        sid, project = _story(lib, req.match["sid"])
+        return project.read_json(f"alternatives/{req.match['scene']}.json") or {"scene": req.match["scene"], "items": []}
+
+    @router.route("POST", r"/api/stories/(?P<sid>[a-z0-9-]+)/alternatives/(?P<scene>[a-z0-9_]+)/(?P<alt>[a-z0-9]+)")
+    def story_alternative_choose(req: Request, lib: Library) -> dict[str, Any]:
+        from assetforge.exporters.vn import export_story
+
+        sid, project = _story(lib, req.match["sid"])
+        result = steps.choose_alternative(project, req.match["scene"], req.match["alt"])
+        result["export"] = export_story(lib, project, project.root / "build")
+        return result
+
     @router.route("POST", "/api/stories")
     def create_story(req: Request, lib: Library) -> dict[str, Any]:
         body = dict(req.body or {})
@@ -189,8 +333,11 @@ def register_routes(router: Router) -> None:  # noqa: C901 - one place for all s
         # an untitled story is keyed by its idea (the writer names it later; slug and asset keys never change)
         slug = slugify(title) if not body.get("title_from_writer") else slugify(" ".join(premise.split()[:6]))[:40].strip("-")
         directory = body.pop("dir", None) or lib.paths.home / "stories" / slug
-        allowed = set(StoryConfig.model_fields) - {"title", "slug", "premise"}
+        preset, direction = body.pop("preset", None), body.pop("direction", None)
+        allowed = set(StoryConfig.model_fields) - {"title", "slug", "premise", "direction"}
         options = {k: v for k, v in body.items() if k in allowed and v not in ("", None)}
+        if preset or direction is not None:  # every story made in the app carries an explicit direction
+            options["direction"] = creative.resolve(direction or {}, preset=preset or None, home=lib.paths.home)
         project = steps.init(directory, title=title, premise=premise, slug=slug, **options)
         return {"id": register(lib.paths.home, project), "dir": str(project.root)}
 
@@ -211,9 +358,15 @@ def register_routes(router: Router) -> None:  # noqa: C901 - one place for all s
             data["assets"] = coverage(lib, project)
         from assetforge.story.progress import library_assets, progress
 
+        if project.has("names"):
+            data["names"] = project.load("names").model_dump(mode="json")
+        if project.config.direction is not None:
+            data["direction"] = {"summary": creative.summary(project.config.direction),
+                                 "warnings": creative.warnings(project.config.direction)}  # fmt: skip
         data["cover"] = (library_assets(lib, project).get(f"vn/{project.config.slug}/ui/title") or {}).get("image")
         data["written"] = {sid_: sc.model_dump(mode="json", exclude_none=True) for sid_, sc in project.scenes().items()}
         data["progress"] = progress(lib, project, with_assets=project.has("script"))
+        data["workflow"] = workflow.status(lib, project, data["progress"])
         data["feedback"] = project.read_json("feedback.json").get("history", [])[-10:]
         data["playable"] = data["progress"]["playable_chapters"] > 0
         data["exported"] = (project.root / "build" / "index.html").exists()
@@ -221,14 +374,32 @@ def register_routes(router: Router) -> None:  # noqa: C901 - one place for all s
 
     @router.route("POST", r"/api/stories/(?P<sid>[a-z0-9-]+)/settings")
     def story_settings(req: Request, lib: Library) -> dict[str, Any]:
-        """Change the writer (provider/model) or other config fields; the next steps use them."""
+        """Change the writer (provider/model), the creative direction or other config fields; the next steps use
+        them. A direction change on a story with written parts returns an impact review first (`needs_confirm`)
+        unless `confirm` is set, so established canon is never altered by accident."""
         sid, project = _story(lib, req.match["sid"])
         config = project.config
+        body = dict(req.body or {})
+        confirm = bool(body.pop("confirm", False))
         changes = {k: (v or None) if k in ("provider", "model", "art_style", "project") else v
-                   for k, v in (req.body or {}).items() if k in StoryConfig.model_fields and k not in ("slug",)}  # fmt: skip
+                   for k, v in body.items() if k in StoryConfig.model_fields and k not in ("slug", "direction")}  # fmt: skip
+        result: dict[str, Any] = {}
+        if "direction" in body:
+            new = None if body["direction"] is None else creative.resolve(body["direction"], preset=body.get("preset") or None,
+                                                                           home=lib.paths.home)  # fmt: skip
+            if new is not None:
+                written = {"world": project.has("world"), "cast": project.has("cast"), "outline": project.has("outline"),
+                           "chapters": bool(project.scenes()), "assets": project.has("script")}  # fmt: skip
+                impact = creative.impact(config.direction, new, written)
+                if impact and not confirm:
+                    return {"config": config.model_dump(mode="json"), "needs_confirm": True, "impact": impact,
+                            "warnings": creative.warnings(new), "summary": creative.summary(new)}  # fmt: skip
+                result.update(warnings=creative.warnings(new), summary=creative.summary(new), impact=impact)
+            changes["direction"] = new
         updated = StoryConfig(**{**config.model_dump(), **changes})
         project.save("config", updated)
-        return {"config": updated.model_dump(mode="json")}
+        result["config"] = updated.model_dump(mode="json")
+        return result
 
     @router.route("POST", r"/api/stories/(?P<sid>[a-z0-9-]+)/run")
     def run_story(req: Request, lib: Library) -> dict[str, Any]:
@@ -297,7 +468,8 @@ def _work(home: Path, sid: str, root: Path, task_id: str, body: dict[str, Any]) 
         with Library(home) as lib:
             project = StoryProject(root)
             ctx = steps.Ctx(lib=lib, project=project, provider=body.get("provider") or None,
-                            model=body.get("model") or None, fresh=bool(body.get("fresh")))  # fmt: skip
+                            model=body.get("model") or None, fresh=bool(body.get("fresh")),
+                            allow_paid=bool(body.get("allow_paid")))  # fmt: skip
             task["result"] = _run_action(lib, project, ctx, body)
             task["calls"] = ctx.calls
             task["state"] = "done"
@@ -316,17 +488,44 @@ def _run_action(lib: Library, project: StoryProject, ctx: steps.Ctx, body: dict[
     from assetforge.story.assets import produce
 
     action = body["action"]
-    if action == "write":  # everything not done yet: world → cast → outline → scenes, then a playable export
-        if not project.has("world"):
-            steps.world(ctx)
-        if not project.has("cast"):
-            steps.cast(ctx)
-        if not project.has("outline"):
-            steps.outline(ctx)
+
+    def paused(stage: str) -> dict[str, Any]:
+        workflow.pause(project, stage)
+        title = next(s["title"] for s in workflow.STAGES if s["id"] == stage)
+        return {"paused_at": stage, "needs": f"Review and approve: {title}", "written": [], "kept": []}
+
+    if action == "write":  # everything not done yet: world → cast → outline → scenes, then a playable export;
+        # in guided/manual mode it stops at the next stage that waits for the operator's approval
+        for step, fn in (("world", steps.world), ("cast", steps.cast), ("outline", steps.outline)):
+            if project.has(step):
+                continue
+            if stage := workflow.blocked_by(project, step):
+                return paused(stage)
+            fn(ctx)
+            if step == "cast":
+                characters.profiles(project)  # draft profiles for the studio as soon as the cast exists
+        if stage := workflow.blocked_by(project, "write"):
+            return paused(stage)
         result = steps.write(ctx, workers=int(body.get("workers") or 2))
         if result.get("assembled"):
             result["export"] = export_story(lib, project, project.root / "build")
         return result
+    if action == "character":
+        proposal = characters.revise(ctx, str(body.get("character", "")), str(body.get("request", "")))
+        return {"character": body.get("character"), "proposal": proposal.model_dump(mode="json")}
+    if action == "alternatives":
+        return steps.alternatives(ctx, str(body.get("scene", "")), n=int(body.get("n") or 3), note=str(body.get("note", "")))
+    if action == "concepts":
+        if stage := workflow.blocked_by(project, "assets"):
+            if stage != "visual":  # concepts are how the visual identity gets approved; only other gates block them
+                return paused(stage)
+        return characters.concepts(lib, project, str(body.get("character", "")), n=int(body.get("n") or 3),
+                                   image_provider=body.get("image_provider") or "auto", quality=body.get("quality") or "auto",
+                                   dry_run=bool(body.get("dry_run")))  # fmt: skip
+    if action in ("assets", "assets_plan") and action == "assets" and (stage := workflow.blocked_by(project, "assets")):
+        return paused(stage)
+    if action == "export" and (stage := workflow.blocked_by(project, "export")):
+        return paused(stage)
     if action == "improve":
         result = steps.improve(ctx, str(body.get("feedback", "")), include_check=bool(body.get("use_check")),
                                scenes=body.get("scenes") or None)  # fmt: skip

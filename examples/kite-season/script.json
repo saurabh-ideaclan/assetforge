@@ -1,0 +1,1030 @@
+{
+  "format": "assetforge-vn/1",
+  "title": "Kite Season",
+  "slug": "kite-season",
+  "language": "English",
+  "start": "s_roof",
+  "variables": [
+    {
+      "name": "trust_ira",
+      "initial": 1,
+      "meaning": "How much Ira trusts Ravi (0-5); 3+ means she flies the kite with him",
+      "kind": "relationship",
+      "character": "ira",
+      "min": 0,
+      "max": 5
+    },
+    {
+      "name": "bold",
+      "initial": 0,
+      "meaning": "Bold (+) or careful (-)",
+      "kind": "personality",
+      "min": -3,
+      "max": 3
+    },
+    {
+      "name": "parts",
+      "initial": 0,
+      "meaning": "Kite parts gathered (0-3)",
+      "kind": "resource",
+      "min": 0,
+      "max": 3
+    },
+    {
+      "name": "told_truth",
+      "initial": 0,
+      "meaning": "Ravi admitted he broke the kite",
+      "kind": "flag",
+      "min": 0,
+      "max": 1
+    }
+  ],
+  "chapters": [
+    {
+      "id": "ch1",
+      "title": "The Broken Kite",
+      "hook": "Ira wants a new spine by Saturday. Ravi has two days and no money."
+    },
+    {
+      "id": "ch2",
+      "title": "Wind Day",
+      "hook": ""
+    }
+  ],
+  "characters": [
+    {
+      "id": "ravi",
+      "name": "Ravi",
+      "role": "protagonist",
+      "age": "15",
+      "personality": "Careful, kind, quietly funny.",
+      "look": "Slim Indian boy, messy black hair, brown eyes, white school shirt with rolled sleeves, grey trousers, a red thread bracelet.",
+      "palette": [
+        "white",
+        "grey",
+        "red"
+      ],
+      "voice": "Short sentences, dry jokes.",
+      "expressions": [
+        "neutral",
+        "nervous",
+        "smile",
+        "determined",
+        "sheepish"
+      ]
+    },
+    {
+      "id": "ira",
+      "name": "Ira",
+      "role": "friend",
+      "age": "15",
+      "personality": "Sharp, stubborn, generous once she trusts you.",
+      "look": "Indian girl, long black braid, dark eyes, yellow kurta over jeans, paint-stained fingers, a kite-string reel clipped to her belt.",
+      "palette": [
+        "saffron",
+        "denim blue"
+      ],
+      "voice": "Fast, teasing, precise.",
+      "expressions": [
+        "neutral",
+        "angry",
+        "sad",
+        "smile",
+        "surprised",
+        "laugh"
+      ]
+    },
+    {
+      "id": "dsouza",
+      "name": "Mr. D'Souza",
+      "role": "mentor",
+      "age": "70",
+      "personality": "Gruff, generous, loves a bargain.",
+      "look": "Old Goan man, white stubble, round glasses, faded blue shirt, leather apron with pliers in the pocket.",
+      "palette": [
+        "faded blue",
+        "brown"
+      ],
+      "voice": "Slow, a proverb in every second line.",
+      "expressions": [
+        "neutral",
+        "smile",
+        "stern"
+      ]
+    }
+  ],
+  "locations": [
+    {
+      "id": "school_roof",
+      "name": "School roof",
+      "description": "Flat concrete school rooftop with blue water tanks, washing lines and a low wall; the sea beyond.",
+      "times": [
+        "day",
+        "evening"
+      ],
+      "ambience": "Sea wind, distant traffic and a school bell."
+    },
+    {
+      "id": "repair_shop",
+      "name": "D'Souza Repairs",
+      "description": "Cramped repair shop: shelves of spools, bamboo strips, radios, a workbench under a hanging bulb.",
+      "times": [
+        "day",
+        "evening"
+      ],
+      "ambience": "Ticking clock, a fan, the street outside."
+    },
+    {
+      "id": "beach",
+      "name": "Festival beach",
+      "description": "Wide grey-sand beach with fishing boats pulled up, festival flags and hundreds of kites in the sky.",
+      "times": [
+        "day",
+        "evening"
+      ],
+      "ambience": "Waves, wind in flags, a crowd."
+    }
+  ],
+  "endings": [
+    {
+      "id": "e_together",
+      "title": "Two Hands, One String",
+      "kind": "good",
+      "summary": "Ira and Ravi fly the rebuilt kite together, and it stays up longer than any kite on the beach.",
+      "requires": [
+        {
+          "var": "trust_ira",
+          "op": ">=",
+          "value": 3
+        },
+        {
+          "var": "parts",
+          "op": ">=",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": "e_solo",
+      "title": "Flying Alone",
+      "kind": "neutral",
+      "summary": "The kite flies, but Ira flies it alone. Ravi watches from the boats, still owing her the truth.",
+      "requires": []
+    }
+  ],
+  "scenes": [
+    {
+      "id": "s_roof",
+      "title": "The Broken Kite",
+      "chapter": "ch1",
+      "location": "school_roof",
+      "time": "day",
+      "music": "calm",
+      "nodes": [
+        {
+          "kind": "narrate",
+          "text": "The lunch bell is still ringing when you reach the roof.",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "narrate",
+          "text": "Ira's kite lies against the water tank. Its spine is snapped clean in two.",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "show",
+          "character": "ira",
+          "expression": "sad",
+          "position": "center",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "say",
+          "speaker": "ira",
+          "expression": "sad",
+          "text": "Two months of work. Somebody stepped right on it.",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "show",
+          "character": "ravi",
+          "expression": "nervous",
+          "position": "left",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "narrate",
+          "text": "You did. This morning, backing away from the edge, you felt the crack under your shoe.",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "choice",
+          "assign": [],
+          "choices": [
+            {
+              "text": "Tell her it was you.",
+              "set": [
+                {
+                  "var": "told_truth",
+                  "op": "set",
+                  "value": 1
+                },
+                {
+                  "var": "trust_ira",
+                  "op": "add",
+                  "value": 1
+                },
+                {
+                  "var": "bold",
+                  "op": "add",
+                  "value": 1
+                }
+              ],
+              "reaction": [
+                {
+                  "speaker": "ira",
+                  "text": "You? ...You came up here to tell me that?",
+                  "expression": "surprised"
+                },
+                {
+                  "speaker": "ira",
+                  "text": "At least you didn't let me blame Arjun.",
+                  "expression": "neutral"
+                }
+              ]
+            },
+            {
+              "text": "Promise to help her fix it.",
+              "set": [
+                {
+                  "var": "trust_ira",
+                  "op": "add",
+                  "value": 1
+                }
+              ],
+              "reaction": [
+                {
+                  "speaker": "ira",
+                  "text": "Fix it? With what, glue and hope?",
+                  "expression": "neutral"
+                },
+                {
+                  "speaker": "ravi",
+                  "text": "With whatever it takes.",
+                  "expression": "determined"
+                }
+              ]
+            },
+            {
+              "text": "Say nothing. Look at the sea.",
+              "set": [
+                {
+                  "var": "bold",
+                  "op": "add",
+                  "value": -1
+                }
+              ],
+              "reaction": [
+                {
+                  "text": "The wind fills the silence. Ira doesn't look up."
+                }
+              ]
+            }
+          ],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "say",
+          "speaker": "ira",
+          "expression": "neutral",
+          "text": "The festival is on Saturday. I need a new bamboo spine and proper line.",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "narrate",
+          "text": "A gust lifts the torn sail off the tank and snags it on the washing line above the stairwell.",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "choice",
+          "assign": [],
+          "choices": [
+            {
+              "text": "Climb the tank ladder and grab it.",
+              "set": [
+                {
+                  "var": "bold",
+                  "op": "add",
+                  "value": 1
+                }
+              ],
+              "reaction": [
+                {
+                  "text": "The ladder is hot and wobbly. You unhook the sail with two fingers and jump down."
+                },
+                {
+                  "speaker": "ira",
+                  "text": "Okay. That was a little bit heroic.",
+                  "expression": "laugh"
+                }
+              ]
+            },
+            {
+              "text": "Wait for the wind to drop.",
+              "set": [
+                {
+                  "var": "bold",
+                  "op": "add",
+                  "value": -1
+                }
+              ],
+              "reaction": [
+                {
+                  "text": "You wait. The gust passes, and the sail slides down into your hands."
+                },
+                {
+                  "speaker": "ira",
+                  "text": "Patient. My grandmother would like you.",
+                  "expression": "smile"
+                }
+              ]
+            }
+          ],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "say",
+          "speaker": "ira",
+          "expression": "smile",
+          "text": "You're braver than you look, you know.",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": [
+            {
+              "var": "bold",
+              "op": ">=",
+              "value": 1
+            }
+          ]
+        },
+        {
+          "kind": "say",
+          "speaker": "ira",
+          "expression": "neutral",
+          "text": "You always think before you move. That's useful, with kites.",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": [
+            {
+              "var": "bold",
+              "op": "<=",
+              "value": -1
+            }
+          ]
+        },
+        {
+          "kind": "say",
+          "speaker": "ira",
+          "expression": "neutral",
+          "text": "Mr. D'Souza has bamboo. Meet me at his shop after school.",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "place",
+          "text": "After school, the repair shop smells of solder and old rope.",
+          "assign": [],
+          "choices": [],
+          "location": "repair_shop",
+          "time": "evening",
+          "music": "playful",
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "show",
+          "character": "dsouza",
+          "expression": "neutral",
+          "position": "right",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "show",
+          "character": "ira",
+          "expression": "neutral",
+          "position": "left",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "say",
+          "speaker": "dsouza",
+          "expression": "stern",
+          "text": "A competition spine? Good bamboo is forty rupees a strip.",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "choice",
+          "assign": [],
+          "choices": [
+            {
+              "text": "Pay with your bus money.",
+              "set": [
+                {
+                  "var": "parts",
+                  "op": "add",
+                  "value": 1
+                },
+                {
+                  "var": "bold",
+                  "op": "add",
+                  "value": 1
+                }
+              ],
+              "reaction": [
+                {
+                  "speaker": "dsouza",
+                  "text": "Spent like a true kite flyer. Here.",
+                  "expression": "smile"
+                },
+                {
+                  "text": "You'll be walking home this week."
+                }
+              ]
+            },
+            {
+              "text": "Offer to sweep the shop for it.",
+              "set": [
+                {
+                  "var": "parts",
+                  "op": "add",
+                  "value": 1
+                },
+                {
+                  "var": "trust_ira",
+                  "op": "add",
+                  "value": 1
+                }
+              ],
+              "reaction": [
+                {
+                  "speaker": "dsouza",
+                  "text": "Broom's behind the door. Corners too.",
+                  "expression": "neutral"
+                },
+                {
+                  "speaker": "ira",
+                  "text": "I'll supervise.",
+                  "expression": "laugh"
+                }
+              ]
+            },
+            {
+              "text": "Ask for broken kites to strip for parts.",
+              "set": [
+                {
+                  "var": "parts",
+                  "op": "add",
+                  "value": 2
+                }
+              ],
+              "reaction": [
+                {
+                  "speaker": "dsouza",
+                  "text": "Clever boy. The box under the counter is full of them.",
+                  "expression": "smile"
+                }
+              ]
+            }
+          ],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "say",
+          "speaker": "ira",
+          "expression": "smile",
+          "text": "Ravi. Thanks for telling me the truth today. Most people wouldn't.",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": [
+            {
+              "var": "told_truth",
+              "op": "==",
+              "value": 1
+            }
+          ]
+        },
+        {
+          "kind": "jump",
+          "assign": [],
+          "choices": [],
+          "goto": "s_workbench",
+          "branches": [],
+          "when": []
+        }
+      ]
+    },
+    {
+      "id": "s_workbench",
+      "title": "After Closing",
+      "chapter": "ch1",
+      "location": "repair_shop",
+      "time": "evening",
+      "music": "calm",
+      "nodes": [
+        {
+          "kind": "narrate",
+          "text": "The shutters come down. Ira spreads the pieces across the workbench under the hanging bulb.",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "show",
+          "character": "ira",
+          "expression": "neutral",
+          "position": "center",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "say",
+          "speaker": "ira",
+          "expression": "neutral",
+          "text": "The line is the real problem. My old reel is one big bird's nest.",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "choice",
+          "assign": [],
+          "choices": [
+            {
+              "text": "Untangle it together, knot by knot.",
+              "set": [
+                {
+                  "var": "trust_ira",
+                  "op": "add",
+                  "value": 1
+                }
+              ],
+              "reaction": [
+                {
+                  "text": "It takes forty minutes. Somewhere around minute twenty, you both start laughing at nothing."
+                },
+                {
+                  "speaker": "ira",
+                  "text": "We are terrible at this.",
+                  "expression": "laugh"
+                }
+              ]
+            },
+            {
+              "text": "Cut out the tangle and splice the ends.",
+              "set": [
+                {
+                  "var": "bold",
+                  "op": "add",
+                  "value": 1
+                }
+              ],
+              "reaction": [
+                {
+                  "speaker": "ira",
+                  "text": "Bold. If the splice holds, you're a genius.",
+                  "expression": "surprised"
+                }
+              ]
+            }
+          ],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "show",
+          "character": "dsouza",
+          "expression": "neutral",
+          "position": "right",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "say",
+          "speaker": "dsouza",
+          "expression": "neutral",
+          "text": "Closing time, you two. The bulb costs money.",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "choice",
+          "assign": [],
+          "choices": [
+            {
+              "text": "Ask Ira why this kite matters so much.",
+              "set": [
+                {
+                  "var": "trust_ira",
+                  "op": "add",
+                  "value": 1
+                }
+              ],
+              "reaction": [
+                {
+                  "speaker": "ira",
+                  "text": "My dad built kites. This is the first one I've made without him.",
+                  "expression": "sad"
+                },
+                {
+                  "text": "She says it lightly. It isn't light."
+                }
+              ]
+            },
+            {
+              "text": "Ask Mr. D'Souza for festival tips.",
+              "set": [],
+              "reaction": [
+                {
+                  "speaker": "dsouza",
+                  "text": "Watch the flags on the boats. The wind tells them its plans first.",
+                  "expression": "smile"
+                }
+              ]
+            }
+          ],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "say",
+          "speaker": "ira",
+          "expression": "smile",
+          "text": "Same time tomorrow? Bring your terrible knots.",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": [
+            {
+              "var": "trust_ira",
+              "op": ">=",
+              "value": 3
+            }
+          ]
+        },
+        {
+          "kind": "say",
+          "speaker": "ira",
+          "expression": "neutral",
+          "text": "See you Saturday, I guess.",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": [
+            {
+              "var": "trust_ira",
+              "op": "<",
+              "value": 3
+            }
+          ]
+        },
+        {
+          "kind": "jump",
+          "assign": [],
+          "choices": [],
+          "goto": "s_beach",
+          "branches": [],
+          "when": []
+        }
+      ]
+    },
+    {
+      "id": "s_beach",
+      "title": "Wind Day",
+      "chapter": "ch2",
+      "location": "beach",
+      "time": "evening",
+      "music": "tense",
+      "nodes": [
+        {
+          "kind": "narrate",
+          "text": "Saturday. The beach is a forest of strings and colour.",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "show",
+          "character": "ira",
+          "expression": "neutral",
+          "position": "center",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "show",
+          "character": "ravi",
+          "expression": "nervous",
+          "position": "left",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "say",
+          "speaker": "ira",
+          "expression": "neutral",
+          "text": "The wind's coming off the sea in gusts. We get one launch.",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "choice",
+          "assign": [],
+          "choices": [
+            {
+              "text": "Launch now, before it gets worse.",
+              "set": [
+                {
+                  "var": "bold",
+                  "op": "add",
+                  "value": 1
+                }
+              ],
+              "reaction": [
+                {
+                  "text": "The kite leaps, dips, and catches. Your arms burn."
+                }
+              ]
+            },
+            {
+              "text": "Wait for the boat flags to settle.",
+              "set": [
+                {
+                  "var": "bold",
+                  "op": "add",
+                  "value": -1
+                }
+              ],
+              "reaction": [
+                {
+                  "text": "You watch the flags, the way Mr. D'Souza said. Then: one long, steady breath of wind."
+                },
+                {
+                  "speaker": "ira",
+                  "text": "Now!",
+                  "expression": "smile"
+                }
+              ]
+            }
+          ],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "music",
+          "assign": [],
+          "choices": [],
+          "music": "heroic",
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "narrate",
+          "text": "Halfway up, a gust bends the new spine like a bow.",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "choice",
+          "assign": [],
+          "choices": [
+            {
+              "text": "Hand Ira the reel. It's her kite.",
+              "set": [
+                {
+                  "var": "trust_ira",
+                  "op": "add",
+                  "value": 1
+                }
+              ],
+              "reaction": [
+                {
+                  "speaker": "ira",
+                  "text": "Together?",
+                  "expression": "surprised"
+                },
+                {
+                  "speaker": "ravi",
+                  "text": "Together.",
+                  "expression": "smile"
+                }
+              ]
+            },
+            {
+              "text": "Hold the line yourself.",
+              "set": [
+                {
+                  "var": "bold",
+                  "op": "add",
+                  "value": 1
+                }
+              ],
+              "reaction": [
+                {
+                  "text": "The string sings in your fingers. The kite shudders, and holds."
+                }
+              ]
+            },
+            {
+              "text": "Brace it with the spare spine from the box.",
+              "set": [],
+              "require": {
+                "var": "parts",
+                "op": ">=",
+                "value": 2
+              },
+              "reaction": [
+                {
+                  "text": "The spare strip slides in behind the spine. When the next gust hits, the kite doesn't even flinch."
+                }
+              ]
+            }
+          ],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "branch",
+          "assign": [],
+          "choices": [],
+          "goto": "e_solo_scene",
+          "branches": [
+            {
+              "when": [
+                {
+                  "var": "trust_ira",
+                  "op": ">=",
+                  "value": 3
+                },
+                {
+                  "var": "parts",
+                  "op": ">=",
+                  "value": 2
+                }
+              ],
+              "goto": "e_together_scene"
+            }
+          ],
+          "when": []
+        }
+      ]
+    },
+    {
+      "id": "e_together_scene",
+      "title": "Two Hands, One String",
+      "chapter": "ch2",
+      "location": "beach",
+      "time": "evening",
+      "music": "triumphant",
+      "nodes": [
+        {
+          "kind": "show",
+          "character": "ira",
+          "expression": "laugh",
+          "position": "center",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "narrate",
+          "text": "Two hands on one reel. The kite climbs above every other kite on the beach.",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "say",
+          "speaker": "ira",
+          "expression": "laugh",
+          "text": "Dad would have hated your knots. He'd have loved this.",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "ending",
+          "assign": [],
+          "choices": [],
+          "ending": "e_together",
+          "branches": [],
+          "when": []
+        }
+      ]
+    },
+    {
+      "id": "e_solo_scene",
+      "title": "Flying Alone",
+      "chapter": "ch2",
+      "location": "beach",
+      "time": "evening",
+      "music": "sad",
+      "nodes": [
+        {
+          "kind": "narrate",
+          "text": "The kite flies. Ira flies it alone, and you watch from the boats.",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "say",
+          "speaker": "ira",
+          "expression": "smile",
+          "text": "Thanks for the help, Ravi. Really.",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "narrate",
+          "text": "You still owe her something. Maybe next season.",
+          "assign": [],
+          "choices": [],
+          "branches": [],
+          "when": []
+        },
+        {
+          "kind": "ending",
+          "assign": [],
+          "choices": [],
+          "ending": "e_solo",
+          "branches": [],
+          "when": []
+        }
+      ]
+    }
+  ]
+}

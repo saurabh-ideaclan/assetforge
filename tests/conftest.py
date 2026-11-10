@@ -53,11 +53,13 @@ def no_real_providers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def forbidden(*args: Any, **kwargs: Any) -> None:
         raise AssertionError("a test tried to create a real provider client")
 
+    import anthropic
     import google.genai
     import openai
 
     monkeypatch.setattr(openai, "OpenAI", forbidden)
     monkeypatch.setattr(google.genai, "Client", forbidden)
+    monkeypatch.setattr(anthropic, "Anthropic", forbidden)
     monkeypatch.setattr(providers, "OVERRIDES", {})
 
     # Text providers: no signed-in CLI (claude/codex/gemini) may ever be spawned, and none counts as installed.

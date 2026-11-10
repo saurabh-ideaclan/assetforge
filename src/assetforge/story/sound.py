@@ -13,7 +13,7 @@ from typing import Any, Literal
 
 from pydantic import Field
 
-from assetforge.story.models import Id, Mood, Script, Strict, World
+from assetforge.story.models import Id, Mood, Script, Strict, World, walk
 
 PROMPT_VERSION = 2
 
@@ -79,10 +79,11 @@ def catalog_text(lib: Any = None) -> str:
 def prompt(script: Script, world: World | None, lib: Any = None) -> str:
     used = {}
     for scene in script.scenes:
-        used.setdefault(scene.location, set()).add(scene.time)
+        for _, where, when, _ in walk(scene):
+            used.setdefault(where, set()).add(when)
     locations = [{"id": loc.id, "name": loc.name, "description": loc.description, "sounds_like": loc.ambience,
                   "times": sorted(used.get(loc.id, []))} for loc in script.locations if loc.id in used]  # fmt: skip
-    moods = sorted({s.music for s in script.scenes})
+    moods = sorted({st.music for s in script.scenes for st in walk(s)})
     return "\n\n".join([
         f"SOUND CATALOG (use only these names):\n{catalog_text(lib)}",
         f"STORY: {script.title}. Music direction: {world.music_direction if world else ''}",
@@ -159,7 +160,7 @@ def offline_builder(script: Script) -> Any:
                                else None, "beds": [], "events": [], "intensity": 0.4} for loc in script.locations],
                 "music": [{"mood": m, "genre": "lofi", "instruments": [{"role": "melody", "instrument": "guitar"},
                                                                         {"role": "harmony", "instrument": "warm_pad"}],
-                           "energy": 0.3} for m in sorted({s.music for s in script.scenes})]}  # fmt: skip
+                           "energy": 0.3} for m in sorted({st.music for s in script.scenes for st in walk(s)})]}  # fmt: skip
     return build
 
 

@@ -11,6 +11,7 @@ from assetforge.llm.base import TextCall, TextProvider, TextResponse
 from assetforge.llm.claude_cli import ClaudeCLIProvider
 from assetforge.llm.codex_cli import CodexCLIProvider
 from assetforge.llm.fake import FakeTextProvider
+from assetforge.llm.anthropic_api import AnthropicAPIProvider
 from assetforge.llm.gemini_cli import GeminiCLIProvider
 
 __all__ = ["FACTORIES", "OVERRIDES", "TextCall", "TextProvider", "TextResponse", "get_provider", "provider_chain"]
@@ -20,12 +21,13 @@ FACTORIES: dict[str, Callable[[Settings], TextProvider]] = {
     "claude-cli": ClaudeCLIProvider,
     "codex-cli": CodexCLIProvider,
     "gemini-cli": GeminiCLIProvider,
+    "anthropic-api": AnthropicAPIProvider,
     "openai-api": OpenAIAPIProvider,
     "gemini-api": GeminiAPIProvider,
     "fake": FakeTextProvider,
 }
 ALIASES = {"claude": "claude-cli", "codex": "codex-cli", "chatgpt": "codex-cli", "gemini": "gemini-cli",
-           "openai": "openai-api"}  # fmt: skip
+           "openai": "openai-api", "anthropic": "anthropic-api", "claude-api": "anthropic-api"}  # fmt: skip
 
 # Tests (and embedding applications) can pin provider instances here.
 OVERRIDES: dict[str, TextProvider] = {}

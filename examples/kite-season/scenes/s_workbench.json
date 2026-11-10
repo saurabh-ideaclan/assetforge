@@ -1,0 +1,182 @@
+{
+  "id": "s_workbench",
+  "title": "After Closing",
+  "chapter": "ch1",
+  "location": "repair_shop",
+  "time": "evening",
+  "music": "calm",
+  "nodes": [
+    {
+      "kind": "narrate",
+      "text": "The shutters come down. Ira spreads the pieces across the workbench under the hanging bulb.",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "show",
+      "character": "ira",
+      "expression": "neutral",
+      "position": "center",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "say",
+      "speaker": "ira",
+      "expression": "neutral",
+      "text": "The line is the real problem. My old reel is one big bird's nest.",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "choice",
+      "assign": [],
+      "choices": [
+        {
+          "text": "Untangle it together, knot by knot.",
+          "set": [
+            {
+              "var": "trust_ira",
+              "op": "add",
+              "value": 1
+            }
+          ],
+          "reaction": [
+            {
+              "text": "It takes forty minutes. Somewhere around minute twenty, you both start laughing at nothing."
+            },
+            {
+              "speaker": "ira",
+              "text": "We are terrible at this.",
+              "expression": "laugh"
+            }
+          ]
+        },
+        {
+          "text": "Cut out the tangle and splice the ends.",
+          "set": [
+            {
+              "var": "bold",
+              "op": "add",
+              "value": 1
+            }
+          ],
+          "reaction": [
+            {
+              "speaker": "ira",
+              "text": "Bold. If the splice holds, you're a genius.",
+              "expression": "surprised"
+            }
+          ]
+        }
+      ],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "show",
+      "character": "dsouza",
+      "expression": "neutral",
+      "position": "right",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "say",
+      "speaker": "dsouza",
+      "expression": "neutral",
+      "text": "Closing time, you two. The bulb costs money.",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "choice",
+      "assign": [],
+      "choices": [
+        {
+          "text": "Ask Ira why this kite matters so much.",
+          "set": [
+            {
+              "var": "trust_ira",
+              "op": "add",
+              "value": 1
+            }
+          ],
+          "reaction": [
+            {
+              "speaker": "ira",
+              "text": "My dad built kites. This is the first one I've made without him.",
+              "expression": "sad"
+            },
+            {
+              "text": "She says it lightly. It isn't light."
+            }
+          ]
+        },
+        {
+          "text": "Ask Mr. D'Souza for festival tips.",
+          "set": [],
+          "reaction": [
+            {
+              "speaker": "dsouza",
+              "text": "Watch the flags on the boats. The wind tells them its plans first.",
+              "expression": "smile"
+            }
+          ]
+        }
+      ],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "say",
+      "speaker": "ira",
+      "expression": "smile",
+      "text": "Same time tomorrow? Bring your terrible knots.",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": [
+        {
+          "var": "trust_ira",
+          "op": ">=",
+          "value": 3
+        }
+      ]
+    },
+    {
+      "kind": "say",
+      "speaker": "ira",
+      "expression": "neutral",
+      "text": "See you Saturday, I guess.",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": [
+        {
+          "var": "trust_ira",
+          "op": "<",
+          "value": 3
+        }
+      ]
+    },
+    {
+      "kind": "jump",
+      "assign": [],
+      "choices": [],
+      "goto": "s_beach",
+      "branches": [],
+      "when": []
+    }
+  ]
+}

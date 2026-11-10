@@ -7,9 +7,10 @@ import { usage } from "/static/views/usage.js";
 import { jobsView } from "/static/views/jobs.js";
 import { art } from "/static/views/art.js";
 import { story } from "/static/views/story.js";
+import { ai } from "/static/views/ai.js";
 import { initPalette } from "/static/palette.js";
 
-const views = { overview, assets, generate, art, story, usage, jobs: jobsView };
+const views = { overview, assets, generate, art, story, usage, jobs: jobsView, ai };
 const main = document.getElementById("view");
 let current = { name: null, cleanup: null };
 

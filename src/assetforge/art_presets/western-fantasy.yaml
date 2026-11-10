@@ -1,0 +1,14 @@
+summary: Western fantasy book-cover illustration
+best_for: [character, background, ui, object]
+description: Painterly Western fantasy illustration like modern fantasy book covers; realistic proportions, textured brushwork, weathered materials
+mood: grounded, epic, atmospheric
+lighting: naturalistic directional light, golden hour or torchlight, atmospheric haze and depth
+shapes: realistic human proportions, practical armour and cloth, weight and wear on everything
+outline: no outlines; painted edges
+shading: painterly value-driven rendering, visible brushwork, soft edges in shadow
+texture: leather, wool, stone, steel and wood with visible grain
+detail: high
+composition: heroic low-angle framing for characters; layered landscape depth for backgrounds
+palette: ["#2A2420", "#5B4636", "#8C6A3F", "#B89B5E", "#4A5E63", "#D9CDB4"]
+avoid: [anime eyes, cel shading, glossy plastic look, chibi proportions]
+quality: high

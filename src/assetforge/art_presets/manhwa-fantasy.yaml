@@ -1,0 +1,14 @@
+summary: Polished Korean manhwa-style fantasy illustration
+best_for: [character, background, ui, icon]
+description: Korean webtoon/manhwa fantasy look; tall elegant figures, refined faces with sharp eyes, detailed costume design, glossy polished rendering
+mood: dramatic, aspirational, intense
+lighting: soft studio key light with strong rim light and glowing magical accents; cinematic bloom on highlights
+shapes: tall slender proportions (8 heads), long limbs, sharp jawlines, layered hair strands, ornate armour and tailored clothing
+outline: thin clean dark line art, slightly thicker on silhouettes
+shading: smooth soft-cel blends with crisp highlights on hair, eyes and metal; subtle gradients, no heavy hatching
+texture: smooth digital paint, satin fabrics, polished metal, glowing runes
+detail: high
+composition: dynamic three-quarter poses for sprites; wide painted vistas with dramatic depth for backgrounds
+palette: ["#1B1F2B", "#3A2F5B", "#C8B06A", "#8A1E2D", "#4F7CAC", "#F2E9DC"]
+avoid: [chibi proportions, western cartoon faces, thick uniform outlines, flat untextured fills, photoreal skin]
+quality: high

@@ -1,0 +1,13 @@
+summary: Stylized 2D visual-novel illustration
+best_for: [character, background, ui, icon]
+description: Clean stylised 2D visual-novel art; readable character designs, soft painted backgrounds, warm approachable look
+mood: warm, inviting, clear
+lighting: soft even light with gentle warm highlights; time of day shown through colour temperature
+shapes: slightly stylised proportions (6.5-7 heads), simple strong silhouettes, clear facial features that read at sprite size
+outline: thin dark line art on characters, no outlines on backgrounds
+shading: soft cel shading with painted gradients
+texture: smooth characters, lightly textured painted backgrounds
+detail: medium
+composition: sprites framed knees-up facing three-quarter; backgrounds with eye-level wide framing and foreground room
+avoid: [photorealism, heavy grit, chibi proportions, cluttered backgrounds]
+quality: high

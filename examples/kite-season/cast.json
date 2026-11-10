@@ -1,0 +1,96 @@
+{
+  "characters": [
+    {
+      "id": "ravi",
+      "name": "Ravi",
+      "role": "protagonist",
+      "age": "15",
+      "personality": "Careful, kind, quietly funny.",
+      "look": "Slim Indian boy, messy black hair, brown eyes, white school shirt with rolled sleeves, grey trousers, a red thread bracelet.",
+      "palette": [
+        "white",
+        "grey",
+        "red"
+      ],
+      "voice": "Short sentences, dry jokes.",
+      "expressions": [
+        "neutral",
+        "nervous",
+        "smile",
+        "determined",
+        "sheepish"
+      ]
+    },
+    {
+      "id": "ira",
+      "name": "Ira",
+      "role": "friend",
+      "age": "15",
+      "personality": "Sharp, stubborn, generous once she trusts you.",
+      "look": "Indian girl, long black braid, dark eyes, yellow kurta over jeans, paint-stained fingers, a kite-string reel clipped to her belt.",
+      "palette": [
+        "saffron",
+        "denim blue"
+      ],
+      "voice": "Fast, teasing, precise.",
+      "expressions": [
+        "neutral",
+        "angry",
+        "sad",
+        "smile",
+        "surprised",
+        "laugh"
+      ]
+    },
+    {
+      "id": "dsouza",
+      "name": "Mr. D'Souza",
+      "role": "mentor",
+      "age": "70",
+      "personality": "Gruff, generous, loves a bargain.",
+      "look": "Old Goan man, white stubble, round glasses, faded blue shirt, leather apron with pliers in the pocket.",
+      "palette": [
+        "faded blue",
+        "brown"
+      ],
+      "voice": "Slow, a proverb in every second line.",
+      "expressions": [
+        "neutral",
+        "smile",
+        "stern"
+      ]
+    }
+  ],
+  "locations": [
+    {
+      "id": "school_roof",
+      "name": "School roof",
+      "description": "Flat concrete school rooftop with blue water tanks, washing lines and a low wall; the sea beyond.",
+      "times": [
+        "day",
+        "evening"
+      ],
+      "ambience": "Sea wind, distant traffic and a school bell."
+    },
+    {
+      "id": "repair_shop",
+      "name": "D'Souza Repairs",
+      "description": "Cramped repair shop: shelves of spools, bamboo strips, radios, a workbench under a hanging bulb.",
+      "times": [
+        "day",
+        "evening"
+      ],
+      "ambience": "Ticking clock, a fan, the street outside."
+    },
+    {
+      "id": "beach",
+      "name": "Festival beach",
+      "description": "Wide grey-sand beach with fishing boats pulled up, festival flags and hundreds of kites in the sky.",
+      "times": [
+        "day",
+        "evening"
+      ],
+      "ambience": "Waves, wind in flags, a crowd."
+    }
+  ]
+}

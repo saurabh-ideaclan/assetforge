@@ -59,7 +59,7 @@ class ClaudeCLIProvider(TextProvider):
         args = [exe, "-p", "--output-format", "json", "--tools", "", "--no-session-persistence", "--strict-mcp-config",
                 "--system-prompt", call.system or DEFAULT_SYSTEM]  # fmt: skip
         if call.schema:
-            args += ["--json-schema", json.dumps(call.schema, separators=(",", ":"))]
+            args += ["--json-schema", json.dumps(call.loose_schema or call.schema, separators=(",", ":"))]
         if model := call.model or self.default_model():
             args += ["--model", model]
         return args

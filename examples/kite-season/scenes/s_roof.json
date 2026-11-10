@@ -1,0 +1,391 @@
+{
+  "id": "s_roof",
+  "title": "The Broken Kite",
+  "chapter": "ch1",
+  "location": "school_roof",
+  "time": "day",
+  "music": "calm",
+  "nodes": [
+    {
+      "kind": "narrate",
+      "text": "The lunch bell is still ringing when you reach the roof.",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "narrate",
+      "text": "Ira's kite lies against the water tank. Its spine is snapped clean in two.",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "show",
+      "character": "ira",
+      "expression": "sad",
+      "position": "center",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "say",
+      "speaker": "ira",
+      "expression": "sad",
+      "text": "Two months of work. Somebody stepped right on it.",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "show",
+      "character": "ravi",
+      "expression": "nervous",
+      "position": "left",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "narrate",
+      "text": "You did. This morning, backing away from the edge, you felt the crack under your shoe.",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "choice",
+      "assign": [],
+      "choices": [
+        {
+          "text": "Tell her it was you.",
+          "set": [
+            {
+              "var": "told_truth",
+              "op": "set",
+              "value": 1
+            },
+            {
+              "var": "trust_ira",
+              "op": "add",
+              "value": 1
+            },
+            {
+              "var": "bold",
+              "op": "add",
+              "value": 1
+            }
+          ],
+          "reaction": [
+            {
+              "speaker": "ira",
+              "text": "You? ...You came up here to tell me that?",
+              "expression": "surprised"
+            },
+            {
+              "speaker": "ira",
+              "text": "At least you didn't let me blame Arjun.",
+              "expression": "neutral"
+            }
+          ]
+        },
+        {
+          "text": "Promise to help her fix it.",
+          "set": [
+            {
+              "var": "trust_ira",
+              "op": "add",
+              "value": 1
+            }
+          ],
+          "reaction": [
+            {
+              "speaker": "ira",
+              "text": "Fix it? With what, glue and hope?",
+              "expression": "neutral"
+            },
+            {
+              "speaker": "ravi",
+              "text": "With whatever it takes.",
+              "expression": "determined"
+            }
+          ]
+        },
+        {
+          "text": "Say nothing. Look at the sea.",
+          "set": [
+            {
+              "var": "bold",
+              "op": "add",
+              "value": -1
+            }
+          ],
+          "reaction": [
+            {
+              "text": "The wind fills the silence. Ira doesn't look up."
+            }
+          ]
+        }
+      ],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "say",
+      "speaker": "ira",
+      "expression": "neutral",
+      "text": "The festival is on Saturday. I need a new bamboo spine and proper line.",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "narrate",
+      "text": "A gust lifts the torn sail off the tank and snags it on the washing line above the stairwell.",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "choice",
+      "assign": [],
+      "choices": [
+        {
+          "text": "Climb the tank ladder and grab it.",
+          "set": [
+            {
+              "var": "bold",
+              "op": "add",
+              "value": 1
+            }
+          ],
+          "reaction": [
+            {
+              "text": "The ladder is hot and wobbly. You unhook the sail with two fingers and jump down."
+            },
+            {
+              "speaker": "ira",
+              "text": "Okay. That was a little bit heroic.",
+              "expression": "laugh"
+            }
+          ]
+        },
+        {
+          "text": "Wait for the wind to drop.",
+          "set": [
+            {
+              "var": "bold",
+              "op": "add",
+              "value": -1
+            }
+          ],
+          "reaction": [
+            {
+              "text": "You wait. The gust passes, and the sail slides down into your hands."
+            },
+            {
+              "speaker": "ira",
+              "text": "Patient. My grandmother would like you.",
+              "expression": "smile"
+            }
+          ]
+        }
+      ],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "say",
+      "speaker": "ira",
+      "expression": "smile",
+      "text": "You're braver than you look, you know.",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": [
+        {
+          "var": "bold",
+          "op": ">=",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "kind": "say",
+      "speaker": "ira",
+      "expression": "neutral",
+      "text": "You always think before you move. That's useful, with kites.",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": [
+        {
+          "var": "bold",
+          "op": "<=",
+          "value": -1
+        }
+      ]
+    },
+    {
+      "kind": "say",
+      "speaker": "ira",
+      "expression": "neutral",
+      "text": "Mr. D'Souza has bamboo. Meet me at his shop after school.",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "place",
+      "text": "After school, the repair shop smells of solder and old rope.",
+      "assign": [],
+      "choices": [],
+      "location": "repair_shop",
+      "time": "evening",
+      "music": "playful",
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "show",
+      "character": "dsouza",
+      "expression": "neutral",
+      "position": "right",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "show",
+      "character": "ira",
+      "expression": "neutral",
+      "position": "left",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "say",
+      "speaker": "dsouza",
+      "expression": "stern",
+      "text": "A competition spine? Good bamboo is forty rupees a strip.",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "choice",
+      "assign": [],
+      "choices": [
+        {
+          "text": "Pay with your bus money.",
+          "set": [
+            {
+              "var": "parts",
+              "op": "add",
+              "value": 1
+            },
+            {
+              "var": "bold",
+              "op": "add",
+              "value": 1
+            }
+          ],
+          "reaction": [
+            {
+              "speaker": "dsouza",
+              "text": "Spent like a true kite flyer. Here.",
+              "expression": "smile"
+            },
+            {
+              "text": "You'll be walking home this week."
+            }
+          ]
+        },
+        {
+          "text": "Offer to sweep the shop for it.",
+          "set": [
+            {
+              "var": "parts",
+              "op": "add",
+              "value": 1
+            },
+            {
+              "var": "trust_ira",
+              "op": "add",
+              "value": 1
+            }
+          ],
+          "reaction": [
+            {
+              "speaker": "dsouza",
+              "text": "Broom's behind the door. Corners too.",
+              "expression": "neutral"
+            },
+            {
+              "speaker": "ira",
+              "text": "I'll supervise.",
+              "expression": "laugh"
+            }
+          ]
+        },
+        {
+          "text": "Ask for broken kites to strip for parts.",
+          "set": [
+            {
+              "var": "parts",
+              "op": "add",
+              "value": 2
+            }
+          ],
+          "reaction": [
+            {
+              "speaker": "dsouza",
+              "text": "Clever boy. The box under the counter is full of them.",
+              "expression": "smile"
+            }
+          ]
+        }
+      ],
+      "branches": [],
+      "when": []
+    },
+    {
+      "kind": "say",
+      "speaker": "ira",
+      "expression": "smile",
+      "text": "Ravi. Thanks for telling me the truth today. Most people wouldn't.",
+      "assign": [],
+      "choices": [],
+      "branches": [],
+      "when": [
+        {
+          "var": "told_truth",
+          "op": "==",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "kind": "jump",
+      "assign": [],
+      "choices": [],
+      "goto": "s_workbench",
+      "branches": [],
+      "when": []
+    }
+  ]
+}

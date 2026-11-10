@@ -342,6 +342,39 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
     - `conform_scene` forces the planned exit and fixes expressions and speakers without a model call.
   - `offline.py` builds a coherent story for the fake provider.
   - `project.py` handles the folder layout, atomic writes and `.back` copies.
+- Story format (Phase 1 of `docs/vn-benchmark-gap-analysis.md`; sample: `examples/kite-season`, 7 in-chapter
+  choices, 4 callbacks, 3 places, an ending gate):
+  - A `choice` whose options have no `goto` is an **in-chapter choice**: the option's `reaction` lines (`Line`: speaker
+    or narration) play, then the scene carries on. A choice whose options all have `goto` ends the scene (never mixed).
+    `is_exit()`/`node_exits()` decide; `TERMINAL` only lists kinds that *can* end a scene.
+  - Any node may have `when` (all conditions must hold): callbacks to earlier choices. `reads()` lists the variables
+    a node checks; the validator warns `unread_variable` for stats nothing reads.
+  - `place` (location, time?, music?, text?) moves within a chapter and clears the stage; `music` changes the mood.
+    `models.walk(scene)` yields each node (and reaction line) with the place/time/music in effect: assets, usage and the
+    sound plan use it, so backgrounds, ambiences and moods reached mid-scene get made.
+  - `branch` (branches + fallback `goto`) is a gated exit; planned as `PlannedScene.branches` (+ `next` fallback) and
+    put in place by `conform_scene`. `Ending.requires` records what an ending needs. `PlannedScene.exits()` lists all exits.
+  - `Variable.kind` (relationship/personality/resource/flag/world), `character`, `min`/`max` (the player clamps).
+  - `Outline.chapters`/`Script.chapters` + `scene.chapter`: a chapter can hold several scenes; the player shows a chapter
+    card only when the chapter changes, and `progress.chapter_numbers` numbers by declared chapter.
+  - The player keeps `place`, `mood`, `react` (the reaction being played) and `chapter` in its save.
+- Writing to the benchmark (Phase 2):
+  - `story/lint.py` measures each chapter on one path (an in-chapter choice adds its options' average reaction):
+    words, boxes, choices, first-choice box, the longest stretch without a choice, callbacks, stat writes, long boxes.
+    Hard rules (errors): ≥ 75% of `StoryConfig.chapter_words`, ≥ `chapter_choices` − 1 choices, first choice by
+    box 15, never 400+ words without a choice, a callback from chapter 3 on. Ending chapters only get the wall rule.
+    `lint_story` → `lint.json` on every `assemble`; CLI `story lint`.
+  - `steps.write` writes a chapter in `lint.parts_for(config)` calls (~450 words each, 4 for 1,500; asked for 140% since
+    Sonnet delivers ~70%; part 1 must reach the first choice by box 8; tasks `scene.<id>.p1..p4`,
+    endings in one call), each given the beats for its part (`prompts.BEATS`/`part_beats`) and what earlier parts
+    wrote. Then the linter; a failing chapter gets one `scene.<id>.fix` call with `repair_note`, kept only if it
+    lints better. `progress._base` groups all calls of a chapter.
+  - The outline prompt carries the season arc (`prompts.season_arc`), the stat design (typed variables) and asks for
+    `hook`/`callback` per chapter, `requires` per ending and gated `branches` with a `next` fallback. The scene prompt
+    carries `CHOICE_RULES` and `LINES`.
+  - `repair_outline`: gates without a fallback fall back to the open ending (no `requires`) or an orphan scene; an
+    `ending` that is not an ending id (models write the kind) becomes the scene's own id when that is an ending; dead
+    ends in the final scenes get an unused ending.
 - `story/assets.py`:
   - `manifest()` maps the script onto `AssetRequest`s keyed `vn/<slug>/…` in project `vn-<slug>`.
   - Expressions, time-of-day backgrounds, CGs and title art take `refs` (keys resolved to the asset ids made earlier).
@@ -442,6 +475,69 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
 - `MusicRequest.key` is the **musical** key; the asset key is `asset_key`. `request` and `music compose --asset-key`
   both pass it, and `generate_music` never uses the musical key as the catalog key.
 
+### Creative direction (audience, genre, world, naming, narrative style, art)
+
+- `story/direction.py`: `CreativeDirection` (region, readers, writing_style, genre + subgenres, tradition, themes,
+  world_type, culture, `world` prefs, naming + reserved/overrides, pacing/tone/drama/romance/mystery/progression/
+  depth/choices/cliffhangers, art_style + notes, `custom` instructions/requirements/exclusions/canon). Stored as
+  `StoryConfig.direction`; **`None` keeps the pre-direction behaviour byte for byte** (older stories are untouched).
+  Precedence: explicit instructions > the story's saved direction and written canon > preset > `DEFAULTS`.
+  `system_rules()` tells the writer to infer nothing from the operator or earlier stories.
+- Knowledge files: `story/genres.yaml` (6 primaries, 24 subgenres with `kind` premise|mechanic|setting|protagonist|
+  theme, mechanics, beats, `pairs_well`/`conflicts_with`) and `story/traditions.yaml` (6 narrative traditions as
+  techniques). Presets: `story/direction_presets/*.yaml` and `$ASSETFORGE_HOME/story_presets/` (same name wins).
+  `resolve()`, `warnings()` (contradictions, never refusals), `summary()`, `impact()` (what a change leaves stale).
+- Prompts: `world_block` (market ≠ setting, premise sheet, visual direction), `names_block`, `plan_block` (season
+  rules: questions opened/closed, antagonist moves, one remembered decision per chapter), `scene_block` (chapter
+  shape, no "whatever you chose", settled decisions never re-offered), `check_block`. `PROMPT_VERSION` 4.
+- Naming guide: `steps.names` (`names.json`, `NamingGuide`) runs after the world and before the cast whenever a
+  direction exists; `cast` follows it and `name_overrides` (by id or role) win; missing reserved names are reported.
+- Writing: `repair_outline` turns an exit choice whose options all lead to one scene into `next`; every chapter part
+  gets `upcoming` (the next chapters' plans, not to be written) and `decided` (flags set by earlier chapters).
+- Art: `assets.story_art_direction` builds the project's art profile from the direction's `art_style` preset
+  (`art_presets/manhwa-fantasy|light-novel-anime|western-fantasy|cinematic-semi-realistic|stylized-vn|dark-fantasy`)
+  plus notes; the narrative tradition never touches the look.
+- CLI: `story init --preset X --direction '{…}'|@file`, `story presets [--save NAME --dir D] [--delete N]`,
+  `story direction [--preset X] [--set k=v] [--yes]`, `story names`. App: `GET /api/story/direction`,
+  `POST /api/story/direction/check`, `POST /api/story/presets[/{name}/delete]`, `POST /api/stories` with
+  `preset`/`direction`, `POST /api/stories/{id}/settings` with `direction` (+ `confirm` after an impact review).
+  UI: `views/direction.js` (`directionForm`: presets, groups A–F, live summary and warnings) in the wizard's
+  Direction step and the story Settings tab. Docs: `docs/narrative/` (audit, research, strategy, pilot design).
+
+### AI execution plans, workflow gates, Character Studio (post-v1)
+
+- `llm/plans.py`: `ExecutionPlan` (managed | manual `steps` of provider/model, `paid_fallback` allow|confirm|never,
+  `per_task` overrides, `daily_api_limit_usd`) stored library-wide in `$ASSETFORGE_HOME/ai.json` and per story in
+  `StoryConfig.ai`. `resolve(task, settings, home, story_plan, override_provider/model, allow_paid)` applies the
+  precedence run override > story > library > managed (`managed_steps`: subscriptions in chain order, Opus for
+  `HEAVY_KINDS` on Claude, Sonnet otherwise; billed APIs last). `structured.generate(..., resolved=)` tries the steps
+  with each step's own model and records `result.choice` (requested, used, chosen_by, fallbacks, held_back) on
+  the job; a paid step held back by `confirm` raises `ProviderError(kind="needs_confirmation")` once the
+  subscriptions fail. `Ctx.allow_paid` / `/run {allow_paid}` is the one-off yes. `llm/anthropic_api.py` is the
+  opt-in Anthropic API provider (`ANTHROPIC_API_KEY` + `ASSETFORGE_ANTHROPIC_TEXT_MODEL`; Messages API with
+  `output_config.format`); never edit the OpenAI/Gemini files to add Anthropic calls. Tests block
+  `anthropic.Anthropic` like the other SDK clients.
+- `story/workflow.py`: twelve `STAGES` derived from files + `workflow.json` (mode auto|guided|manual, approvals,
+  history, `paused_at`). `blocked_by(project, step)` is the gate the app's `write`/`assets`/`export` actions check
+  (`BEFORE_STEP`); a blocked run returns `{paused_at, needs}` and the UI offers Continue after approval.
+  `status()` gives each stage done/working/next/decisions/inputs and `needs_you`; `character_impact()` lists the
+  chapters, routes and art keys a character change touches.
+- `story/characters.py`: `CharacterProfile` (identity/personality/narrative/visual, per-section `approvals`,
+  `locked`, versions, `reference`, `proposals`) in `characters.json`, derived from `cast.json` and written back by
+  `sync_cast` (approving a section locks it). `revise(ctx, cid, request)` is a model call (`prompts.character_prompt`,
+  task kind `character`) that stores a proposal; `apply_proposal` makes it canon. `concepts()` makes n unkeyed
+  candidates from `visual_spec()`, `set_master()` picks one (review.pick, the neutral key moves to it, siblings are
+  rejected, visual approved), `consistency()` compares expressions to the master by dHash/palette (a heuristic,
+  says so). `steps.alternatives`/`choose_alternative` keep chapter variants in `alternatives/<scene>.json`.
+- Linter additions: `placeholder_text` (error: a repair call once wrote "test line one"), `no_cg`, `no_decision_flag`
+  (warnings; `lint_scene(..., flags=)`).
+- App: `GET/POST /api/ai/plan`; `/api/stories/{id}/workflow` (GET, POST mode|approve|changes|reopen);
+  `/api/stories/{id}/characters[/{cid}[/approval|/lock|/proposals/{pid}|/master|/consistency|/impact]]`;
+  `/alternatives/{scene}[/{alt}]`; run actions `character`, `alternatives`, `concepts`, plus `provider`/`model`/
+  `allow_paid` on every run. Views: `workflow.js` (default story tab), `characters.js`, `ai.js` (`#/ai`,
+  `modelSelect`), model pickers on Improve/Check/Alternatives; the activity feed shows who chose the model and
+  any fallback. Docs: `docs/narrative/12-production-ux-audit.md`.
+
 ### Sharing (GitHub)
 
 - Two private repos: this code repo and a library repo made by `assetforge library snapshot DEST`
@@ -449,6 +545,12 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   logs/backups/soundfonts/creatures. WAVs: re-renderable masters go through `masters.prune`; every other WAV is
   marked `extra.withheld` (verify/QC skip it, `ensure_file` raises) and its OGG/M4A child becomes primary.
   Pruned/withheld marks carry over between runs. Refuses if the catalog contains a key-shaped string.
+- `core/merge.py` (`library merge SRC`): brings another library in. The source is read from a backup-API copy
+  (migrated if older). Every id is planned before any row is written, so ids inside JSON (metadata, params, job
+  request/result, profile references) are rewritten through one map. An asset whose primary file is already here is
+  linked; a key taken by a different asset stays here and the incoming one gets `metadata.merged_key`. A job with the
+  same kind, fingerprint and start time is linked, so costs aren't counted twice. Queued/running jobs come in as
+  `cancelled`. Story folders are copied into `<library>/stories/` and registered. The ledger is in `<library>/merges/`.
 - Secrets: `.env` is ignored; `scripts/check_secrets.sh` runs from `.githooks/pre-commit`
   (`git config core.hooksPath .githooks`) and `.github/workflows/secrets.yml`. Never commit `.env`.
 

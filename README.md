@@ -173,6 +173,8 @@ assetforge review approve ast_00042 --note "matches style"
 | `collection create\|list\|show\|add\|remove\|delete` | Named asset sets |
 | `verify [--rehash]` | Check that every stored file exists and is unmodified |
 | `library snapshot DIR` | Write (or update) a shareable copy of the library in DIR for a git repo: catalog + files, no WAVs, jobs or caches (see Team setup) |
+| `story export --dir examples/kite-season` | Play the hand-written sample of the story format (in-chapter choices, callbacks, places, stats, an ending gate) |
+| `library merge SRC [--story DIR] [--dry-run]` | Bring another library into this one: assets, variants, files, jobs (with their folders), costs, profiles and stories. SRC is only read; assets already here are linked, a taken key is never overwritten, jobs both libraries share are not counted twice; safe to re-run |
 | `audio recipes [NAME]` | List SFX recipes, presets and effects, or one recipe's parameters |
 | `audio generate` | Procedurally generate a sound with seeded variants (no API calls) |
 | `audio vary REF -n N` | Add more variations to a generated sound |

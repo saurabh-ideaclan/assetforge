@@ -1,0 +1,140 @@
+# Narrative-tradition profiles: storytelling techniques, not stereotypes.
+# Evidence and [VERIFIED]/[EDITORIAL] split: docs/narrative/11-genre-and-tradition-research.md
+traditions:
+  - id: korean-webnovel
+    name: Korean web novel / manhwa
+    summary: Serialized fiction released in short, frequent episodes on platforms where readers pay or wait per episode, so every episode must justify the next. It favours clear hierarchies, a protagonist with a strong motive established at once, and steady, satisfying payoffs.
+    techniques:
+      - Open with a status reversal or a decisive premise event (regression, possession, reincarnation, a gate opening) within the first episode.
+      - Make the power hierarchy explicit (ranks, grades, classes) so every scene can show standing changing.
+      - End episodes on a reveal, a confrontation or a decision rather than a resolution.
+      - Keep internal monologue short, declarative and goal-directed; use it to state the plan or the read on a person.
+      - Give each arc a named antagonist or gatekeeper and escalate the opposition every few episodes.
+      - Deliver small payoffs on a regular rhythm (a win, a reaction, a reward), with larger payoffs at arc ends.
+      - Use foreknowledge, system prompts or hidden strengths so the protagonist is a step ahead in a way the reader can verify.
+      - Show others' reactions to the protagonist as a payoff beat in itself.
+      - Use plain, fast prose; avoid long description, and let scene changes carry exposition.
+      - Reuse and vary well-known premises; readers recognise the form and enjoy the variation.
+    chapter_rhythm: Episodes are short and released often (commonly several times a week), and the convention is to end on an exciting moment or cliffhanger so the reader continues.
+    dialogue: Dialogue is brisk and plain, with short lines, with narration giving the protagonist's reading of the room and reactions from onlookers.
+    protagonist: Driven by a clear motive (survive, avenge, protect, climb) and competent in a specific way, often underestimated at the start.
+    romance: Romance is the largest commercial category overall, but in power-oriented genres it is usually a secondary thread, with affection used as reward and stakes rather than the main plot.
+    pitfalls:
+      - Copying the premise label without the steady reward rhythm, so the story feels flat.
+      - Stacking ranks and terms faster than the reader can learn them.
+      - Making the protagonist unchallenged so tension vanishes.
+      - Cliffhangers with no payoff in the following episode.
+    pairs_with_genres: [power-fantasy, romance-drama, mystery-thriller]
+
+  - id: japanese-light-novel
+    name: Japanese light novel / web-posted serial
+    summary: Volume-based or web-posted fiction that leans on a distinct first-person or close-third voice, strong character types and genre conventions drawn from games and anime. Premises such as isekai, reincarnated-villainess and slice-of-life are popular and often work as playful variations on known setups.
+    techniques:
+      - A voice-forward protagonist narration that comments on the situation.
+      - Genre self-awareness: characters or narrator acknowledge game-like or trope-like rules.
+      - A distinctive hook stated in the first scene (reborn as the villain, stuck in a game world).
+      - Ensemble cast built from clear character types who are developed through interaction.
+      - Comedy and warmth mixed with stakes; humour as a relief and a bonding tool.
+      - Episodic structure within a continuing arc: problem of the chapter, a small win, a new companion.
+      - Detailed everyday moments (meals, routines) that build attachment.
+      - Foreknowledge of a story the protagonist has read or played used to steer events.
+    chapter_rhythm: Web-posted chapters are moderately short and chained into volumes with a volume-level arc and a closing high point.
+    dialogue: Dialogue is lively and character-typed, with frequent quips, and narration often supplies the protagonist's running commentary.
+    protagonist: Often an ordinary person with a distinct voice and an edge from outside knowledge, who grows by connecting with companions.
+    romance: Romance is a common thread, often slow or comedic, and often shared across an ensemble rather than one pairing.
+    pitfalls:
+      - Meta-jokes that undercut every stake.
+      - Casts of types who never develop.
+      - Narration that explains what the scene already shows.
+    pairs_with_genres: [romance-drama, slice-of-life, power-fantasy]
+
+  - id: chinese-webnovel
+    name: Chinese web novel (xianxia / wuxia / urban)
+    summary: Very long serials built around advancement through named realms, sects and clans, with a world where strength and face decide standing. The form rewards steady escalation and a growing cast, with large arcs spanning many chapters.
+    techniques:
+      - Named realms and stages (early, middle, late, peak) make growth countable.
+      - Face, honour and debt of favour drive social conflict between characters.
+      - Sect, clan and region hierarchies expand outward as the protagonist rises.
+      - Treasure, technique and opportunity hunts as repeating plot engines.
+      - Rivals who recur at higher tiers, so reversals compound.
+      - Face-slapping beats: someone dismisses the protagonist, then is shown wrong in front of witnesses.
+      - Long arcs with an expanding map, each stage opening a larger world.
+      - Mentors, hidden elders and inheritances as sources of discovery.
+    chapter_rhythm: Chapters are short and numerous, and the long-form structure expects hundreds of chapters across escalating arcs.
+    dialogue: Dialogue is formal and rank-aware, with threats and boasts, and narration explains realm and standing at key moments.
+    protagonist: Persistent and resourceful, advancing through opportunity and hardship in a world that ranks people openly.
+    romance: Romance is typically a side thread that supplies allies and motivation, and often appears as one of several bonds.
+    pitfalls:
+      - Terminology dumps with no scene.
+      - Treating hierarchy as decoration rather than a source of conflict.
+      - Repeating the dismissed-then-shown-wrong beat without variation.
+      - Relying on the length of the format when a short chapter has no room for it.
+    pairs_with_genres: [power-fantasy, romance-drama]
+
+  - id: western-fantasy-novel
+    name: Western fantasy / progression and LitRPG serial
+    summary: English-language fantasy, from traditional novels to web serials on sites such as Royal Road, where progression fantasy and LitRPG treat measurable growth as the core engine. Structure leans on magic systems with explicit rules and costs, and on world-building that rewards attention.
+    techniques:
+      - A magic or progression system with stated rules and limits that the plot tests.
+      - Competence shown through problem-solving, with the reader able to follow the logic.
+      - Character-driven arcs where choices change the protagonist's relationships and values.
+      - Visible stats or tiers in LitRPG and progression, used with restraint.
+      - Party or found-family dynamics as emotional anchor.
+      - Foreshadowed reveals that recontextualise earlier events.
+      - World-building delivered through events and conflict, not lectures.
+      - A cost for power, both practical and personal.
+    chapter_rhythm: Chapters are medium-length and posted on a regular schedule, with arcs that close on a major payoff and a hook to the next.
+    dialogue: Dialogue tends to carry characterisation and banter, with narration allowing space for description and interiority.
+    protagonist: Often a thoughtful, adaptive character who grows by learning the rules and building relationships.
+    romance: Romance varies from absent to a slow subplot; many works keep it secondary to the growth arc.
+    pitfalls:
+      - Over-explained systems that stall scenes.
+      - Stats that replace stakes.
+      - Power increases without cost.
+      - Large casts with no clear role.
+    pairs_with_genres: [power-fantasy, sci-fi, mystery-thriller, horror]
+
+  - id: short-form-drama
+    name: Short-form vertical drama
+    summary: Micro-dramas made of very short episodes watched on phones, where each episode is built around a hook, an emotional peak and a cliffhanger. Free early episodes and paid later ones push stories toward fast, high-conflict beats.
+    techniques:
+      - Hook in the first seconds of every episode.
+      - One clear emotional turn per episode: insult, reveal, rescue, slap-back.
+      - End each episode on a reveal, threat or decision.
+      - Strong, readable character roles established at once (wronged heroine, cold powerful lead, scheming rival).
+      - Heavy reversal and reveal structure: hidden identity, hidden wealth, hidden relationship.
+      - Visible conflict between two clear positions, with little scene-setting.
+      - Place the larger turn near the point where the viewer is asked to continue.
+      - Reuse a small set of familiar premises with fast escalation.
+    chapter_rhythm: Episodes are about one to two minutes (accounts vary by source), released as a long series with early episodes free and later ones locked behind payment at a cliffhanger.
+    dialogue: Dialogue is direct and heightened, with emotion and conflict stated in few words.
+    protagonist: A sympathetic character in a clear injustice or a hidden-status situation, whose reversal drives the series.
+    romance: Romance is a dominant vehicle, usually with a powerful partner or a revealed identity and strong, immediate conflict.
+    pitfalls:
+      - Constant escalation with no emotional ground.
+      - Reversals that stop mattering because nothing is lost.
+      - Cliffhangers that are not paid off.
+    pairs_with_genres: [romance-drama, power-fantasy, mystery-thriller]
+
+  - id: cinematic-interactive-drama
+    name: Cinematic interactive drama
+    summary: Choice-driven narrative games in which scenes are staged like film, choices have visible consequences, and the player is addressed as a participant in the drama. The craft centres on choices that feel meaningful, remembered consequences and tight scene economy.
+    techniques:
+      - Choices that express character or value rather than pick a correct answer.
+      - Visible consequence markers ("they will remember this") that the story then honours.
+      - A few well-planted callbacks to earlier choices in later scenes.
+      - Time pressure or limited options at key moments to force a decision.
+      - Scenes staged for the camera: clear blocking, expressions and reaction beats.
+      - Branches that reconverge on a small number of story pillars, with variation in tone and relationships.
+      - Tension built from relationships between characters, with the player in the middle.
+      - Short scenes with one purpose each, ending on a decision or a turn.
+    chapter_rhythm: Episodes are discrete sittings with a defined scene count, each ending on a hook or a consequential choice that carries into the next episode.
+    dialogue: Dialogue is naturalistic and economical, with subtext, and narration kept sparse so the staging carries meaning.
+    protagonist: The player's avatar, defined mostly by what they choose, in a relationship web that reacts.
+    romance: Romance is generally optional and built from accumulated choices, with relationships as a main consequence track.
+    pitfalls:
+      - Choices that have no later effect.
+      - Branches that multiply content without changing the experience.
+      - Dialogue options that are tonally identical.
+      - Consequences announced but not shown.
+    pairs_with_genres: [mystery-thriller, horror, romance-drama, sci-fi, slice-of-life]

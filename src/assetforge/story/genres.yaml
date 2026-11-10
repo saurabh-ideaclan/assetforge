@@ -1,0 +1,587 @@
+# Genre taxonomy for the story pipeline. Evidence and [VERIFIED]/[EDITORIAL] split:
+# docs/narrative/11-genre-and-tradition-research.md
+# A story picks ONE primary, 0-3 subgenres (at most one per `kind` is the usual shape), and a tradition (traditions.yaml).
+primary:
+  - id: power-fantasy
+    name: Power Fantasy
+    promise: The reader watches a character who is underestimated or cornered gain real, visible power and use it to turn a humiliating situation around.
+    default_subgenres: [progression, hidden-power, weak-to-strong]
+    audience_note: Dominant in web-serial culture (Korean web novels and manhwa, Chinese cultivation serials, Western progression and LitRPG on Royal Road); readers expect explicit measurement of growth and frequent payoffs.
+  - id: romance-drama
+    name: Romance Drama
+    promise: Two people who should not work together are pushed into closeness, and the reader enjoys the friction, the near-misses and the earned emotional release.
+    default_subgenres: [enemies-to-lovers, contract-marriage]
+    audience_note: Romance is the largest commercial category in Korean web fiction and a staple of Japanese and Western serial fiction; choice-based romance apps train readers to expect route-like branching on affection.
+  - id: mystery-thriller
+    name: Mystery / Thriller
+    promise: A question the reader cannot answer yet, fair clues, and a reveal that recontextualises what they have already seen.
+    default_subgenres: [locked-room]
+    audience_note: Reads across all traditions; in interactive form it lives on the reader noticing and choosing which lead to follow.
+  - id: horror
+    name: Horror
+    promise: The reader feels dread build around a threat they cannot fully understand, with choices that feel costly and irreversible.
+    default_subgenres: [survival-horror]
+    audience_note: Works well in text-plus-sprites because withheld information and pacing do the scaring; most effective in short sessions with a strong ending sting.
+  - id: slice-of-life
+    name: Slice of Life
+    promise: Low-stakes days in a place and a group of people the reader wants to return to, where small choices shape relationships.
+    default_subgenres: [campus-life]
+    audience_note: Strong in Japanese light novel and visual novel culture and in cozy Western fiction; pace is gentle, so character specificity carries it.
+  - id: sci-fi
+    name: Science Fiction
+    promise: A speculative premise changes what is possible for the characters, and the story explores the human consequences.
+    default_subgenres: [space-frontier]
+    audience_note: Broad readership; in game-like serials it often appears as system or tech-enabled progression, in drama as a single what-if premise.
+
+subgenres:
+  - id: progression
+    name: Progression
+    kind: mechanic
+    primary: [power-fantasy]
+    promise: Power is earned in steps the reader can see and measure, so every scene can end with the protagonist visibly stronger or closer to the next tier.
+    mechanics:
+      - The opening shows a clear gap between the protagonist and what they need to be able to do.
+      - A defined ladder (ranks, levels, tiers, grades) tells the reader what the next step is and what it costs.
+      - Each arc sets a gatekeeper (a test, rival, boss or deadline) that requires one new capability.
+      - Training or preparation is shown as decisions and trade-offs, not as a montage.
+      - The payoff is a demonstration of the new tier against the thing that previously beat the protagonist.
+    chapter_beats:
+      - Present a concrete obstacle that the current tier cannot beat.
+      - The protagonist finds or builds a method to grow, with a visible cost.
+      - A short test of the new ability, with a limit that stays interesting.
+      - Show the new standing (rank, reaction of others, number) and point to the next gate.
+    pairs_well: [system-leveling, weak-to-strong, academy, dungeon-hunter, tower-climbing, cultivation]
+    conflicts_with: [overpowered-protagonist]
+    cliches_to_avoid:
+      - Training montages that skip the decisions.
+      - Power jumps that arrive with no cost or setup.
+      - Every opponent existing only to be out-levelled.
+
+  - id: system-leveling
+    name: System / Leveling
+    kind: mechanic
+    primary: [power-fantasy, sci-fi]
+    promise: The world exposes game-like numbers, quests and skills, so the reader can enjoy optimising and watching them rise.
+    mechanics:
+      - A status window, quest prompt or notification appears early and sets the rules.
+      - The protagonist exploits a rule others overlook (a skill combination, a hidden quest, a loophole).
+      - Rewards are specific (a new skill, a stat gain, an unlock) and delivered on a regular rhythm.
+      - Limits (cooldowns, resource costs, penalties) keep fights from being solved by numbers alone.
+      - The system itself is a mystery that can be probed, extended or questioned.
+    chapter_beats:
+      - A system prompt frames the chapter goal.
+      - The protagonist finds a smarter way to meet it than the obvious one.
+      - A reward notification confirms the gain, in few words.
+      - A new prompt or discovery raises the stakes.
+    pairs_well: [progression, dungeon-hunter, tower-climbing, hidden-power, weak-to-strong]
+    conflicts_with: [campus-life]
+    cliches_to_avoid:
+      - Walls of stat text with no scene around them.
+      - Notifications that explain emotions the scene already showed.
+      - A system that never has a rule the protagonist cannot bend.
+
+  - id: regression
+    name: Regression / Second-Chance
+    kind: premise
+    primary: [power-fantasy, romance-drama, mystery-thriller]
+    promise: The protagonist returns to an earlier point with knowledge of a bad future, and the reader enjoys foresight turned into action and the cost of changing events.
+    mechanics:
+      - The opening shows or implies the failure, death or loss that is being undone.
+      - Foreknowledge gives an edge, but each change moves events away from what the protagonist knows.
+      - Early wins come from precise use of known facts (who to meet, what to buy, where to be).
+      - Escalation arrives when events diverge and foreknowledge stops working.
+      - Payoff pairs a prior-timeline wound with a changed outcome at the same place or person.
+    chapter_beats:
+      - A known event approaches and the protagonist acts earlier than anyone expects.
+      - Others react to behaviour that makes no sense to them yet.
+      - A deviation from the remembered timeline raises doubt.
+      - The chapter ends on a changed outcome or a new unknown.
+    pairs_well: [revenge-rise, weak-to-strong, academy, royal-political, villainess-villain-protagonist, hidden-power]
+    conflicts_with: [overpowered-protagonist]
+    cliches_to_avoid:
+      - Explaining the whole prior timeline in the first chapter.
+      - Foreknowledge that never fails.
+      - Protagonist who is cold to everyone with no reason shown.
+
+  - id: reincarnation-isekai
+    name: Reincarnation / Isekai
+    kind: premise
+    primary: [power-fantasy, romance-drama]
+    promise: A person from one world or life starts again in another, and uses outside knowledge or perspective to find a place there.
+    mechanics:
+      - The opening handles the transition quickly, so the new situation is in play within a scene.
+      - The protagonist's old-world knowledge or values create both an edge and a clash.
+      - The new world has legible rules (classes, guilds, nobility, magic) that are taught through use.
+      - Early goals are survival and a stable place; later goals are choosing what to be.
+      - The payoff is an identity that merges both lives.
+    chapter_beats:
+      - A practical problem in the new world.
+      - The protagonist's outside viewpoint produces an unexpected solution.
+      - A local reaction shows what the world makes of them.
+      - A hint of a larger structure behind the situation.
+    pairs_well: [system-leveling, villainess-villain-protagonist, medieval-kingdom, kingdom-building, progression]
+    conflicts_with: [campus-life]
+    cliches_to_avoid:
+      - Long explanation of the death or transfer.
+      - A protagonist who is right about everything because they come from modern times.
+      - Locals as passive audience.
+
+  - id: overpowered-protagonist
+    name: Overpowered Protagonist
+    kind: protagonist
+    primary: [power-fantasy]
+    promise: The protagonist is already far above their surroundings, and the pleasure is in how others misjudge them and how calmly the problem is solved.
+    mechanics:
+      - Strength is established fast and then used sparingly so it keeps meaning.
+      - Tension moves from "can they win" to "what will it cost others" or "what do they choose".
+      - Others misread the protagonist, which generates comedy and reveals.
+      - Threats are problems of scale, information or moral limits, not raw power.
+      - The payoff is reaction, not effort.
+    chapter_beats:
+      - A situation where others assume the protagonist is ordinary.
+      - A decision the protagonist could take with force but handles another way, or does not.
+      - Observers react with surprise.
+      - A threat that cannot be solved by force alone appears.
+    pairs_well: [hidden-power, academy, medieval-kingdom, kingdom-building, dark-power]
+    conflicts_with: [weak-to-strong, progression, regression]
+    cliches_to_avoid:
+      - Opponents with no stakes so no scene has tension.
+      - Constant disguise gags with the same beat.
+      - Power that expands whenever it is inconvenient.
+
+  - id: hidden-power
+    name: Hidden Power / Concealed Identity
+    kind: protagonist
+    primary: [power-fantasy]
+    promise: The protagonist is more than they appear, and the reader holds the secret and enjoys each near-exposure and reveal.
+    mechanics:
+      - The reader learns the secret early, so scenes get dramatic irony.
+      - The protagonist has a reason to hide it (safety, a promise, a plan).
+      - Others' assumptions are shown, then corrected at chosen moments.
+      - Each reveal is staged to a person who matters.
+      - The payoff is a public or personal reveal that the story has built toward.
+    chapter_beats:
+      - A situation that tempts the protagonist to show their ability.
+      - A restraint or workaround that preserves the secret.
+      - A witness notices a detail that does not fit.
+      - The chapter ends on a close call or a partial reveal.
+    pairs_well: [weak-to-strong, academy, secret-identity-romance, royal-political, system-leveling]
+    conflicts_with: [kingdom-building]
+    cliches_to_avoid:
+      - Secret kept by implausible obliviousness.
+      - Reveals that change nothing.
+      - Concealment with no real cost.
+
+  - id: revenge-rise
+    name: Revenge and Rise
+    kind: theme
+    primary: [power-fantasy, romance-drama, mystery-thriller]
+    promise: The protagonist was wronged, builds the means to answer, and the reader waits for a precise, earned reversal.
+    mechanics:
+      - The wrong is specific and shown early, with named people responsible.
+      - The plan is staged: gain resources, remove allies, expose the core.
+      - Antagonists get setbacks and counter-moves so the plan has friction.
+      - The protagonist's methods carry a moral cost that the story notices.
+      - The payoff is proportionate to the wrong and lands in a scene set up from the start.
+    chapter_beats:
+      - A step in the plan against a named target.
+      - The target counters or a bystander is affected.
+      - A small reversal that proves the protagonist's preparation.
+      - A reminder of the original wrong, kept brief.
+    pairs_well: [regression, weak-to-strong, villainess-villain-protagonist, royal-political, dark-power]
+    conflicts_with: [campus-life]
+    cliches_to_avoid:
+      - Villains who are cruel for no reason.
+      - Revenge that is complete in the first act.
+      - Replaying the wrong in every chapter.
+
+  - id: academy
+    name: Academy
+    kind: setting
+    primary: [power-fantasy, romance-drama]
+    promise: A structured school gives rankings, rivals, exams and a cohort, so growth and relationships have a ready frame.
+    mechanics:
+      - A ranking or exam system makes progress visible to others.
+      - Classes, clubs and houses supply a ready cast and factions.
+      - Instructors and elites enforce rules that the protagonist must work with or around.
+      - Seasonal events (entrance, tournament, trial) mark arcs.
+      - The payoff is a public event where standing changes.
+    chapter_beats:
+      - A class, test or rule sets the problem.
+      - Rivals or classmates react to the protagonist.
+      - A skill or relationship step.
+      - A ranking, rumour or announcement closes the chapter.
+    pairs_well: [progression, hidden-power, weak-to-strong, regression, enemies-to-lovers]
+    conflicts_with: [kingdom-building, tower-climbing]
+    cliches_to_avoid:
+      - Every teacher or noble as a one-note bully.
+      - Tournament arc as the only structure.
+      - A single rival defined by pride.
+
+  - id: tower-climbing
+    name: Tower Climbing
+    kind: setting
+    primary: [power-fantasy, sci-fi]
+    promise: A tall structure with floors, each with its own rule and guardian, turns progress into a visible climb.
+    mechanics:
+      - Each floor has a distinct rule, theme or trial.
+      - The protagonist's party changes as floors are passed.
+      - Floors give natural episode and arc boundaries.
+      - Rewards and risk rise with height, and rest areas offer a reset.
+      - The payoff is passing a floor through understanding its rule.
+    chapter_beats:
+      - Enter a floor and learn its rule.
+      - A cost or loss shows what the rule demands.
+      - A creative solution to the trial.
+      - A reward and a glimpse of the next floor.
+    pairs_well: [progression, system-leveling, weak-to-strong, dungeon-hunter]
+    conflicts_with: [academy, kingdom-building]
+    cliches_to_avoid:
+      - Floors that are just bigger monsters.
+      - Party members who are replaceable props.
+      - The tower's purpose never questioned.
+
+  - id: dungeon-hunter
+    name: Dungeon and Hunter
+    kind: setting
+    primary: [power-fantasy]
+    promise: In a modern world where gates or dungeons exist, ranked hunters earn status and money by clearing them, and the protagonist rises through the ranks.
+    mechanics:
+      - A ranking system (letters, grades) for hunters and gates is stated early.
+      - Everyday concerns (rent, licences, guilds, income) sit beside combat.
+      - Raids have preparation, roles and a boss mechanic.
+      - Institutions (guilds, associations, media) react to the protagonist's rank.
+      - The payoff is a clear that the community thought impossible.
+    chapter_beats:
+      - A job or gate with a risk and a reward.
+      - A tactical detail that decides the fight.
+      - A loot or rank consequence.
+      - Institutional or public reaction, and the next gate.
+    pairs_well: [system-leveling, progression, weak-to-strong, hidden-power]
+    conflicts_with: [medieval-kingdom, cultivation]
+    cliches_to_avoid:
+      - Authority figures who instantly recognise the protagonist as special.
+      - Raid scenes that read like stat sheets.
+      - Mundane life used only as a joke.
+
+  - id: royal-political
+    name: Royal / Political Intrigue
+    kind: setting
+    primary: [power-fantasy, romance-drama, mystery-thriller]
+    promise: Power is held by courts, houses and offices, and the protagonist wins by information, alliance and timing.
+    mechanics:
+      - Factions with clear aims and leverage are set up early.
+      - Information is currency; scenes turn on who knows what.
+      - Etiquette and rank limit what characters may say or do.
+      - Alliances shift and betrayals are foreshadowed.
+      - The payoff is a move that was prepared several scenes earlier.
+    chapter_beats:
+      - A social occasion (audience, banquet, council).
+      - A veiled exchange where intent is hidden.
+      - A piece of leverage is gained or spent.
+      - A consequence arrives that shifts a faction.
+    pairs_well: [regression, revenge-rise, villainess-villain-protagonist, medieval-kingdom, contract-marriage, hidden-power]
+    conflicts_with: [dungeon-hunter, campus-life]
+    cliches_to_avoid:
+      - Villains who announce their plan.
+      - Court scenes with no leverage at stake.
+      - Everyone intelligent except one named dupe.
+
+  - id: medieval-kingdom
+    name: Medieval Kingdom
+    kind: setting
+    primary: [power-fantasy, romance-drama]
+    promise: A pre-modern fantasy realm of nobles, knights, guilds and monsters supplies a familiar stage with clear hierarchy.
+    mechanics:
+      - Social class and titles are made explicit.
+      - Threats include wars, monsters, succession and scarcity.
+      - Magic or martial ability is tied to training and lineage.
+      - Locations (castle, border, capital, wilds) make clear arcs.
+      - The payoff is changing a person's or region's standing.
+    chapter_beats:
+      - A local problem with a visible stake.
+      - A negotiation or fight where status matters.
+      - A discovery about the wider realm.
+      - A change in standing or alliance.
+    pairs_well: [reincarnation-isekai, kingdom-building, royal-political, progression, villainess-villain-protagonist]
+    conflicts_with: [dungeon-hunter, space-frontier]
+    cliches_to_avoid:
+      - Setting as pure backdrop with no social rules.
+      - Chosen-by-lineage with no earned step.
+      - Interchangeable nobles.
+
+  - id: cultivation
+    name: Cultivation
+    kind: mechanic
+    primary: [power-fantasy]
+    promise: Spiritual or martial training moves a character through named realms toward greater power and longevity, in a world where strength decides standing.
+    mechanics:
+      - Named realms with early, middle, late and peak stages make growth countable.
+      - Resources (pills, techniques, artefacts, locations) are scarce and contested.
+      - Sects and clans form a hierarchy with elders, rivals and rules of face.
+      - Breakthroughs follow trials, insight or a risk; they are staged events.
+      - The payoff is a breakthrough that changes who can threaten the protagonist.
+    chapter_beats:
+      - A resource or technique opportunity with competitors.
+      - A confrontation that exposes the gap in realm or standing.
+      - An insight or risk that enables advancement.
+      - Reaction from the sect or rivals and the next realm.
+    pairs_well: [progression, weak-to-strong, hidden-power, revenge-rise, dark-power]
+    conflicts_with: [dungeon-hunter, space-frontier]
+    cliches_to_avoid:
+      - Glossary dumps instead of scenes.
+      - Every confrontation settled by a hidden elder.
+      - Realm names that change nothing in practice.
+
+  - id: kingdom-building
+    name: Kingdom Building
+    kind: theme
+    primary: [power-fantasy, sci-fi]
+    promise: The protagonist grows a settlement, domain or organisation, and the reader enjoys stable growth through decisions about people and resources.
+    mechanics:
+      - A small base with a clear shortage (food, defence, trust) opens the story.
+      - Recruiting people with distinct skills expands what the base can do.
+      - Resources and infrastructure upgrades are shown as choices with trade-offs.
+      - External pressure (rivals, raids, taxes, neighbours) tests each stage.
+      - The payoff is a thriving place that holds against a threat.
+    chapter_beats:
+      - A shortage or request from the community.
+      - A decision between two imperfect options.
+      - A new recruit or upgrade changes capability.
+      - An outside threat or visitor appears.
+    pairs_well: [medieval-kingdom, reincarnation-isekai, system-leveling, royal-political, space-frontier]
+    conflicts_with: [academy, hidden-power, tower-climbing]
+    cliches_to_avoid:
+      - Population as a number with no named people.
+      - Problems solved by a single buff.
+      - No scarcity once the base is established.
+
+  - id: villainess-villain-protagonist
+    name: Villainess / Villain Protagonist
+    kind: protagonist
+    primary: [romance-drama, power-fantasy]
+    promise: The protagonist holds the antagonist's role in a story that expects them to fail, and works to escape or exploit that fate.
+    mechanics:
+      - The protagonist knows or suspects the role's doomed outcome.
+      - Early choices avoid or twist the "scripted" events.
+      - Characters who should hate the protagonist react in unexpected ways.
+      - Reputation is both obstacle and tool.
+      - The payoff is a new fate earned by changing how others see them.
+    chapter_beats:
+      - A scripted event approaches.
+      - The protagonist acts against the script.
+      - Others react in ways that surprise both sides.
+      - A new risk or ally changes the plan.
+    pairs_well: [reincarnation-isekai, regression, royal-political, revenge-rise, contract-marriage, medieval-kingdom]
+    conflicts_with: [campus-life]
+    cliches_to_avoid:
+      - Instant redemption through a few kind acts.
+      - Surrounding characters who are all secretly in love with her.
+      - A script the reader never sees break.
+
+  - id: dark-power
+    name: Dark Power
+    kind: theme
+    primary: [power-fantasy, horror]
+    promise: Power is available at a moral price, and the reader follows a character who chooses to pay or tries to pay less.
+    mechanics:
+      - The source of power has an explicit cost (corruption, sacrifice, debt).
+      - Early use is justified by a strong need.
+      - Each use makes the next choice harder and shows what changes.
+      - Allies and rivals respond to what the power makes of the protagonist.
+      - The payoff is a choice about whether to stop.
+    chapter_beats:
+      - A temptation with a clear cost.
+      - Use of the power with a visible effect on the protagonist.
+      - A person reacts with fear or deference.
+      - A consequence is deferred to the next chapter.
+    pairs_well: [revenge-rise, cultivation, overpowered-protagonist, villainess-villain-protagonist, survival-horror]
+    conflicts_with: [campus-life]
+    cliches_to_avoid:
+      - Edgy tone with no consequence.
+      - A cost that is stated but never paid.
+      - Power that corrupts everyone but the lead.
+
+  - id: weak-to-strong
+    name: Weak to Strong
+    kind: protagonist
+    primary: [power-fantasy]
+    promise: The protagonist starts at the bottom, is mocked or ignored, and the reader waits for the moment others must reassess them.
+    mechanics:
+      - The opening shows the protagonist's low standing in concrete ways.
+      - A catalyst (a skill, a mentor, a second chance) offers a way up.
+      - Early wins are small and honest; larger ones follow arcs.
+      - Doubters get cumulative reversals, spaced out for impact.
+      - The payoff is recognition from someone who dismissed the protagonist.
+    chapter_beats:
+      - A humiliation or limit that sets the gap.
+      - A small act of preparation or insight.
+      - A first win that is earned and proportionate.
+      - Others begin to notice, and a bigger challenge shows up.
+    pairs_well: [progression, system-leveling, regression, academy, revenge-rise, dungeon-hunter, cultivation, tower-climbing]
+    conflicts_with: [overpowered-protagonist]
+    cliches_to_avoid:
+      - Bullies who exist only to be humbled.
+      - Rise so fast that the weakness no longer matters.
+      - Mentor who explains and solves everything.
+
+  - id: contract-marriage
+    name: Contract Marriage
+    kind: premise
+    primary: [romance-drama]
+    promise: Two people marry or pair up on paper for practical reasons, and real feelings grow against the agreed terms.
+    mechanics:
+      - The contract has specific clauses and an end date.
+      - Public performance of affection forces private closeness.
+      - Rules are tested and broken in small steps.
+      - An outside threat or rival raises the cost of ending it.
+      - The payoff is choosing the relationship after the contract no longer binds.
+    chapter_beats:
+      - A situation that requires playing a couple.
+      - A moment where the act slips and feels real.
+      - A clause is bent or an outsider intrudes.
+      - A hint that the end date is approaching.
+    pairs_well: [enemies-to-lovers, royal-political, villainess-villain-protagonist, secret-identity-romance]
+    conflicts_with: [survival-horror]
+    cliches_to_avoid:
+      - Misunderstanding that one honest conversation would end.
+      - Third-party rival with no motive of her or his own.
+      - Contract terms that are never actually used.
+
+  - id: secret-identity-romance
+    name: Secret Identity Romance
+    kind: premise
+    primary: [romance-drama]
+    promise: One partner hides who they are, and the reader enjoys closeness that grows while the lie gets heavier.
+    mechanics:
+      - The reader knows the secret from the start.
+      - Scenes put the partners close at the moment the secret could surface.
+      - The relationship in disguise is genuine, which makes exposure costly.
+      - A third party gets close to the truth and raises the pressure.
+      - The payoff is the reveal and a repair.
+    chapter_beats:
+      - A shared moment that deepens trust.
+      - A near-slip or witness.
+      - A rationalised delay.
+      - A cost of the lie becomes visible.
+    pairs_well: [hidden-power, enemies-to-lovers, contract-marriage, academy]
+    conflicts_with: [kingdom-building]
+    cliches_to_avoid:
+      - Reveal delayed by contrived silence.
+      - Partner forgiving instantly.
+      - Disguise that no one would believe.
+
+  - id: enemies-to-lovers
+    name: Enemies to Lovers
+    kind: theme
+    primary: [romance-drama]
+    promise: Two people who clash discover mutual respect, then attraction, and the reader enjoys the friction turning into trust.
+    mechanics:
+      - Their opposition is grounded in goals or values, not only attitude.
+      - Forced proximity creates repeated contact.
+      - Competence earns respect before affection.
+      - A vulnerable moment shifts the balance.
+      - The payoff is an honest admission that costs something.
+    chapter_beats:
+      - A clash with real stakes.
+      - A forced collaboration.
+      - A glimpse of the other's reasons.
+      - A moment where one gives up an advantage.
+    pairs_well: [academy, contract-marriage, secret-identity-romance, royal-political]
+    conflicts_with: [survival-horror]
+    cliches_to_avoid:
+      - Cruelty presented as attraction.
+      - Reversal with no shown cause.
+      - Rival who is a pure obstacle.
+
+  - id: locked-room
+    name: Locked Room / Closed Circle
+    kind: setting
+    primary: [mystery-thriller, horror]
+    promise: A finite group is trapped with a puzzle or a culprit, and the reader gets fair clues and a reveal that recontextualises them.
+    mechanics:
+      - A closed location limits who can be responsible.
+      - Each character has a motive, an alibi and a secret.
+      - Clues are planted in plain view, including early.
+      - Pressure rises as time runs out or another incident occurs.
+      - The payoff is a deduction that the reader could in principle have made.
+    chapter_beats:
+      - A new discovery or incident.
+      - An interview or search that reveals a contradiction.
+      - A suspicion shifts.
+      - A final line that reframes an earlier detail.
+    pairs_well: [survival-horror, secret-identity-romance]
+    conflicts_with: [kingdom-building, tower-climbing]
+    cliches_to_avoid:
+      - Culprit introduced late.
+      - Clues only the detective can know.
+      - Suspects who exist only to be cleared.
+
+  - id: survival-horror
+    name: Survival Horror
+    kind: setting
+    primary: [horror]
+    promise: Resources are low and the threat is stronger, and each choice trades safety for information or progress.
+    mechanics:
+      - The threat's rules are partly hidden and learned by cost.
+      - Scarcity (light, time, supplies, allies) forces trade-offs.
+      - Safe spaces are established and then threatened.
+      - Information is revealed at a price.
+      - The payoff is escape or a hard choice that leaves a mark.
+    chapter_beats:
+      - A new area or need.
+      - A sign that the threat is near.
+      - A choice with a cost.
+      - A sting or reveal that raises dread.
+    pairs_well: [locked-room, dark-power]
+    conflicts_with: [campus-life, contract-marriage, enemies-to-lovers]
+    cliches_to_avoid:
+      - Characters making implausible choices to keep the plot moving.
+      - Threat explained fully in a monologue.
+      - Jump scares in text without build.
+
+  - id: campus-life
+    name: Campus Life
+    kind: setting
+    primary: [slice-of-life, romance-drama]
+    promise: Classes, clubs and friends offer a recurring cast and routine where small choices shape friendships and feelings.
+    mechanics:
+      - Recurring places and routines give the story a rhythm.
+      - Small goals (a club event, an exam, a festival) structure arcs.
+      - Characters have distinct habits and voices.
+      - Relationships change through shared tasks, not declarations.
+      - The payoff is a moment of belonging.
+    chapter_beats:
+      - A small goal or event.
+      - A conversation that reveals a character.
+      - A choice that shifts a friendship.
+      - A quiet closing image.
+    pairs_well: [enemies-to-lovers]
+    conflicts_with: [survival-horror, dark-power, royal-political, revenge-rise]
+    cliches_to_avoid:
+      - Characters defined by one trait.
+      - Festival episode as the only event.
+      - Conflicts resolved by a speech.
+
+  - id: space-frontier
+    name: Space Frontier
+    kind: setting
+    primary: [sci-fi]
+    promise: A crew, outpost or ship faces unknown space, and technology and distance shape what choices are possible.
+    mechanics:
+      - The technology has a clear rule and a clear limit.
+      - Resources (air, fuel, bandwidth, time delay) constrain action.
+      - A small crew with distinct roles drives scenes.
+      - Discoveries raise questions that reframe the mission.
+      - The payoff is a human choice made under the premise's pressure.
+    chapter_beats:
+      - A systems problem or anomaly.
+      - A role-specific contribution to the answer.
+      - A consequence of a limited resource.
+      - A discovery that changes the mission.
+    pairs_well: [kingdom-building, tower-climbing]
+    conflicts_with: [medieval-kingdom, cultivation]
+    cliches_to_avoid:
+      - Technobabble in place of a rule.
+      - Crew roles that never matter.
+      - Aliens as a single-trait culture.
