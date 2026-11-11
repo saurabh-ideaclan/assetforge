@@ -158,3 +158,21 @@ def test_audio_routes(server: AppServer, home: Path) -> None:
     assert next(c for c in view["cues"] if c["id"] == with_asset["id"])["library_status"] == "approved"
     _, view = jcall(server, f"/api/stories/{sid}/audio/s02", method="POST", body={"action": "regenerate", "cue": with_asset["id"]})
     assert next(c for c in view["cues"] if c["id"] == with_asset["id"])["library_status"] == "needs_generation"
+
+
+def test_review_flags_music_churn_and_short_loops(lib: Library, tmp_path: Path, fake: None) -> None:
+    """Two music changes a few lines apart never let a cue settle; a sub-minute loop under a long read is flagged."""
+    from assetforge.story import audio_direction as ad
+    from assetforge.story import steps
+
+    project = steps.init(tmp_path / "s", title="Fog", premise="An apprentice uncovers smugglers.", scenes=3, endings=1, provider="fake")
+    ctx = steps.Ctx(lib, project)
+    steps.world(ctx); steps.cast(ctx); steps.outline(ctx); steps.write(ctx)
+    scene = project.load("script").scenes[0]
+    plan = ad.AudioPlan(scene=scene.id, environment="room", mood="calm", summary="test",
+                        cues=[ad.Cue(id="room", kind="ambience", what=scene.location, purpose="place", at=0),
+                              ad.Cue(id="m1", kind="music", what="calm", purpose="open", at=1),
+                              ad.Cue(id="m2", kind="music", what="tense", purpose="turn", at=3)])  # fmt: skip
+    rev = ad.review(plan, scene, project.config)
+    assert any(i["code"] == "music_churn" for i in rev["issues"])
+    assert rev["budget"]["music"] < 3  # the balanced profile allows about one change per 800 words now

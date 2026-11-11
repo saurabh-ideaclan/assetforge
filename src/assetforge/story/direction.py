@@ -139,10 +139,12 @@ AUDIO_PROFILES = {
 }
 AUDIO_LEVELS = {"low": "Low", "medium": "Medium", "high": "High"}
 # cue budgets per 1,000 words of chapter (the review warns above them): music changes, sfx, accents
+# cues per 1,000 words. A reader sits for minutes on a chapter: two music changes in 1,500 words is already a lot,
+# and an sfx every 150 words turns the story into a radio play (owner, 2026-11-11: "irritating, repetitive").
 AUDIO_BUDGETS: dict[str, dict[str, float]] = {
-    "minimal": {"music": 1, "sfx": 3, "accent": 0.5, "silence": 1},
-    "balanced": {"music": 2, "sfx": 5, "accent": 1, "silence": 1},
-    "cinematic": {"music": 3, "sfx": 7, "accent": 2, "silence": 0.5},
+    "minimal": {"music": 0.6, "sfx": 1.5, "accent": 0.3, "silence": 1},
+    "balanced": {"music": 1.2, "sfx": 2.5, "accent": 0.5, "silence": 1},
+    "cinematic": {"music": 2, "sfx": 4, "accent": 1, "silence": 0.5},
 }
 
 

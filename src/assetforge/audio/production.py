@@ -51,10 +51,10 @@ class MusicDirection(Strict):
     melody: float = Field(0.6, ge=0, le=1, description="Melody prominence: 0 none, 1 carries the piece")
     percussion: Literal["auto", "none", "light", "full"] = "none"
     arc: Literal["flat", "rise", "rise_fall", "fall"] = "flat"
-    warmth: float = Field(0.3, ge=0, le=1, description="Softer top end for an under-dialogue mix")
+    warmth: float = Field(0.45, ge=0, le=1, description="Softer top end for an under-dialogue mix")
     brightness: float = Field(0.4, ge=0, le=1, description="Expected spectral brightness (the review measures it)")
     under_dialogue: bool = Field(True, description="Must stay readable under text: sparse, mid-band light")
-    seconds: float = Field(48.0, ge=8, le=240)
+    seconds: float = Field(96.0, ge=8, le=240, description="Long enough that a reader hears one repeat per beat, not four")
     loop: bool = True
     space: str = Field("hall", description="dry | room | hall | cave | outdoor")
     avoid: list[str] = Field(default_factory=list, description="Musical elements to avoid")

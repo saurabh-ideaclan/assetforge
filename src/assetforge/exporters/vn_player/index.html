@@ -185,7 +185,13 @@
   // Volumes (master, music, sfx, ambience, mute) are the reader's own and persist; the story never depends on sound:
   // every knock, bell or ring is also in the text. Loops crossfade; one-shots are tracked so a scene change, a
   // restart, a load or a route jump never leaves a stray sound running; a `stop` cue ends a looping sound.
-  const vol = Object.assign({ master: 1, music: 0.55, sfx: 0.8, amb: 0.4, muted: false }, prefs.get().audio || {});
+  // Defaults are for reading, not for a trailer: music well under the text, ambience a presence, sfx audible but
+  // never startling. Music "breathes" under a long read: after BREATHE.passes full loops it fades out, rests, and
+  // returns a little quieter, so a 90 s loop does not play twenty times while the reader sits on a chapter.
+  const vol = Object.assign({ master: 1, music: 0.4, sfx: 0.7, amb: 0.35, muted: false }, prefs.get().audio || {});
+  const BREATHE = { passes: 2, restMs: 36000, fadeOutMs: 5000, fadeInMs: 6000, returnLevel: 0.85 };
+  const audioLog = [];  // what played when (window.vn.audio()), for long-read tests
+  function note(kind, extra) { audioLog.push({ t: Math.round(performance.now()), kind, ...(extra || {}) }); if (audioLog.length > 600) audioLog.shift(); }
   let muted = !!vol.muted;
   const channels = { music: { el: null, src: null, key: "music" }, amb: { el: null, src: null, key: "amb" } };
   const oneShots = new Set();
@@ -197,20 +203,46 @@
       if (k < 1) requestAnimationFrame(tick); else if (done) done(); };
     requestAnimationFrame(tick);
   }
-  function loop(name, a, { fadeMs = 900, level } = {}) {
+  function loop(name, a, { fadeMs = 2400, level } = {}) {
     const ch = channels[name], src = pick(a);
-    if (ch.src === src && ch.el) { ch.level = level; fade(ch.el, gain(ch.key, level), 400); return; }
-    if (ch.el) { const old = ch.el; fade(old, 0, Math.min(fadeMs, 1500), () => old.pause()); }
+    if (ch.src === src && ch.el) { ch.level = level; if (!ch.resting) fade(ch.el, gain(ch.key, level), 400); return; }
+    if (ch.el) { const old = ch.el; fade(old, 0, Math.min(fadeMs, 2500), () => old.pause()); }
+    clearTimeout(ch.restTimer); ch.resting = false;
     ch.src = src; ch.el = null; ch.level = level;
+    note("loop", { channel: name, src: src || null });
     if (!src) return;
     const el = new Audio(src); el.loop = true; el.volume = 0;
     el.play().then(() => fade(el, gain(ch.key, level), fadeMs)).catch(() => {});
     ch.el = el;
+    if (name === "music") breathe(el, ch);
+  }
+  function breathe(el, ch) {
+    let last = 0, passes = 0;
+    el.addEventListener("timeupdate", () => {
+      if (ch.el !== el || ch.resting) return;
+      if (el.currentTime < last - 1) {  // the loop wrapped
+        passes++; note("music_pass", { passes });
+        if (passes >= BREATHE.passes) {
+          ch.resting = true; note("music_rest", {});
+          fade(el, 0, BREATHE.fadeOutMs, () => {
+            el.pause();
+            ch.restTimer = setTimeout(() => {
+              if (ch.el !== el) return;
+              ch.resting = false; passes = 0; last = 0; el.currentTime = 0;
+              el.play().then(() => fade(el, gain("music", ch.level) * BREATHE.returnLevel, BREATHE.fadeInMs)).catch(() => {});
+              note("music_return", {});
+            }, BREATHE.restMs);
+          });
+        }
+      }
+      last = el.currentTime;
+    });
   }
   function sfx(a, n) {
     const src = pick(a); if (!src) return;
     if (n && n.loop) { stopLoop(n.cue, 0); }
     const el = new Audio(src); el.loop = !!(n && n.loop); el.volume = gain("sfx", n && n.level);
+    note("sfx", { src, loop: el.loop });
     el.play().catch(() => {});
     if (el.loop) loops.set(n.cue, el);
     else { oneShots.add(el); el.addEventListener("ended", () => oneShots.delete(el)); }
@@ -229,7 +261,7 @@
   }
   document.addEventListener("visibilitychange", () => {  // phones: pause loops in the background, resume in front
     const on = !document.hidden;
-    for (const ch of Object.values(channels)) if (ch.el) { if (on) ch.el.play().catch(() => {}); else ch.el.pause(); }
+    for (const ch of Object.values(channels)) if (ch.el && !ch.resting) { if (on) ch.el.play().catch(() => {}); else ch.el.pause(); }
     for (const el of loops.values()) { if (on) el.play().catch(() => {}); else el.pause(); }
   });
 
@@ -363,9 +395,9 @@
   function stage(opts) {  // background + music + ambience for where the story is now
     setBackground(state.place);
     const o = opts || {};
-    loop("music", state.mood === "silence" ? null : asset("music", state.mood), { fadeMs: o.musicFade || 900 });
+    loop("music", state.mood === "silence" ? null : asset("music", state.mood), { fadeMs: o.musicFade || 2400 });
     const amb = state.amb || state.place.location;  // an `ambience` node can name a catalog scene, or "none"
-    loop("amb", amb === "none" ? null : asset("amb", amb), { fadeMs: o.ambFade || 900, level: state.ambLevel });
+    loop("amb", amb === "none" ? null : asset("amb", amb), { fadeMs: o.ambFade || 1800, level: state.ambLevel });
   }
   function stopLine() { clearInterval(typing); typing = null; clearTimeout(autoTimer); autoTimer = null; }
   function clearLine() { stopLine(); lineFull = ""; $("name").textContent = ""; $("text").textContent = ""; $("text").className = ""; $("more").classList.remove("on"); }
@@ -420,7 +452,7 @@
                       stage();
                       if (n.text) return say({ kind: "narrate", text: n.text });
                       break;
-        case "music": state.mood = n.music; stage({ musicFade: (n.fade || 0.9) * 1000 }); break;
+        case "music": state.mood = n.music; stage({ musicFade: (n.fade || 2.4) * 1000 }); break;
         case "say": case "narrate": return say(n);
         case "choice": return choose(n);
         case "branch": { const b = (n.branches || []).find((x) => holds(x.when)); return enter(b ? b.goto : n.goto); }
@@ -593,7 +625,7 @@
   try { wanted = new URLSearchParams(location.search).get("scene"); } catch { wanted = null; }
   if (!(wanted && startAt(wanted))) showTitle();
   // Small hook for automated play-throughs (and the curious): window.vn.state(), .advance(), .choose(i), .startAt(id), .history()
-  window.vn = { state: () => state && { ...state, waiting, draft: !!(scenes[state.scene] && scenes[state.scene].draft) },
+  window.vn = { audio: () => audioLog.slice(), state: () => state && { ...state, waiting, draft: !!(scenes[state.scene] && scenes[state.scene].draft) },
                 advance, choose: (i) => $("choices").querySelectorAll("button")[i]?.click(),
                 start, startAt, history: () => hist.map((h) => ({ ...h })), missing: DATA.missing || [] };
 })();

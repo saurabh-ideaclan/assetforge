@@ -164,3 +164,22 @@ def test_redo_keeps_every_sound_playable(lib: Library, tmp_path: Path, fake: Non
     again = produce(lib, project, only=["ambience"], redo=True)
     assert {i["state"] for i in again["items"]} == {"ready"}
     assert keys <= set(library_assets(lib, project))
+
+
+def test_clean_drops_the_crowd_bed_where_nobody_is(lib: Library, tmp_path: Path, fake: None) -> None:
+    """The synthesized-talker bed is the "mumbling voices" complaint: it plays only where the script puts people."""
+    project = steps.init(tmp_path / "s", title="Fog", premise="An apprentice uncovers smugglers.", scenes=4, endings=2, provider="fake")
+    ctx = steps.Ctx(lib, project)
+    steps.world(ctx); steps.cast(ctx); steps.outline(ctx); steps.write(ctx)
+    script = project.load("script")
+    quiet, busy = script.locations[0], script.locations[0].model_copy(update={"id": "market_sq", "name": "Market square", "ambience": "a crowd haggling"})
+    script = script.model_copy(update={"locations": [quiet, busy]})
+    plan = SoundPlan(locations=[LocationSound(location=quiet.id, beds=[BedPick(bed="crowd_murmur", level_db=-14), BedPick(bed="wind", level_db=-14)]),
+                                LocationSound(location="market_sq", beds=[BedPick(bed="crowd_murmur", level_db=-14)])], music=[])  # fmt: skip
+    fixed, notes = clean(plan, script)
+    assert [b.bed for b in fixed.locations[0].beds] == ["wind"] and any("crowd_murmur dropped" in n for n in notes)
+    assert [b.bed for b in fixed.locations[1].beds] == ["crowd_murmur"]
+    # the music a story asks for is long and calm enough to sit under minutes of reading
+    from assetforge.story.sound import music_options
+    opts = music_options(MusicCue(mood="tense", genre="court_intrigue", energy=0.9))
+    assert opts["seconds"] == 96.0 and opts["energy"] == 0.5

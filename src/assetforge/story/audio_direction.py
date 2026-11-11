@@ -151,7 +151,12 @@ def prompt(config: StoryConfig, world: World | None, scene: Scene, *, lib: Any =
         "door, a weapon, a spell), placed on the exact line, with `text` describing material and distance; `loop` + a "
         "`stop` cue for sounds that continue (a ringing phone, a bell tolling on); `accent` at most once, for the "
         "chapter's biggest turn; `when` conditions for sounds that belong to one branch only (use the stats the "
-        "choices set). Every cue has a `purpose`. Fewer, better cues: the reader reads for minutes between sounds.",
+        "choices set). Every cue has a `purpose`. Fewer, better cues: the reader reads for minutes between sounds. "
+        "RESTRAINT RULES: this is a visual novel, not a film. The reader sets the pace and may sit on one line for a "
+        "minute, so no cue can depend on timing; music changes at most twice in a chapter and never within 300 words "
+        "of the last change; a chapter may have no music at all when the scene is quiet talk; never put an sfx on a "
+        "line only because something is said, only on a line where the thing is shown happening; no stingers or "
+        "percussion hits under dialogue; prefer silence over a cue you are unsure of.",
         "EXAMPLE OF THE SHAPE (another story):\n" + json.dumps(example, ensure_ascii=False, separators=(",", ":")),
     ]  # fmt: skip
     if sound_plan is not None:
@@ -281,6 +286,14 @@ def review(plan_: AudioPlan, scene: Scene, config: StoryConfig) -> dict[str, Any
             warn(f"too_many_{name}", f"{len(kinds[name])} {name} cues for ~{words} words; the {prefs.profile} profile allows about {max(1, round(allowed))}")
     if len(kinds["accent"]) > 1:
         warn("accent_spam", "More than one dramatic accent in a chapter; keep one for the biggest turn")
+    # music that changes every few hundred words never settles: the reader notices the music, not the scene
+    moves = sorted(c.at for c in kinds["music"] + kinds["silence"])
+    text_nodes = [n for n in scene.nodes if n.kind in ("say", "narrate")]
+    for a, b in zip(moves, moves[1:]):
+        between = sum(len((n.text or "").split()) for n in scene.nodes[a:b] if n.kind in ("say", "narrate"))
+        if between < 300 and text_nodes:
+            warn("music_churn", f"music changes at lines {a} and {b} only ~{between} words apart; let a cue settle for at least 300 words")
+            break
     if not kinds["silence"] and (kinds["music"] or scene.music in ("tense", "dark", "eerie", "sad")) and prefs.silence != "low":
         warn("no_silence", "No deliberate silence: a tense or sad chapter usually has a moment stronger without music")
     looping = {c.id for c in kinds["sfx"] if c.loop}
@@ -385,6 +398,9 @@ def statuses(lib: Library, project: StoryProject, plan_: AudioPlan) -> list[dict
                 row["asset"] = {"id": aid, "status": a.status.value, "variant_id": a.primary_variant.id if a.primary_variant else None,
                                 "name": a.name, "duration_ms": (a.primary_variant.file.duration_ms if a.primary_variant and a.primary_variant.file else None)}  # fmt: skip
                 row["library_status"] = "approved" if a.status.value == "approved" else "needs_review" if a.status.value == "candidate" else "revision"
+                ms = row["asset"]["duration_ms"]
+                if c.kind == "music" and ms and ms < 60000:
+                    row["warning"] = f"a {ms / 1000:.0f} s loop repeats every {ms / 1000:.0f} s under a reader who may stay minutes: regenerate at 90 s or longer"
             else:
                 row["library_status"] = "needs_generation"
         out.append(row)

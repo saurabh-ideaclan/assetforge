@@ -236,6 +236,33 @@ def _creature_plan(req: AssetRequest, lib: Library | None, options: dict[str, An
     return {"engine": "creature", "settings": (inferred or {}) | options}
 
 
+def _without_voices(lib: Library, result: dict[str, Any], settings: dict[str, Any], description: str) -> dict[str, Any]:
+    """An ambience whose brief has no people in it must not contain the synthesized-talker bed: measure the render,
+    and when voice-like content is found, render again with `crowd_murmur` muted (the first take is rejected)."""
+    from assetforge.audio.analysis import diagnose_file
+    from assetforge.audio.analysis.diagnose import _brief_allows_voices
+    from assetforge.audio.ambience.engine import AmbienceRequest, generate_ambience
+
+    if _brief_allows_voices(description, None) or "crowd_murmur" in {m.lower() for m in settings.get("mute", [])}:
+        return result
+    try:
+        asset = lib.get_asset(result["asset_id"])
+        path = next((v.file.path for v in asset.variants if v.label == "v1"), asset.path)
+        report = diagnose_file(path, kind="ambience", brief=description, loop=True)
+    except Exception:  # noqa: BLE001 - the check never blocks the render
+        return result
+    if not any(f["code"] == "voice_like" and f["severity"] != "note" for f in report["findings"]):
+        return result
+    try:
+        retry = generate_ambience(lib, AmbienceRequest(**(settings | {"mute": [*settings.get("mute", []), "crowd_murmur"]})))
+    except InvalidInputError as exc:  # the talkers were the only layer: nothing to re-render, say so instead
+        result["voice_check"] = {"first_take": asset.id, "muted": None, "reason": exc.message}
+        return result
+    lib.set_status([asset.id], Status.REJECTED, note="voice-like content in a place with nobody in it; re-rendered without crowd_murmur")
+    retry["voice_check"] = {"first_take": asset.id, "muted": "crowd_murmur"}
+    return retry
+
+
 def _engine_audio(lib: Library, req: AssetRequest, planned: dict[str, Any], *, seed: int, key: str | None,
                   project: str | None, style: str | None, scope: Scope) -> dict[str, Any]:  # fmt: skip
     """Run the design/ambience/music engine for a request; returns the pipeline result."""
@@ -250,7 +277,8 @@ def _engine_audio(lib: Library, req: AssetRequest, planned: dict[str, Any], *, s
         if planned["engine"] == "ambience":
             from assetforge.audio.ambience.engine import AmbienceRequest, generate_ambience
 
-            return generate_ambience(lib, AmbienceRequest(**(settings | common)))
+            result = generate_ambience(lib, AmbienceRequest(**(settings | common)))
+            return _without_voices(lib, result, settings | common, req.description)
         if planned["engine"] == "music":
             from assetforge.audio.music.generate import MusicRequest, generate_music
 
@@ -521,7 +549,8 @@ def _generate(lib: Library, job_id: str, req: AssetRequest, fp: str, settings: S
                     for v in res["variants"]]  # fmt: skip
         generated = {"kind": planned["engine"], "job_id": res["job_id"], "engine": res["engine"],
                      "reused_content": res["reused"], "audio": res["audio"], "cost_usd": 0.0,
-                     **({"inferred": planned["inferred"]} if planned.get("inferred") else {})}  # fmt: skip
+                     **({"inferred": planned["inferred"]} if planned.get("inferred") else {}),
+                     **({"voice_check": res["voice_check"]} if res.get("voice_check") else {})}  # fmt: skip
     elif kind == "audio":
         recipe = RECIPES[planned["recipe"]]
         preset = planned["preset"]

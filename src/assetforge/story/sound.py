@@ -103,6 +103,15 @@ def prompt(script: Script, world: World | None, lib: Any = None) -> str:
     ])  # fmt: skip
 
 
+def _place_has_people(script: Script, location: str) -> bool:
+    """Does the script say people are at this place? Only then may a crowd bed play there."""
+    from assetforge.audio.analysis.diagnose import _brief_allows_voices
+
+    loc = next((x for x in (getattr(script, "locations", None) or []) if x.id == location), None)
+    text = " ".join(str(getattr(loc, k, "") or "") for k in ("name", "description", "ambience")) if loc else ""
+    return _brief_allows_voices(f"{location.replace('_', ' ')} {text}", None)
+
+
 def clean(plan: SoundPlan, script: Script, lib: Any = None) -> tuple[SoundPlan, list[str]]:
     """Drop anything not in the catalog and clamp levels, so a model slip can't make a harsh or broken sound."""
     from assetforge.audio.ambience.beds import BEDS
@@ -128,9 +137,13 @@ def clean(plan: SoundPlan, script: Script, lib: Any = None) -> tuple[SoundPlan, 
             if dropped := [x for x in [*(b.bed for b in loc.beds), *(e.event for e in loc.events)] if x in in_scene]:
                 notes.append(f"{loc.location}: {dropped} already in scene {loc.scene!r}")
         beds = []
+        people = _place_has_people(script, loc.location)
         for b in [b for b in loc.beds if b.bed not in in_scene][:3]:
             if b.bed not in BEDS:
                 notes.append(f"{loc.location}: unknown bed {b.bed!r} dropped")
+                continue
+            if b.bed == "crowd_murmur" and not people:  # the synthesized talkers are the "mumbling voices" complaint
+                notes.append(f"{loc.location}: crowd_murmur dropped (nothing says people are there)")
                 continue
             ceiling = -20.0 if b.bed == "room_tone" else -12.0 if b.bed in noisy else -6.0
             beds.append(b.model_copy(update={"level_db": max(-30.0, min(ceiling, b.level_db)),
@@ -181,7 +194,8 @@ def ambience_options(loc: LocationSound) -> dict[str, Any]:
 
 
 def music_options(cue: MusicCue) -> dict[str, Any]:
-    opts: dict[str, Any] = {"mood": cue.mood, "genre": cue.genre, "energy": cue.energy, "form": "loop"}
+    # 96 s: a reader who sits two minutes on a beat hears one repeat, not four
+    opts: dict[str, Any] = {"mood": cue.mood, "genre": cue.genre, "energy": min(cue.energy, 0.5), "form": "loop", "seconds": 96.0}
     if cue.instruments:
         opts["instruments"] = {p.role: p.instrument for p in cue.instruments}
     if cue.tempo:

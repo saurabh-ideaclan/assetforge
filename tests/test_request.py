@@ -187,3 +187,20 @@ def test_settings_validation(lib):
     for key, value in (("budget.daily_usd", "-1"), ("nope.key", "1"), ("limits.openai.rpm", "fast")):
         with pytest.raises(InvalidInputError):
             settings_store.set_value(lib, key, value)
+
+
+def test_story_ambience_with_nobody_in_it_is_rerendered_without_the_talkers(lib: Library) -> None:
+    """A voice-like render for a place with no people is rejected and made again with `crowd_murmur` muted."""
+    from assetforge.core.models import Status
+
+    spec = {"type": "ambience", "description": "an empty courtyard, nobody about", "name": "courtyard",
+            "sound": {"beds": [{"bed": "crowd_murmur", "level_db": -8}, {"bed": "wind", "level_db": -26}], "length": 30}}
+    out = handle(lib, AssetRequest(**spec))
+    check = (out.generated or {}).get("voice_check")
+    assert check and check["muted"] == "crowd_murmur"
+    assert lib.get_asset(check["first_take"]).status == Status.REJECTED
+    assert out.asset_id != check["first_take"]
+    # when the talkers are the only layer there is nothing to re-render: the result says so and nothing is rejected
+    only = handle(lib, AssetRequest(type="ambience", description="an empty courtyard, nobody about", name="talkers",
+                                    sound={"beds": [{"bed": "crowd_murmur", "level_db": -6}], "length": 30}))
+    assert (only.generated or {}).get("voice_check", {}).get("muted") is None and lib.get_asset(only.asset_id).status != Status.REJECTED

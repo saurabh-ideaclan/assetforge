@@ -594,6 +594,22 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   `index.html`, a blind A/B page (arms shuffled per row, labels and numbers hidden until Reveal, picks kept in
   localStorage, "Copy results" exports them). Write-up: `docs/narrative/15-audio-revamp.md`.
 
+### Reading-first audio (stabilization, 2026-11-11)
+
+- The owner's priority order: comfortable audio for long reads, then story quality; advanced audio research is deferred.
+  Player (`vn_player/index.html`): defaults music 0.40 / ambience 0.35 / sfx 0.70, crossfades 2.4 s music / 1.8 s
+  ambience, and music **breathes** (`BREATHE`: after 2 loop passes, 5 s fade out, 36 s rest, return at 85 %);
+  `window.vn.audio()` logs what played for long-read tests. `AUDIO_BUDGETS` halved (balanced: 1.2 music, 2.5 sfx per
+  1,000 words); `review` warns `music_churn` (two changes under 300 words apart); `statuses` warns on music loops
+  under 60 s; the plan prompt carries RESTRAINT RULES (no cue depends on timing, a chapter may have no music, no sfx
+  because something is said). Story music is 96 s loops at energy ≤ 0.5 (`sound.music_options`); Studio
+  `MusicDirection` defaults 96 s / warmth 0.45. `sound.clean` drops `crowd_murmur` unless the script puts people at
+  the place; `request._without_voices` measures every story ambience render and re-renders with the bed muted when
+  voice-like content is found in a voiceless brief (`generated.voice_check`). Audit: `docs/narrative/21`.
+- Power Fantasy pilot: concept `docs/narrative/22-power-fantasy-concept.md` (Opus review applied), research `20`,
+  preset `story/direction_presets/weight-power-fantasy.yaml`, story `~/.assetforge/stories/the-weight-he-carries`
+  (guided mode). Narrative Dynamics and a branching view are planned for Phase 6, after the owner approves the cast.
+
 ### Audio Analysis Engine, diagnosis, corrections, Workbench (Computational Audio Intelligence)
 
 - Research: `docs/narrative/17-audio-analysis-tooling.md` (wheels, licences, install tiers; verified against PyPI/HF),
