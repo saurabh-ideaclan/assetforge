@@ -641,7 +641,7 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   /api/stories/{id}/evaluation`, run action `evaluate` (scenes, fresh, provider/model). Tests: `tests/test_story_evaluate.py`.
 - Power Fantasy pilot *Everyone Owes Me* (earlier titles Null, The Weight He Carries; slug unchanged): concept `docs/narrative/22-power-fantasy-concept.md` (Opus review applied), research `20`,
   preset `story/direction_presets/weight-power-fantasy.yaml`, story `~/.assetforge/stories/the-weight-he-carries`
-  (guided mode). Narrative Dynamics and a branching view are planned for Phase 6, after the owner approves the cast.
+  (guided mode). Cast and outline approved 2026-11-11; chapters 1-3 written (ChatGPT), each through the clarity gate; the shared route of chapter 3 was re-planned as three movements introducing one new thing each (doc 23 §5). Next: chapters 4+ on approval.
 
 ### Audio Analysis Engine, diagnosis, corrections, Workbench (Computational Audio Intelligence)
 
