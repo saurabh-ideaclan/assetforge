@@ -649,7 +649,7 @@ def _run_action(lib: Library, project: StoryProject, ctx: steps.Ctx, body: dict[
         from assetforge.story import stakes
 
         if action == "payoffs_draft":
-            stakes.draft_ledger(ctx, fresh=bool(body.get("fresh"))); stakes.advance_ledger(project)
+            stakes.draft_ledger(ctx, fresh=bool(body.get("fresh"))); stakes.advance_ledger(project, ctx)
             return {"payoffs": stakes.ledger_view(project)}
         return {"rules": stakes.draft_rules(ctx, fresh=bool(body.get("fresh"))).model_dump(mode="json")}
     if action in ("acting_profile", "acting_analyze"):

@@ -216,33 +216,70 @@ def _match(text: str, promise: Promise) -> bool:
     return hit >= max(1, len(words) // 3)
 
 
-def advance_ledger(project: StoryProject) -> Ledger:
-    """Read every clarity report's `tensions_changed` / `opened` and move the promises; flag chapters without payoff."""
+class MatchAnswer(Strict):
+    advanced: dict[str, list[str]] = Field(default_factory=dict, description="scene id → promise ids its changed tensions advance")
+    opened: dict[str, list[str]] = Field(default_factory=dict, description="scene id → promise ids its opened questions belong to")
+
+
+def match_prompt(data: Ledger, chapters: dict[str, dict[str, Any]]) -> str:
+    promises = "\n".join(f"- {p.id}: {p.text}" for p in data.promises)
+    rows = "\n".join(f"- {sid}: changed: {' | '.join(c['changed']) or '-'}; opened: {' | '.join(c['opened']) or '-'}" for sid, c in chapters.items())
+    return "\n\n".join([
+        "Match what each chapter's cold read says it changed or opened to the story's promises. A promise is advanced when the "
+        "chapter materially moved that tension (paid, reinforced, reversed); it is opened when the chapter raised it. Use only "
+        "the promise ids given; leave a chapter empty when nothing matches.",
+        "PROMISES\n" + promises, "CHAPTERS\n" + rows,
+        "Return JSON: {\"advanced\": {\"<scene id>\": [\"<promise id>\"]}, \"opened\": {\"<scene id>\": [\"<promise id>\"]}}.",
+    ])
+
+
+def offline_match(data: Ledger, chapters: dict[str, dict[str, Any]]) -> Any:
+    def build(_: Any) -> dict[str, Any]:
+        adv = {sid: [p.id for p in data.promises if any(_match(t, p) for t in c["changed"])] for sid, c in chapters.items()}
+        opn = {sid: [p.id for p in data.promises if any(_match(t, p) for t in c["opened"])] for sid, c in chapters.items()}
+        return {"advanced": adv, "opened": opn}
+    return build
+
+
+def advance_ledger(project: StoryProject, ctx: Any = None) -> Ledger:
+    """Read every clarity report's `tensions_changed` / `opened`, flag chapters without payoff, and move the promises:
+    with a `ctx`, a model matches the reads' wording to the promise ids (task `payoffs.match`); without one, a word
+    overlap does, roughly."""
     from assetforge.story import clarity
 
     data = load_ledger(project)
     ids = [s.id for s in project.load("outline", Outline).scenes] if project.has("outline") else []
+    chapters: dict[str, dict[str, Any]] = {}
     for sid in ids:
         rep = clarity.load_report(project, sid)
         if rep is None:
             continue
-        changed = list(rep.tensions_changed)
-        opened = list(rep.opened)
-        data.chapters[sid] = {"changed": changed, "opened": opened, "no_payoff": not changed}
-        for p in data.promises:
-            if any(_match(t, p) for t in changed) and sid not in p.advanced_in:
-                p.advanced_in.append(sid)
-            if any(_match(t, p) for t in opened) and sid not in p.opened_in:
-                p.opened_in.append(sid)
-            if p.advanced_in:
-                p.status = "advancing"
+        chapters[sid] = {"changed": list(rep.tensions_changed), "opened": list(rep.opened), "no_payoff": not rep.tensions_changed}
+    data.chapters = chapters
+    if ctx is not None and data.promises and chapters:
+        from assetforge.story.steps import _ask
+
+        answer: MatchAnswer = _ask(ctx, "payoffs.match", match_prompt(data, chapters), MatchAnswer, offline_match(data, chapters), fresh=True)
+        adv, opn = answer.advanced, answer.opened
+    else:
+        built = offline_match(data, chapters)(None)
+        adv, opn = built["advanced"], built["opened"]
+    known = {p.id for p in data.promises}
+    for p in data.promises:
+        p.advanced_in = [sid for sid in ids if p.id in (adv.get(sid) or []) and p.id in known]
+        p.opened_in = [sid for sid in ids if p.id in (opn.get(sid) or [])]
+        p.status = "advancing" if p.advanced_in else p.status if p.status != "advancing" else "open"
     save_ledger(project, data)
     return data
 
 
 def ledger_view(project: StoryProject) -> dict[str, Any]:
     data = load_ledger(project)
-    stale = [p.id for p in data.promises if p.status == "open" and len(data.chapters) >= 3 and not p.advanced_in]
+    # stale: introduced three or more read chapters ago and never advanced since (a promise opened late is not stale yet)
+    read_order = list(data.chapters)
+    def age(p: Promise) -> int:
+        return len(read_order) - read_order.index(p.introduced) - 1 if p.introduced in read_order else 0
+    stale = [p.id for p in data.promises if not p.advanced_in and age(p) >= 3]
     return {"promises": [p.model_dump(mode="json") for p in data.promises], "chapters": data.chapters,
             "no_payoff": [s for s, c in data.chapters.items() if c.get("no_payoff")], "stale": stale, "drafted_at": data.drafted_at,
             "note": "promises come from the outline; what a chapter changed comes from its cold read (a model's reading, cited to lines)"}

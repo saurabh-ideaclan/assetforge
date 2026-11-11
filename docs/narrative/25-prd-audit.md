@@ -47,6 +47,30 @@ and disclosure choices paying off in chapter 3, and the second awakening seeded 
 chapter 7. The canon is not changed by this audit; the PRD's sketch is treated as confirmation of the design,
 not a replacement outline.
 
-## Section 3: run log
+## Section 3: run log (2026-11-11, Sonnet drafts and reads, Opus rewrites)
 
-(Filled in from the run.)
+**Payoff ledger.** Eleven promises drafted from the outline (Eli's Null reading, the father's disgrace, the shop's
+survival, Weight and memory, Idris's mentorship, Penny's freedom, Cato's debt, Selene's threat, the unexplained
+power, Tomas's hidden role, Pike's offer). Every cold read now names the tensions the chapter changed and the
+questions it opened; a model matches those readings to promise ids (`payoffs.match`), because word overlap
+alone called nine promises stale. Result over the eight written chapters: no chapter without a payoff; every
+promise introduced early is advancing; the one stale promise is Idris's mentorship, opened in four chapters and
+never materially moved, which is a true note for the chapter-7 plan.
+
+**Rule registry.** Twenty rules with the four belief layers. One entry the model got wrong (it described the
+refusal slip as a paper from the father's trial) was corrected by hand; the registry is a draft for the owner to
+approve, like the acting profile.
+
+**Reader knowledge state.** Measure, Undertow and Toll are understood from chapter 1 on; Null is
+"intentionally misunderstood" from chapter 1 until Settlement reveals it; Bearing, the Ledger and Weight arrive
+in chapter 2 as intended. Two violations, both in chapter 5: Director Pike (unpaid route) and the stored claim
+(rostered route) are depended on without context, the same chapter the cold read already flagged, which the
+re-plan of chapter 5 must fix.
+
+**Choice QA and the acknowledgement pass.** The three personality and trust stats were written by dozens of
+choices and read nowhere. An Opus pass added `when`-gated reactions from Noor, Mara and Idris: kept on the
+shared route of chapter 3 (clarity 8 → 4 points) and chapter 4 (5 → 5); on chapter 2 and the hidden route of
+chapter 3 the first attempt made a wall of text and was discarded, and a stricter attempt (three single lines
+placed after existing choices) was run; its result is recorded below. The decision flags were already
+acknowledged; `trust_mara` is read only by the ending gate and needs an interim read.
+
