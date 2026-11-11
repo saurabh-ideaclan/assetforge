@@ -438,6 +438,7 @@ def _clarity_gate(worker: Ctx, planned: PlannedScene, number: int, flags: set[st
     if report.verdict != "revise":
         return fixes
     before = worker.project.load_scene(planned.id)
+    before_report = clarity.report_path(worker.project, planned.id).read_text()
     try:
         clarity.revise(worker, planned.id, report, **revise_kw)
     except Exception as exc:  # noqa: BLE001
@@ -451,6 +452,7 @@ def _clarity_gate(worker: Ctx, planned: PlannedScene, number: int, flags: set[st
     kept = lint_after["ok"] and (again is None or len(clarity.problems(again)) <= len(clarity.problems(report)))
     if not kept and before is not None:
         worker.project.save_scene(before)
+        clarity.report_path(worker.project, planned.id).write_text(before_report)  # the stored report matches the kept text
         fixes.append("clarity revision discarded (it lint-failed or read no better)")
     else:
         fixes.append(f"clarity revision kept ({len(clarity.problems(report))} → {len(clarity.problems(again)) if again else '?'} points)")
