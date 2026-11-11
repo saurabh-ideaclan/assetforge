@@ -47,7 +47,7 @@ TASK_KINDS: dict[str, str] = {
     "audio": "Audio direction (soundscape per chapter)",
 }
 # which task kinds benefit from the strongest model when Fable chooses
-HEAVY_KINDS = frozenset({"premise", "outline", "character", "review", "evaluation", "alternatives", "audio"})
+HEAVY_KINDS = frozenset({"premise", "outline", "character", "review", "evaluation", "alternatives", "audio", "dynamics"})
 LIGHT_KINDS = frozenset({"research", "brainstorm"})
 
 

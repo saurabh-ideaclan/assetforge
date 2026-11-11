@@ -563,3 +563,19 @@ a.tile.link:hover { border-color: var(--accent); }
 .lab-fig figcaption { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .lab-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; margin-top: 4px; }
 .lab-key i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+
+/* dynamics */
+.dyn-chart { width: 100%; height: auto; max-height: 340px; background: var(--surface-1, var(--surface-0)); border: 1px solid var(--border); border-radius: 10px; }
+.dyn-chart .grid { stroke: var(--border); stroke-width: 1; }
+.dyn-chart .tick, .branch-map .tick { fill: var(--text-muted); font-size: 11px; }
+.dyn-legend { display: flex; flex-wrap: wrap; gap: 10px; margin: 6px 0 12px; font-size: 13px; align-items: center; }
+.dyn-key i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.branch-scroll { overflow-x: auto; padding-bottom: 6px; }
+.branch-map { display: block; background: var(--surface-1, var(--surface-0)); border: 1px solid var(--border); border-radius: 10px; }
+.branch-map .node { fill: var(--muted-bg); stroke: var(--border); stroke-width: 1.2; }
+.branch-map .node.decision { stroke: #4f46e5; stroke-width: 2; }
+.branch-map .node.conv { stroke: #b54708; stroke-width: 2; stroke-dasharray: 3 2; }
+.branch-map .node.end { fill: var(--accent-soft); }
+.branch-map .node-title { fill: var(--text-primary); font-size: 11px; font-weight: 600; }
+.branch-map .node-sub { fill: var(--text-muted); font-size: 9px; }
+ul.findings li.warning b { color: #b54708; } ul.findings li.note b { color: var(--text-muted); } ul.findings li.error b { color: #b42318; }

@@ -1,6 +1,6 @@
 # 22. Power Fantasy pilot: story concept (revised after review; for the owner's approval)
 
-Title: **Null** (subtitle *The Weight He Carries*; the earlier working title). Names are global and invented, none tied to a real country (the owner's note of 2026-11-11: no Korean names for a global audience). Status: concept v2, canon
+Title: **Everyone Owes Me** (the owner found *Null* and *The Weight He Carries* flat; a power-fantasy title promises the reversal: the boy rated worthless is the one the whole city is in debt to). Names are global and invented, none tied to a real country (the owner's note of 2026-11-11: no Korean names for a global audience). Status: concept v2, canon
 only once approved. Genre: power fantasy / progression / awakening, family drama, conspiracy. Global readers,
 simple natural English, manhwa-inspired art. Phase 4 of the brief. The independent review is
 [reviews/opus-review-power-fantasy-concept.md](reviews/opus-review-power-fantasy-concept.md); §11 lists what it
@@ -205,7 +205,7 @@ re-measurement day. Echoes are never drawn as figures.
 
 ## 10. What the owner decides now
 
-1. The title *Null* and the names (Eli, Mara, Tomas, Idris, Noor, Cato, Selene, Pike, Oren, Penny): global, invented, none tied to a country.
+1. The title *Everyone Owes Me* and the names (Eli, Mara, Tomas, Idris, Noor, Cato, Selene, Pike, Oren, Penny): global, invented, none tied to a country.
 2. The power system as written (Bearing → letting go → Calling, with Weight as both claim and load).
 3. The father's shape: assessor, the bribe, the money, the Null reading that protected them both.
 4. Twelve chapters with Calling at 7, or a shorter season.
@@ -223,3 +223,26 @@ all at once is Foreclosure. The memory cost is a choice among planted memories t
 Null reading protected himself too; Mara knew the money was wrong and kept the shop, and her no has a visible
 price. Calling moves to chapter 7 with a Bearing upgrade at 4–5. Stats cut to six plus per-faction knowledge.
 Chapters have two or three places, not one.
+
+## 12. The outline (ChatGPT, 2026-11-11) and the director's review
+
+ChatGPT (gpt-6.1-sol through the Codex CLI) planned the season from the canon above: sixteen scenes over ten
+chapters, branching at chapters 3, 5, 7 and 9 (each pair converging on the next chapter), three endings, sixteen
+variables (three trusts, two personality axes, `weight` as a 0–6 resource with explicit arithmetic in every chapter,
+ten decision flags). It is faithful to the concept and tighter: "The Bank" and "Collectors" are folded into
+chapters 7–9. What the director changed or flagged before the owner's architecture gate:
+
+1. **The earned ending's gate** required seven conditions (five flags from different chapters, a trust level and
+   a weight ceiling): most committed readers would be shut out of the "true" ending, which reads as punishment.
+   Changed to four (`release_authorized`, `birth_account_known`, `kept_call_record`, `trust_mara ≥ 3`); the
+   dropped flags now decide who testifies and who stands beside Eli, not whether the return is possible.
+2. **Tension plateau.** The dynamics rating puts tension at 9–10 from chapter 3 through chapter 9. The season
+   needs a release chapter: chapter 4 (Crew) should play as the quiet win it is, tension 5–6, so chapter 5 can
+   rise. To fix at the outline (owner's call).
+3. **Capability stays low.** The rating keeps Eli at capability 4–5 to the end while status reaches 6–7: honest
+   about costs, light on power fantasy. Recommendation: chapter 7 (Calling) should be the capability leap (7, with
+   public awe) and chapter 9 the recognition; the cost rules stay. To fix at the outline (owner's call).
+4. **Ten chapters, not twelve.** Acceptable; the pilot is unaffected. The season can grow a chapter between 9 and
+   10 later if the plateau fix needs room.
+5. **Every chapter's default mood is `silence`** except chapter 7. The audio direction step adds cues per chapter
+   with the restraint rules, so this is fine as a default and matches the owner's priority.

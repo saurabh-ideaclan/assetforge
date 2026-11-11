@@ -1,7 +1,7 @@
 // Stories: write branching visual novels with your own AI subscription (Claude, ChatGPT/Codex, Gemini), watch them
 // being written, read and play every chapter as soon as it exists, improve them from feedback, make their art.
 // Progress comes from the story's files and the library's jobs, so work started from the CLI or by agents shows too.
-import { api, h, errorBox, toast, segmented, field, fmt, copy, thumbUrl, playVariant } from "/static/lib.js";
+import { api, h, errorBox, toast, segmented, field, fmt, copy, thumbUrl, playVariant, section } from "/static/lib.js";
 import { directionForm, loadDirectionOptions } from "/static/views/direction.js";
 import { workflowTab } from "/static/views/workflow.js";
 import { charactersTab } from "/static/views/characters.js";
@@ -325,7 +325,7 @@ async function detail(root, sid, tab, chapterParam) {
             h("b", data.workflow.activity.title), h("span.help", ` · ${data.workflow.activity.detail}`),
             data.workflow.needs_you.length ? h("a.tag.warn", { href: `#/story/${sid}?tab=workflow` }, `${data.workflow.needs_you.length} waiting for you`) : null) : null),
         h("div.story-head-action", primaryAction())),
-      h("div.tabs-row", segmented([["workflow", "Workflow"], ["characters", "Characters"], ["chapters", "Chapters"], ["play", "▶ Play"], ["assets", "Assets"], ["improve", "Improve"], ["settings", "Settings"]], tab,
+      h("div.tabs-row", segmented([["workflow", "Workflow"], ["characters", "Characters"], ["dynamics", "Dynamics"], ["chapters", "Chapters"], ["play", "▶ Play"], ["assets", "Assets"], ["improve", "Improve"], ["settings", "Settings"]], tab,
         (v) => (location.hash = `#/story/${sid}?tab=${v}`))));
   }
 
@@ -371,7 +371,7 @@ async function detail(root, sid, tab, chapterParam) {
     const scroll = body.querySelector(".reader")?.scrollTop;
     body.innerHTML = "";
     const views = { workflow: (r, d, s, f) => workflowTab(r, d, s, f, refresh), characters: (r, d, s, f) => charactersTab(r, d, s, f, refresh),
-                    chapters: chaptersTab, play: playTab, improve: improveTab, assets: storyAssetsTab, settings: settingsTab };
+                    chapters: chaptersTab, play: playTab, improve: improveTab, assets: storyAssetsTab, settings: settingsTab, dynamics: dynamicsTab };
     (views[tab] || workflowTab)(body, data, sid, run, { selected, select: (id) => { selected = id; history.replaceState(null, "", `#/story/${sid}?tab=chapters&chapter=${id}`); renderBody(); } });
     if (scroll) body.querySelector(".reader") && (body.querySelector(".reader").scrollTop = scroll);
   }
@@ -767,4 +767,107 @@ function renderStoryAssets(box, a, data, sid, run) {
       h("details.section.sa-make", h("summary", h("span", "Make missing art & sound"), h("span.muted", "estimate first; images use your image API key")), (() => { const d = h("div"); assetsTab(d, data, sid, run); return d; })()));
   }
   draw();
+}
+
+// ---------------------------------------------------------------------- dynamics: planned curves vs the written text, and the branching map
+
+const TRACK_COLORS = { valence: "#4f46e5", tension: "#b42318", suspense: "#b54708", capability: "#027a48", status: "#0b6bcb", family_conflict: "#7a5af8" };
+
+function lineChart(tracks, planned, measured, chapters, help) {
+  // one SVG: x = chapter, y = value; planned solid, measured dashed; the valence track is drawn on its own -5..5 band
+  const W = 720, H = 300, L = 44, R = 16, T = 18, B = 44;
+  const n = Math.max(1, chapters.length - 1);
+  const x = (i) => L + (i * (W - L - R)) / n;
+  const yv = (v, lo, hi) => T + ((hi - v) * (H - T - B)) / (hi - lo);
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("class", "dyn-chart");
+  const el = (tag, attrs, text) => { const e = document.createElementNS(svgNS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); if (text != null) e.textContent = text; return e; };
+  for (let g = 0; g <= 10; g += 2) { svg.append(el("line", { x1: L, x2: W - R, y1: yv(g, 0, 10), y2: yv(g, 0, 10), class: "grid" })); svg.append(el("text", { x: L - 6, y: yv(g, 0, 10) + 4, class: "tick", "text-anchor": "end" }, String(g))); }
+  chapters.forEach((c, i) => svg.append(el("text", { x: x(i), y: H - B + 16, class: "tick", "text-anchor": "middle" }, c.id.length > 9 ? c.id.slice(0, 8) + "…" : c.id)));
+  const pointsFor = (src, track) => chapters.map((c, i) => { const p = src[c.id]; return p ? [x(i), track === "valence" ? yv(p[track], -5, 5) : yv(p[track], 0, 10)] : null; });
+  for (const t of tracks) {
+    const color = TRACK_COLORS[t] || "#888";
+    const draw = (src, dashed) => {
+      const pts = pointsFor(src, t);
+      let d = "", pen = false;
+      pts.forEach((pt) => { if (!pt) { pen = false; return; } d += (pen ? " L " : " M ") + pt[0].toFixed(1) + " " + pt[1].toFixed(1); pen = true; });
+      if (d) svg.append(el("path", { d, fill: "none", stroke: color, "stroke-width": dashed ? 1.5 : 2.2, "stroke-dasharray": dashed ? "5 4" : "", opacity: dashed ? 0.9 : 1 }));
+      pts.forEach((pt, i) => { if (!pt) return; const dot = el("circle", { cx: pt[0], cy: pt[1], r: dashed ? 2.5 : 3.5, fill: color, opacity: dashed ? 0.8 : 1 });
+        dot.append(el("title", {}, `${t} ${dashed ? "(text estimate)" : "(planned)"} · ${chapters[i].title}: ${src[chapters[i].id][t]}`)); svg.append(dot); });
+    };
+    draw(planned, false);
+    if (Object.keys(measured).length) draw(measured, true);
+  }
+  const legend = h("div.dyn-legend", ...tracks.map((t) => h("span.dyn-key", { title: help[t] || t }, h("i", { style: `background:${TRACK_COLORS[t]}` }), t.replace("_", " "))),
+    h("span.help", " · solid: planned · dashed: estimated from the written text · valence on its own −5…+5 band"));
+  return h("div", svg, legend);
+}
+
+function branchingMap(graph) {
+  // columns = chapters in reading order; a node per scene; edges drawn as curves; decisions and convergence marked
+  if (!graph) return h("p.help", "No outline yet.");
+  // columns: declared chapters, else the reading-order number (branches of one chapter share a column)
+  let cols = graph.chapters;
+  if (!cols.length || cols.length === graph.nodes.length) {
+    const byNum = new Map();
+    for (const n of graph.nodes) { const k = n.number ?? 99; if (!byNum.has(k)) byNum.set(k, { id: `ch${k}`, title: n.title.replace(/^\d+\.\s*/, ""), scenes: [] }); byNum.get(k).scenes.push(n.id); }
+    cols = [...byNum.entries()].sort((a, b) => a[0] - b[0]).map(([, c]) => c);
+  }
+  const colOf = {}; cols.forEach((c, i) => c.scenes.forEach((sid) => { colOf[sid] = i; }));
+  const rows = {}; const rowOf = {};
+  for (const n of graph.nodes) { const c = colOf[n.id] ?? cols.length; rows[c] = rows[c] || []; rowOf[n.id] = rows[c].length; rows[c].push(n.id); }
+  const CW = 150, RH = 64, L = 20, T = 40, W = L * 2 + CW * Math.max(cols.length, 1), H = T + RH * Math.max(1, ...Object.values(rows).map((r) => r.length)) + 20;
+  const svgNS = "http://www.w3.org/2000/svg";
+  const el = (tag, attrs, text) => { const e = document.createElementNS(svgNS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); if (text != null) e.textContent = text; return e; };
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: "branch-map" });
+  const pos = (sid) => ({ x: L + (colOf[sid] ?? cols.length) * CW + 8, y: T + (rowOf[sid] || 0) * RH });
+  cols.forEach((c, i) => svg.append(el("text", { x: L + i * CW + 8, y: 18, class: "tick" }, `${i + 1}. ${c.title}`.slice(0, 22))));
+  const conv = new Set(graph.convergence);
+  for (const e of graph.edges) {
+    const a = pos(e.from), b = pos(e.to); if (!a || !b || colOf[e.to] == null) continue;
+    const x1 = a.x + 128, y1 = a.y + 18, x2 = b.x, y2 = b.y + 18, mx = (x1 + x2) / 2;
+    const path = el("path", { d: `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`, fill: "none", stroke: e.kind === "choice" ? "#4f46e5" : e.kind === "branch" ? "#b54708" : "#8a8a90", "stroke-width": 1.4, "stroke-dasharray": e.kind === "branch" ? "4 3" : "" });
+    path.append(el("title", {}, `${e.kind}${e.label ? ": " + e.label : ""}${e.sets?.length ? " · sets " + e.sets.join(", ") : ""}`));
+    svg.append(path);
+  }
+  for (const n of graph.nodes) {
+    const p = pos(n.id); const g = el("g", { transform: `translate(${p.x},${p.y})` });
+    const decision = graph.decisions.some((d) => d.scene === n.id);
+    g.append(el("rect", { width: 128, height: 36, rx: 8, class: `node${n.ending ? " end" : ""}${decision ? " decision" : ""}${conv.has(n.id) ? " conv" : ""}` }));
+    g.append(el("text", { x: 8, y: 16, class: "node-title" }, n.title.length > 18 ? n.title.slice(0, 17) + "…" : n.title));
+    g.append(el("text", { x: 8, y: 29, class: "node-sub" }, [decision ? "decision" : "", conv.has(n.id) ? "convergence" : "", n.ending ? "ending" : ""].filter(Boolean).join(" · ") || n.location));
+    g.append(el("title", {}, `${n.title}\n${n.hook ? "Hook: " + n.hook : ""}${n.callback ? "\nCallback: " + n.callback : ""}`));
+    svg.append(g);
+  }
+  const legend = h("div.help", "Solid: the next scene or a choice (blue); dashed orange: a gated branch (stats decide). Outlined nodes are decisions; double-ringed ones are convergence points. Hover for the option text and what it sets.");
+  const decisions = h("ul", ...graph.decisions.map((d) => h("li", h("b", d.title), ": ", d.options.map((o) => `${o.text} → ${o.goto}`).join(" | "))));
+  const endings = h("ul", ...graph.endings.map((e) => h("li", h("b", e.title), ` (${e.kind})`, e.requires.length ? h("span.help", ` · needs ${e.requires.join(" and ")}`) : h("span.help", " · open"))));
+  return h("div", h("div.branch-scroll", svg), legend, section("Major decisions", decisions, { open: true }), section("Endings and what earns them", endings), section("Variables", h("ul", ...graph.variables.map((v) => h("li", h("code", v.name), ` ${v.kind || ""} · ${v.meaning}`)))));
+}
+
+async function dynamicsTab(root, data, sid, run) {
+  const box = h("div"); root.append(box);
+  let d;
+  try { d = await api(`/api/stories/${sid}/dynamics`); } catch (err) { box.append(errorBox(err)); return; }
+  const chapters = d.chapters || [];
+  const planned = {}; (d.planned?.points || []).forEach((p) => { planned[p.chapter] = p; });
+  const measured = d.measured || {};
+  const findings = (d.reviewed?.findings || []).map((f) => h("li", { class: f.level }, h("b", f.code.replace(/_/g, " ")), ": ", f.message, f.chapters?.length ? h("span.help", ` · ${f.chapters.join(", ")}`) : null));
+  const busy = data.task?.state === "running";
+  const controls = h("div.row.wrap",
+    h("button.btn.primary", { type: "button", disabled: busy || !data.progress.steps.outline, onclick: () => run({ action: "dynamics_plan", fresh: !!d.planned }) }, d.planned ? "Rate the plan again" : "Rate the plan"),
+    ...chapters.filter((c) => c.written).map((c) => h("button.btn", { type: "button", disabled: busy, onclick: () => run({ action: "dynamics_estimate", chapter: c.id, fresh: !!measured[c.id] }) }, `Estimate ${c.id}`)),
+    h("span.help", d.reviewed?.method || "Ratings come from the writer; estimates from the written text are a model's reading, not a measurement."));
+  box.append(
+    h("h2", "Narrative dynamics"),
+    h("p.help", "Six tracks per chapter. For a power fantasy the engine is the gap between capability (what he can do) and status (how the world rates him): it should open early and close late, in public."),
+    controls,
+    d.planned ? lineChart(d.tracks, planned, measured, chapters, d.help) : h("p.help", "Not rated yet. Rate the plan once the outline exists."),
+    d.planned?.rationale ? h("p.help", d.planned.rationale) : null,
+    findings.length ? section("Findings", h("ul.findings", ...findings), { open: true }) : (d.planned ? h("p.ok", "No shape problems found in the plan.") : null),
+    d.planned ? section("Milestones by chapter", h("ul", ...(d.planned.points || []).map((p) => h("li", h("b", p.title || p.chapter), ": ",
+      p.milestones.length ? p.milestones.map((m) => `${m.kind}: ${m.text}`).join(" · ") : h("span.help", "none"), p.note ? h("div.help", p.note) : null))), { open: false }) : null,
+    h("h2", "Branching"),
+    branchingMap(d.graph));
 }

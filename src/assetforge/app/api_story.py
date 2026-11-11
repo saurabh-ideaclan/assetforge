@@ -29,7 +29,7 @@ from assetforge.story.models import StoryConfig
 from assetforge.story.project import StoryProject, register, registered
 
 ACTIONS = ("write", "improve", "check", "assets_plan", "assets", "export", "refine", "character", "alternatives", "concepts",
-           "audio_plan", "audio_make")  # fmt: skip
+           "audio_plan", "audio_make", "dynamics_plan", "dynamics_estimate")  # fmt: skip
 _tasks: dict[str, dict[str, Any]] = {}
 _busy: dict[str, str] = {}  # story id → running task id
 _lock = threading.Lock()
@@ -251,6 +251,13 @@ def register_routes(router: Router) -> None:  # noqa: C901 - one place for all s
         else:
             raise InvalidInputError("action must be mode, approve, changes or reopen")
         return workflow.status(lib, project, progress(lib, project))
+
+    @router.route("GET", r"/api/stories/(?P<sid>[a-z0-9-]+)/dynamics")
+    def story_dynamics(req: Request, lib: Library) -> dict[str, Any]:
+        from assetforge.story import dynamics
+
+        sid, project = _story(lib, req.match["sid"])
+        return dynamics.view(project)
 
     @router.route("GET", r"/api/stories/(?P<sid>[a-z0-9-]+)/characters")
     def story_characters(req: Request, lib: Library) -> dict[str, Any]:
@@ -577,6 +584,17 @@ def _run_action(lib: Library, project: StoryProject, ctx: steps.Ctx, body: dict[
         if result.get("assembled"):
             result["export"] = export_story(lib, project, project.root / "build")
         return result
+    if action == "dynamics_plan":
+        from assetforge.story import dynamics
+
+        return {"dynamics": dynamics.plan(ctx, fresh=bool(body.get("fresh"))).model_dump(mode="json")}
+    if action == "dynamics_estimate":
+        from assetforge.story import dynamics
+
+        chapter = str(body.get("chapter", ""))
+        if not chapter:
+            raise InvalidInputError("Which chapter? Pass `chapter`")
+        return {"dynamics": dynamics.estimate(ctx, chapter, fresh=bool(body.get("fresh"))).model_dump(mode="json")}
     if action == "character":
         proposal = characters.revise(ctx, str(body.get("character", "")), str(body.get("request", "")))
         return {"character": body.get("character"), "proposal": proposal.model_dump(mode="json")}

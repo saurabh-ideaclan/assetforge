@@ -610,7 +610,17 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   are manual: `codex-cli` (ChatGPT subscription, first listed model that works, `gpt-6.1-sol` today) → `claude-cli sonnet`
   → `gemini-cli`; paid APIs `confirm`. Prompts were tuned on Sonnet (part sizes ask for 140 %); re-tune on GPT output
   when the pilot's chapters are written. Names: global and invented, never tied to one country (`naming: custom`).
-- Power Fantasy pilot *Null* (was "The Weight He Carries"; slug unchanged): concept `docs/narrative/22-power-fantasy-concept.md` (Opus review applied), research `20`,
+- **Narrative Dynamics + branching** (`story/dynamics.py`, `dynamics.json`, kept out of `project.FILES` to avoid a circular
+  import): six tracks per chapter (valence −5…5; tension, suspense, capability, status, family_conflict 0–10) and
+  milestones. `plan(ctx)` is a writer call over the outline (task `dynamics.plan`, kind `dynamics` in `HEAVY_KINDS`);
+  `estimate(ctx, chapter)` rates a written chapter from its lines (an estimate, labelled so); `review` applies the
+  genre's shape rules (flat_tension, tension_plateau, status_ahead_of_capability, no_recognition, constant_victory,
+  constant_suffering, deviations ≥ 3) and `graph(outline, scenes)` lays out the branching (nodes by chapter, edges
+  choice|branch|next with what the written options set, decisions, convergence, endings and gates). App: `GET
+  /api/stories/{id}/dynamics`, run actions `dynamics_plan` / `dynamics_estimate` (chapter); the story page's
+  Dynamics tab (`dynamicsTab` in `views/story.js`: SVG line chart planned solid / estimated dashed, findings,
+  milestones, the branching map with hover details). Tests: `tests/test_story_dynamics.py`.
+- Power Fantasy pilot *Everyone Owes Me* (earlier titles Null, The Weight He Carries; slug unchanged): concept `docs/narrative/22-power-fantasy-concept.md` (Opus review applied), research `20`,
   preset `story/direction_presets/weight-power-fantasy.yaml`, story `~/.assetforge/stories/the-weight-he-carries`
   (guided mode). Narrative Dynamics and a branching view are planned for Phase 6, after the owner approves the cast.
 
