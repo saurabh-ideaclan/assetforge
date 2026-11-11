@@ -606,7 +606,11 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   `MusicDirection` defaults 96 s / warmth 0.45. `sound.clean` drops `crowd_murmur` unless the script puts people at
   the place; `request._without_voices` measures every story ambience render and re-renders with the bed muted when
   voice-like content is found in a voiceless brief (`generated.voice_check`). Audit: `docs/narrative/21`.
-- Power Fantasy pilot: concept `docs/narrative/22-power-fantasy-concept.md` (Opus review applied), research `20`,
+- **Text writer: ChatGPT first** (owner, 2026-11-11). The library plan `~/.assetforge/ai.json` and the pilot's `StoryConfig.ai`
+  are manual: `codex-cli` (ChatGPT subscription, first listed model that works, `gpt-6.1-sol` today) → `claude-cli sonnet`
+  → `gemini-cli`; paid APIs `confirm`. Prompts were tuned on Sonnet (part sizes ask for 140 %); re-tune on GPT output
+  when the pilot's chapters are written. Names: global and invented, never tied to one country (`naming: custom`).
+- Power Fantasy pilot *Null* (was "The Weight He Carries"; slug unchanged): concept `docs/narrative/22-power-fantasy-concept.md` (Opus review applied), research `20`,
   preset `story/direction_presets/weight-power-fantasy.yaml`, story `~/.assetforge/stories/the-weight-he-carries`
   (guided mode). Narrative Dynamics and a branching view are planned for Phase 6, after the owner approves the cast.
 
