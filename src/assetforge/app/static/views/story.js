@@ -320,7 +320,7 @@ async function detail(root, sid, tab, chapterParam) {
       h("div.story-head",
         cover({ title: c.title, cover: (data.progress && data.cover) || null }, ".lg"),
         h("div.story-head-text", h("h1", c.title), h("div.sub", data.world?.logline || c.premise),
-          h("div.help", [c.genre, c.audience, c.art_style, `${c.provider || "Fable-managed writer"}${c.model ? " · " + c.model : ""}`].filter(Boolean).join(" · ")),
+          h("div.help", [c.genre, c.audience, c.art_style, `${c.provider || (c.ai?.steps?.[0]?.provider ? "writer: " + c.ai.steps[0].provider + (c.ai.steps[0].model ? " " + c.ai.steps[0].model : "") : "Fable-managed writer")}${c.model ? " · " + c.model : ""}`].filter(Boolean).join(" · ")),
           data.workflow ? h("div.story-activity", h("span.act-dot", { class: data.workflow.activity.title.startsWith("Working") ? "on" : data.workflow.needs_you.length ? "wait" : "" }),
             h("b", data.workflow.activity.title), h("span.help", ` · ${data.workflow.activity.detail}`),
             data.workflow.needs_you.length ? h("a.tag.warn", { href: `#/story/${sid}?tab=workflow` }, `${data.workflow.needs_you.length} waiting for you`) : null) : null),
@@ -542,6 +542,7 @@ function worldCard(data) {
 
 function improveTab(root, data, sid, run) {
   if (!data.scenes) { root.append(h("div.empty.small", "Write the story first.")); return; }
+  evaluationCard(root, data, sid, run);
   const fb = h("textarea", { placeholder: "e.g. Tomas should matter more in the middle; the ending feels rushed; add a lighter, funny moment at the market." });
   const useCheck = h("input", { type: "checkbox", checked: !!data.check?.issues?.length });
   const scenesSel = h("select", { multiple: true, size: Math.min(6, data.scenes.length), "aria-label": "Limit to scenes" },
@@ -870,4 +871,34 @@ async function dynamicsTab(root, data, sid, run) {
       p.milestones.length ? p.milestones.map((m) => `${m.kind}: ${m.text}`).join(" · ") : h("span.help", "none"), p.note ? h("div.help", p.note) : null))), { open: false }) : null,
     h("h2", "Branching"),
     branchingMap(d.graph));
+}
+
+
+// ---------------------------------------------------------------------- editorial evaluation (the fifteen questions, with evidence)
+
+async function evaluationCard(root, data, sid, run) {
+  const box = h("div.card"); root.append(box);
+  let ev;
+  try { ev = await api(`/api/stories/${sid}/evaluation`); } catch (err) { box.append(errorBox(err)); return; }
+  const busy = data.task?.state === "running";
+  const pickerBox = h("div"); let picker = null;
+  loadAI().then((info) => { picker = modelSelect(info.providers, { provider: "claude-cli", model: "opus" }); pickerBox.replaceChildren(field("Evaluator", picker, "A different model from the writer keeps the review independent (Opus when signed in).")); }).catch(() => {});
+  const controls = h("div.row.wrap",
+    h("button.btn.primary", { type: "button", disabled: busy, onclick: () => run({ action: "evaluate", fresh: !!ev.evaluation, ...(picker ? pickerValue(picker) : {}) }) }, ev.evaluation ? "Evaluate again" : "Evaluate the written chapters"),
+    ev.feedback ? h("button.btn", { type: "button", disabled: busy, onclick: () => run({ action: "improve", feedback: ev.feedback, scenes: ev.evaluation.scenes }) }, "Apply its changes with Improve") : null,
+    pickerBox);
+  const q = Object.fromEntries(ev.questions.map((x) => [x.id, x.text]));
+  const rows = ev.evaluation ? ev.evaluation.answers.map((a) => h("div.eval-row", { class: a.verdict },
+    h("div.eval-q", h("span.tag", { class: a.verdict }, a.verdict), " ", q[a.id] || a.id),
+    a.evidence ? h("div.help", "Evidence: ", a.evidence) : null,
+    a.problem ? h("div.help", "Problem: ", a.problem) : null,
+    a.change ? h("div.help", h("b", "Change: "), a.change) : null)) : [];
+  const s = ev.summary;
+  box.append(h("h2", "Editorial evaluation"),
+    h("p.help", "The owner's fifteen questions, answered with evidence from the written chapters. One editor's reading, labelled as such; the playtest is the test."),
+    controls,
+    s ? h("p", h("b", `${s.counts.yes} yes · ${s.counts.partly} partly · ${s.counts.no} no`), s.evaluator?.provider ? h("span.help", ` · evaluated by ${s.evaluator.provider}${s.evaluator.model ? " " + s.evaluator.model : ""}`) : null) : null,
+    s?.strongest ? h("p", h("b", "Strongest: "), s.strongest) : null,
+    s?.weakest ? h("p", h("b", "Weakest: "), s.weakest) : null,
+    rows.length ? section("All fifteen answers", h("div.eval-rows", ...rows), { open: true }) : null);
 }

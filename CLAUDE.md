@@ -620,6 +620,11 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   /api/stories/{id}/dynamics`, run actions `dynamics_plan` / `dynamics_estimate` (chapter); the story page's
   Dynamics tab (`dynamicsTab` in `views/story.js`: SVG line chart planned solid / estimated dashed, findings,
   milestones, the branching map with hover details). Tests: `tests/test_story_dynamics.py`.
+- **Editorial evaluation** (`story/evaluate.py`, `evaluation.json`): the owner's fifteen questions (`QUESTIONS`) answered
+  yes|partly|no with scene evidence and a targeted change per miss; task `evaluation` (kind in `HEAVY_KINDS`); run it on a
+  different model from the writer (the Improve tab's card defaults to claude-cli opus). `summary()` counts and lists the
+  changes; `as_feedback()` turns them into an `improve` note ("Apply its changes with Improve"). Routes: `GET
+  /api/stories/{id}/evaluation`, run action `evaluate` (scenes, fresh, provider/model). Tests: `tests/test_story_evaluate.py`.
 - Power Fantasy pilot *Everyone Owes Me* (earlier titles Null, The Weight He Carries; slug unchanged): concept `docs/narrative/22-power-fantasy-concept.md` (Opus review applied), research `20`,
   preset `story/direction_presets/weight-power-fantasy.yaml`, story `~/.assetforge/stories/the-weight-he-carries`
   (guided mode). Narrative Dynamics and a branching view are planned for Phase 6, after the owner approves the cast.

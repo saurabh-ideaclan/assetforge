@@ -579,3 +579,10 @@ a.tile.link:hover { border-color: var(--accent); }
 .branch-map .node-title { fill: var(--text-primary); font-size: 11px; font-weight: 600; }
 .branch-map .node-sub { fill: var(--text-muted); font-size: 9px; }
 ul.findings li.warning b { color: #b54708; } ul.findings li.note b { color: var(--text-muted); } ul.findings li.error b { color: #b42318; }
+
+/* editorial evaluation */
+.eval-rows { display: flex; flex-direction: column; gap: 8px; }
+.eval-row { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; }
+.eval-row.no { border-color: #b42318; } .eval-row.partly { border-color: #b54708; }
+.eval-q { font-weight: 600; }
+.tag.yes { color: #027a48; } .tag.partly { color: #b54708; } .tag.no { color: #b42318; }

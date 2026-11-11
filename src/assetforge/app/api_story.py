@@ -29,7 +29,7 @@ from assetforge.story.models import StoryConfig
 from assetforge.story.project import StoryProject, register, registered
 
 ACTIONS = ("write", "improve", "check", "assets_plan", "assets", "export", "refine", "character", "alternatives", "concepts",
-           "audio_plan", "audio_make", "dynamics_plan", "dynamics_estimate")  # fmt: skip
+           "audio_plan", "audio_make", "dynamics_plan", "dynamics_estimate", "evaluate")  # fmt: skip
 _tasks: dict[str, dict[str, Any]] = {}
 _busy: dict[str, str] = {}  # story id → running task id
 _lock = threading.Lock()
@@ -251,6 +251,15 @@ def register_routes(router: Router) -> None:  # noqa: C901 - one place for all s
         else:
             raise InvalidInputError("action must be mode, approve, changes or reopen")
         return workflow.status(lib, project, progress(lib, project))
+
+    @router.route("GET", r"/api/stories/(?P<sid>[a-z0-9-]+)/evaluation")
+    def story_evaluation(req: Request, lib: Library) -> dict[str, Any]:
+        from assetforge.story import evaluate
+
+        sid, project = _story(lib, req.match["sid"])
+        data = evaluate.load(project)
+        return {"evaluation": data.model_dump(mode="json") if data else None, "summary": evaluate.summary(data) if data else None,
+                "questions": [{"id": q, "text": t} for q, t in evaluate.QUESTIONS], "feedback": evaluate.as_feedback(data) if data else ""}  # fmt: skip
 
     @router.route("GET", r"/api/stories/(?P<sid>[a-z0-9-]+)/dynamics")
     def story_dynamics(req: Request, lib: Library) -> dict[str, Any]:
@@ -584,6 +593,11 @@ def _run_action(lib: Library, project: StoryProject, ctx: steps.Ctx, body: dict[
         if result.get("assembled"):
             result["export"] = export_story(lib, project, project.root / "build")
         return result
+    if action == "evaluate":
+        from assetforge.story import evaluate
+
+        scenes = [str(x) for x in (body.get("scenes") or [])]
+        return {"evaluation": evaluate.evaluate(ctx, scenes or None, fresh=bool(body.get("fresh"))).model_dump(mode="json")}
     if action == "dynamics_plan":
         from assetforge.story import dynamics
 
