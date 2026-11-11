@@ -95,3 +95,14 @@ label is made. Where face changes alone suffice: the shop reveal. Where body lan
 (retargeting needs them); a reuse that points at a sprite not yet made now briefs that sprite with the
 performance's direction, so "surprised" is made contained rather than from the generic label.
 
+## Addendum, later on 2026-11-11: the first generated performances
+
+The owner asked to see posture applied. Eli's analysis was run again with line numbers (the acting view now
+numbers every row, options and reactions included, and `view_rows` maps a reviewer's numbers back to nodes;
+when a range holds no line of the character, approval inserts a `show` of the performance at its start). Its
+recommendations were approved and three sprites generated from the master at high quality, about $0.30:
+`surprised` as contained surprise (kneeling, eyes on his own cold hand, mouth barely parted: the Seam ending of
+chapter 1), `bearing_the_toll` (feet set wide, bowed into a two-handed grip on a wrist: every carry in chapters 2
+and 3) and `never_really_ours_what_h` (shoulders dropped, the phone cupped in numb fingers, the face emptied: the
+shop reveal on the hidden route). Identity, outfit and proportions held. The scenes now reference them where the
+analysis placed them. Cato's smirk, which had come back with a painted magenta panel, was remade and keyed clean.

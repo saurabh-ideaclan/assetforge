@@ -207,26 +207,46 @@ def acting_view(scene: Scene, cid: str, names: dict[str, str]) -> str:
     `Eli (worried): …` on their lines. Everything else as the reader sees it."""
     who = lambda c: names.get(c, c.replace("_", " ").title()) if c else ""  # noqa: E731
     out: list[str] = []
+
+    def add(text: str, indent: str = "") -> None:
+        out.append(f"{indent}{len(out) + 1}. {text}")
+
     for n in scene.nodes:
         if n.kind == "show" and n.character == cid:
-            out.append(f"{len(out) + 1}. [{who(cid)} appears: {n.expression or 'neutral'}]")
+            add(f"[{who(cid)} appears: {n.expression or 'neutral'}]")
         elif n.kind == "hide" and n.character == cid:
-            out.append(f"{len(out) + 1}. [{who(cid)} leaves]")
+            add(f"[{who(cid)} leaves]")
         elif n.kind == "narrate":
-            out.append(f"{len(out) + 1}. {n.text or ''}")
+            add(n.text or "")
         elif n.kind == "say":
             tag = f" ({n.expression or 'neutral'})" if n.speaker == cid else ""
-            out.append(f"{len(out) + 1}. {who(n.speaker)}{tag}: {n.text or ''}")
+            add(f"{who(n.speaker)}{tag}: {n.text or ''}")
         elif n.kind == "place":
-            out.append(f"{len(out) + 1}. — {(n.location or '').replace('_', ' ')}{', ' + n.time if n.time else ''} — {n.text or ''}")
+            add(f"— {(n.location or '').replace('_', ' ')}{', ' + n.time if n.time else ''} — {n.text or ''}")
         elif n.kind == "choice":
-            out.append(f"{len(out) + 1}. [CHOICE]")
+            add("[CHOICE]")
             for i, c in enumerate(n.choices, 1):
-                out.append(f"    ({i}) {c.text}")
+                add(f"({i}) {c.text}", "    ")
                 for ln in c.reaction:
                     tag = f" ({ln.expression or 'neutral'})" if ln.speaker == cid else ""
-                    out.append(f"        {(who(ln.speaker) + tag + ': ') if ln.speaker else ''}{ln.text}")
+                    add(f"{(who(ln.speaker) + tag + ': ') if ln.speaker else ''}{ln.text}", "        ")
     return "\n".join(out)
+
+
+def view_rows(scene: Scene, cid: str) -> list[tuple[int, str | None, str | None]]:
+    """The acting view's numbering as (row number, node index, 'option i' / 'reaction i j' / None), one entry per
+    numbered row, so a reviewer's line numbers map back to nodes."""
+    rows: list[tuple[int, Any, Any]] = []
+    for i, n in enumerate(scene.nodes):
+        if (n.kind in ("show", "hide") and n.character == cid) or n.kind in ("narrate", "say", "place"):
+            rows.append((len(rows) + 1, i, None))
+        elif n.kind == "choice":
+            rows.append((len(rows) + 1, i, None))
+            for oi, c in enumerate(n.choices):
+                rows.append((len(rows) + 1, i, f"option {oi}"))
+                for li, _ in enumerate(c.reaction):
+                    rows.append((len(rows) + 1, i, f"reaction {oi} {li}"))
+    return rows
 
 
 def appears_in(scene: Scene, cid: str) -> bool:
@@ -411,18 +431,14 @@ def _retarget(project: StoryProject, perf: Performance, expression: str) -> int:
     if sc is None:
         return 0
     lo, hi = _line_range(perf.where)
-    # acting_view numbers nodes the same way acting_view prints them: walk again and map numbers to node indexes
-    names: dict[str, str] = {}
-    number = 0
-    targets: set[int] = set()
-    for i, n in enumerate(sc.nodes):
-        if n.kind in ("show", "hide") and n.character != perf.character:
-            continue
-        if n.kind in ("set", "jump", "branch", "ending", "music", "sfx", "cg", "ambience"):
-            continue
-        number += 1
-        if lo <= number <= hi:
-            targets.add(i)
+    rows = view_rows(sc, perf.character)
+    in_range = [(i, part) for num, i, part in rows if lo <= num <= hi]
+    targets: set[int] = {i for i, _ in in_range}
+    reaction_targets: set[tuple[int, int, int]] = set()
+    for i, part in in_range:
+        if part and part.startswith("reaction"):
+            _, oi, li = part.split()
+            reaction_targets.add((i, int(oi), int(li)))
     changed = 0
     nodes = list(sc.nodes)
     for i in targets:
@@ -432,11 +448,21 @@ def _retarget(project: StoryProject, perf: Performance, expression: str) -> int:
             changed += 1
         if n.choices:
             opts = []
-            for c in n.choices:
-                lines = [ln.model_copy(update={"expression": expression}) if ln.speaker == perf.character else ln for ln in c.reaction]
-                changed += sum(1 for ln in c.reaction if ln.speaker == perf.character)
+            for oi, c in enumerate(n.choices):
+                lines = []
+                for li, ln in enumerate(c.reaction):
+                    if ln.speaker == perf.character and (i, oi, li) in reaction_targets:
+                        lines.append(ln.model_copy(update={"expression": expression})); changed += 1
+                    else:
+                        lines.append(ln)
                 opts.append(c.model_copy(update={"reaction": lines}))
             nodes[i] = nodes[i].model_copy(update={"choices": opts})
+    if not changed and targets:
+        # the range holds no line of the character (narration around the moment): show the performance at its start
+        first = min(targets)
+        nodes.insert(first, nodes[first].model_copy(update={"kind": "show", "character": perf.character, "expression": expression, "text": None,
+                                                           "speaker": None, "choices": [], "when": [], "assign": [], "branches": []}))
+        changed = 1
     if changed:
         project.save_scene(sc.model_copy(update={"nodes": nodes}))
     cast = project.load("cast")
