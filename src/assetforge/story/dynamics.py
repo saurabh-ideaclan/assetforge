@@ -244,10 +244,24 @@ def review(data: Dynamics, outline: Outline | None = None) -> dict[str, Any]:
         tension = [p.tension for p in pts]
         if statistics.pstdev(tension) < 1.0:
             warn("flat_tension", f"tension stays around {statistics.mean(tension):.0f} for the whole season: no rise, no release", order)
-        run_hi = []
-        for p in pts:  # a plateau at the top is as flat as one in the middle: nothing can rise from 10
-            run_hi = run_hi + [p.chapter] if p.tension >= 9 else []
-            if len(run_hi) == 4:
+        # a plateau at the top is as flat as one in the middle: nothing can rise from 10. Branches of one chapter
+        # (same reading-order number) count once, at the higher of their tensions.
+        numbers: dict[str, int] = {}
+        if outline is not None:
+            from assetforge.story.progress import chapter_numbers
+
+            nums = chapter_numbers(outline)
+            for cid, _, scenes in chapter_order(outline):
+                numbers[cid] = min((nums.get(sc.id, 99) for sc in scenes), default=99)
+        by_number: dict[int, list[Any]] = {}
+        num_of: dict[str, int] = {}
+        for i, p in enumerate(pts):
+            num_of[p.chapter] = numbers.get(p.chapter, i + 1)
+            by_number.setdefault(num_of[p.chapter], []).append(p)
+        run_hi: list[str] = []
+        for _, group in sorted(by_number.items()):
+            run_hi = run_hi + [g.chapter for g in group] if max(g.tension for g in group) >= 9 else []
+            if len({num_of[c] for c in run_hi}) >= 4:
                 warn("tension_plateau", "four chapters in a row at tension 9-10: the reader needs a release before the next rise", run_hi)
                 break
         ahead = [p.chapter for p in pts if p.status > p.capability + 1]

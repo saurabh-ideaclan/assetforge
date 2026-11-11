@@ -238,10 +238,10 @@ chapters 7–9. What the director changed or flagged before the owner's architec
    dropped flags now decide who testifies and who stands beside Eli, not whether the return is possible.
 2. **Tension plateau.** The dynamics rating puts tension at 9–10 from chapter 3 through chapter 9. The season
    needs a release chapter: chapter 4 (Crew) should play as the quiet win it is, tension 5–6, so chapter 5 can
-   rise. To fix at the outline (owner's call).
+   rise. Applied on the owner's word (2026-11-11): chapter 4 rewritten as the first day that goes right (mood calm, small pleasures, the brace delay only on the last page).
 3. **Capability stays low.** The rating keeps Eli at capability 4–5 to the end while status reaches 6–7: honest
    about costs, light on power fantasy. Recommendation: chapter 7 (Calling) should be the capability leap (7, with
-   public awe) and chapter 9 the recognition; the cost rules stay. To fix at the outline (owner's call).
+   public awe) and chapter 9 the recognition; the cost rules stay. Applied: in both chapter-7 branches the Call is seen by the street and a Firm crew (a wall of still air across the shop front, the street lit end to end), and in chapter 9 the Call happens before the whole hall (or before Pike alone, on the private branch).
 4. **Ten chapters, not twelve.** Acceptable; the pilot is unaffected. The season can grow a chapter between 9 and
    10 later if the plateau fix needs room.
 5. **Every chapter's default mood is `silence`** except chapter 7. The audio direction step adds cues per chapter
