@@ -71,6 +71,6 @@ re-plan of chapter 5 must fix.
 choices and read nowhere. An Opus pass added `when`-gated reactions from Noor, Mara and Idris: kept on the
 shared route of chapter 3 (clarity 8 → 4 points) and chapter 4 (5 → 5); on chapter 2 and the hidden route of
 chapter 3 the first attempt made a wall of text and was discarded, and a stricter attempt (three single lines
-placed after existing choices) was run; its result is recorded below. The decision flags were already
+placed after existing choices) was kept on both (chapter 2: 5 → 6 clarity points, lint clean; hidden route: 5 → 6). All four chapters that follow a choice now read the player's openness, self-preservation and trust in Idris. The decision flags were already
 acknowledged; `trust_mara` is read only by the ending gate and needs an interim read.
 
