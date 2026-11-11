@@ -123,8 +123,7 @@ counting in your head stops.") now exist, so losing one later will hurt.
 
 ## 5. Chapters 2 and 3, and every future chapter
 
-The same gate ran on chapters 2 and 3 (results in `clarity/<scene>.json`; the log of the run is in this
-document's commit message). From now on `steps.write` audits every chapter after the linter and revises once on
+The same gate ran on chapters 2 and 3 (results in `clarity/<scene>.json`). First round: chapter 2 (The Seam) 14 → 13 points after an Opus revision, kept, still `revise`; chapter 3 on the hidden route 17 → 9, kept, still `revise`; chapter 3 on the shared route 17 points, its revision discarded because it tripped the wall-of-text rule. Both branches of chapter 3 lacked context for Weight / stored claims, Oren and the bank loan. A second round runs with the knowledge block and the box-length rule stated harder; the numbers will be updated here. From now on `steps.write` audits every chapter after the linter and revises once on
 `revise`, with the knowledge block in the writer's prompt; the outline being coherent no longer approves a
 chapter, and no evaluator sees the planning documents when it judges the text.
 
