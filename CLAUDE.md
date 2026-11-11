@@ -648,6 +648,16 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
 - Image prompts: `NO_TEXT` forbids lettering in any script and painted swatches; `art.render` names palette colours in words
   (`_palette_words`), never hex (models paint hex lists as swatch strips); `transparency.remove_background` also removes
   enclosed key-coloured pools ≥ `HOLE_MIN_PIXELS` with mean distance < `HOLE_MAX_MEAN` (arm gaps, keyed panels).
+- **Choices, promises, rules** (`story/stakes.py`; research handoff PRD 2026-11-11, audit in `docs/narrative/25-prd-audit.md`):
+  `choice_report(script, unwritten_after=)` classes every choice A expression | B state | C macro and finds `same_delta`,
+  `no_acknowledgement` (a stat written and never read), `only_at_ending`, `late_acknowledgement` (> `ACK_HORIZON` chapters),
+  `all_expression`, `unverified` (partial script); it rides in `lint_story()["choices"]`. Payoff ledger `payoffs.json`:
+  `draft_ledger` (task `payoffs.ledger`) from the outline, `advance_ledger` from each cold read's `tensions_changed` /
+  `opened` (new `ClarityReport` fields; a chapter that changed nothing is `no_payoff`). Rule registry `rules.json`:
+  `draft_rules` (task `rules.registry`) with actual rule / institutions believe / protagonist believes / exceptions /
+  must_understand_by / concealed_until; `knowledge_state()` gives each term's reader state per chapter (unknown → revealed)
+  and `violations` when a chapter depends on a term its cold read found no context for. Route `GET /api/stories/{id}/stakes`;
+  run actions `payoffs_draft`, `rules_draft`. Tests `tests/test_story_stakes.py`.
 - **Editorial evaluation** (`story/evaluate.py`, `evaluation.json`): the owner's fifteen questions (`QUESTIONS`) answered
   yes|partly|no with scene evidence and a targeted change per miss; task `evaluation` (kind in `HEAVY_KINDS`); run it on a
   different model from the writer (the Improve tab's card defaults to claude-cli opus). `summary()` counts and lists the

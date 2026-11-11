@@ -30,7 +30,7 @@ from assetforge.story.project import StoryProject, register, registered
 
 ACTIONS = ("write", "improve", "check", "assets_plan", "assets", "export", "refine", "character", "alternatives", "concepts",
            "audio_plan", "audio_make", "dynamics_plan", "dynamics_estimate", "evaluate", "acting_profile", "acting_analyze",
-           "acting_generate")  # fmt: skip
+           "acting_generate", "payoffs_draft", "rules_draft")  # fmt: skip
 _tasks: dict[str, dict[str, Any]] = {}
 _busy: dict[str, str] = {}  # story id → running task id
 _lock = threading.Lock()
@@ -316,6 +316,27 @@ def register_routes(router: Router) -> None:  # noqa: C901 - one place for all s
         sid, project = _story(lib, req.match["sid"])
         profile = characters.set_master(lib, project, req.match["cid"], str((req.body or {}).get("asset_id", "")))
         return {"profile": profile.model_dump(mode="json")}
+
+    @router.route("GET", r"/api/stories/(?P<sid>[a-z0-9-]+)/stakes")
+    def story_stakes(req: Request, lib: Library) -> dict[str, Any]:
+        """Choice QA over the current script (written scenes), the payoff ledger, the rule registry and the reader
+        knowledge state per chapter."""
+        from assetforge.story import stakes
+        from assetforge.story.progress import preview_script
+
+        sid, project = _story(lib, req.match["sid"])
+        choices = None
+        if project.has("outline") and project.has("cast"):
+            from assetforge.story.models import Script
+
+            data = preview_script(project)
+            if data:
+                written = [sc for sc in data["scenes"] if not sc.get("draft")]
+                if written:
+                    script = Script(**{**data, "scenes": written})
+                    choices = stakes.choice_report(script, unwritten_after=len(data["scenes"]) - len(written))
+        return {"choices": choices, "payoffs": stakes.ledger_view(project), "rules": stakes.load_rules(project).model_dump(mode="json"),
+                "knowledge": stakes.knowledge_state(project)}
 
     @router.route("GET", r"/api/stories/(?P<sid>[a-z0-9-]+)/acting")
     def story_acting(req: Request, lib: Library) -> dict[str, Any]:
@@ -624,6 +645,13 @@ def _run_action(lib: Library, project: StoryProject, ctx: steps.Ctx, body: dict[
         if result.get("assembled"):
             result["export"] = export_story(lib, project, project.root / "build")
         return result
+    if action in ("payoffs_draft", "rules_draft"):
+        from assetforge.story import stakes
+
+        if action == "payoffs_draft":
+            stakes.draft_ledger(ctx, fresh=bool(body.get("fresh"))); stakes.advance_ledger(project)
+            return {"payoffs": stakes.ledger_view(project)}
+        return {"rules": stakes.draft_rules(ctx, fresh=bool(body.get("fresh"))).model_dump(mode="json")}
     if action in ("acting_profile", "acting_analyze"):
         from assetforge.story import acting
 

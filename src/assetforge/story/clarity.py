@@ -253,6 +253,8 @@ class ClarityReport(Strict):
     continuity: list[Passage] = Field(default_factory=list, description="Jumps in place, time or logic")
     emotion: list[Passage] = Field(default_factory=list, description="Where the intended feeling does not reach the reader")
     mysteries: list[Mystery] = Field(default_factory=list)
+    tensions_changed: list[str] = Field(default_factory=list, description="Established tensions this chapter materially changed (paid, advanced, reversed), each with the lines")
+    opened: list[str] = Field(default_factory=list, description="New questions or threats this chapter opened")
     summary: str = ""
     audited_at: str = ""
     reviewer: dict[str, Any] = Field(default_factory=dict)
@@ -282,12 +284,15 @@ def audit_prompt(view: str, earlier: list[tuple[str, str]], title: str) -> str:
         "6. CONTINUITY: jumps in place, time or logic without a bridge.\n"
         "7. EMOTION: where the reader is told nothing of why the moment matters to the protagonist.\n"
         "8. MYSTERIES: unanswered questions, each marked intentional (curiosity) or not (friction).\n"
+        "9. PAYOFF: which established tensions did this chapter materially change (paid, advanced or reversed; name the "
+        "lines), and which new questions or threats did it open. A cliffhanger that changes nothing is not a payoff.\n"
         "Verdict `revise` when any section is not easy, any choice is not understood, or there are three or more "
         "dialogue/continuity problems; else `ok`. Summary in three sentences.",
         "Return JSON: {\"verdict\", \"sections\": [{\"where\", \"place\", \"present\", \"wants\", \"obstacle\", \"why_behave\", "
         "\"event\", \"easy\", \"note\"}], \"terms\": [{\"term\", \"where\", \"context_given\", \"fix\"}], \"dialogue\": [{\"where\", "
         "\"problem\", \"fix\"}], \"motivation\": [...], \"choices\": [{\"where\", \"decision\", \"understood\", \"missing\", \"fix\"}], "
-        "\"continuity\": [...], \"emotion\": [...], \"mysteries\": [{\"question\", \"intentional\", \"note\"}], \"summary\"}.",
+        "\"continuity\": [...], \"emotion\": [...], \"mysteries\": [{\"question\", \"intentional\", \"note\"}], "
+        "\"tensions_changed\": [\"...\"], \"opened\": [\"...\"], \"summary\"}.",
     ])
 
 
@@ -302,6 +307,7 @@ def offline_report(scene: Scene) -> Any:
                 "motivation": [], "choices": [{"where": "5", "decision": "keep the paper or take the money", "understood": n <= 6,
                                               "missing": "" if n <= 6 else "why the paper matters", "fix": "" if n <= 6 else "one line on what the paper proves"}],
                 "continuity": [], "emotion": [], "mysteries": [{"question": "why the card says what it says", "intentional": True, "note": ""}],
+                "tensions_changed": ["the family needs money: a few coins earned (lines 3-5)"] if n > 6 else [], "opened": ["what the cold in his hands is"],
                 "summary": "offline cold read"}
     return build
 
