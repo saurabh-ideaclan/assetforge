@@ -127,3 +127,15 @@ The same gate ran on chapters 2 and 3 (results in `clarity/<scene>.json`). First
 `revise`, with the knowledge block in the writer's prompt; the outline being coherent no longer approves a
 chapter, and no evaluator sees the planning documents when it judges the text.
 
+## 6. Chapters 4–6 (written 2026-11-11 with the gate inside `write`)
+
+ChatGPT wrote chapters 4, 5 (both routes) and 6 with the knowledge block in the prompt and the gate after the
+linter. All four are lint-clean (1,630–1,830 words, eight choices each) and leak-free. Chapter 6 (Cato's Bill)
+passed the cold read first time (`ok`, 6 polish notes). Chapter 4 (Crew) went 12 → 5 points in the gate's own
+revision, then `ok` after a second round that fixed one muddled fact (the writer had Oren supplying the Firm;
+it is Selene's bought supply account). Chapter 5, both routes, is the chapter-3 pattern again: the pump-room
+rescue, Director Pike's audit office and the spent stored claim arrive in one scene, and two Opus revisions read
+worse (and tripped the wall-of-text rule), so they were discarded; the kept text stands at 12 points (rostered)
+and 7 (unpaid) with one section each the reader cannot follow and one choice without understood stakes. Next:
+re-plan chapter 5 as movements that introduce one new thing each, as was done for chapter 3, then write it fresh.
+The knowledge model now carries Director Pike and the stored claim at chapter 5.

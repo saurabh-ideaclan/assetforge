@@ -161,7 +161,7 @@ def test_assets_export_and_rerun(lib: Library, tmp_path: Path, fake: None) -> No
     assert music.key and music.key.startswith("vn/fog-lantern/music/")
 
     again = produce(lib, project, image_provider="fake")
-    assert again["counts"] == {"exists": made["total"]}
+    assert again["counts"] == {"exists": made["total"]}, [i for i in again["items"] if i["state"] != "exists"]
 
     out = tmp_path / "demo"
     result = export_story(lib, project, out)

@@ -49,6 +49,9 @@ def pcm_sha256(pcm: np.ndarray) -> str:
     return hashlib.sha256(np.ascontiguousarray(pcm, dtype="<i2").tobytes()).hexdigest()
 
 
+WRITE_BLOCK = 1 << 17  # frames per encoder call
+
+
 def write_audio(pcm: np.ndarray, sr: int, path: Path, fmt: str) -> Path:
     if fmt == "m4a":
         from assetforge.audio.codecs import write_m4a
@@ -56,5 +59,10 @@ def write_audio(pcm: np.ndarray, sr: int, path: Path, fmt: str) -> Path:
         return write_m4a(pcm, sr, path)
     container, subtype = FORMATS[fmt]
     data = pcm if fmt == "wav" else pcm.astype(np.float32) / 32767.0
-    soundfile.write(str(path), data, sr, format=container, subtype=subtype)
+    # Streamed in blocks: the bundled libsndfile (1.2.2, arm64) segfaults in the Vorbis encoder when a long stereo
+    # take (a 96 s music loop) is handed over in one call; block writes are fine for every container.
+    channels = 1 if data.ndim == 1 else data.shape[1]
+    with soundfile.SoundFile(str(path), "w", samplerate=sr, channels=channels, format=container, subtype=subtype) as out:
+        for start in range(0, len(data), WRITE_BLOCK):
+            out.write(data[start:start + WRITE_BLOCK])
     return path

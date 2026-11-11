@@ -258,6 +258,9 @@ def _without_voices(lib: Library, result: dict[str, Any], settings: dict[str, An
     except InvalidInputError as exc:  # the talkers were the only layer: nothing to re-render, say so instead
         result["voice_check"] = {"first_take": asset.id, "muted": None, "reason": exc.message}
         return result
+    if retry.get("asset_id") == asset.id:  # nothing to mute (no talker bed in the scene): the same render came back, keep it
+        result["voice_check"] = {"first_take": asset.id, "muted": None, "reason": "voice-like reading, but the scene has no crowd_murmur bed to mute"}
+        return result
     lib.set_status([asset.id], Status.REJECTED, note="voice-like content in a place with nobody in it; re-rendered without crowd_murmur")
     retry["voice_check"] = {"first_take": asset.id, "muted": "crowd_murmur"}
     return retry
