@@ -121,6 +121,20 @@
         ".dev/kite-play"
       ],
       "port": 8773
+    },
+    {
+      "name": "audio-intel-demo",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8774",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        ".dev/audio-intel-demo"
+      ],
+      "port": 8774
     }
   ]
 }

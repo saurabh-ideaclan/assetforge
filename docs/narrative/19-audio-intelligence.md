@@ -164,7 +164,7 @@ run on synthetic signals) found real bugs. Acted on tonight, in the review's own
    locked onto a single harmonic of a melody is narrower, noise is broader) and F2 must move *smoothly* between frames
    (noise peaks jump). Melodies no longer read as voice-like on the DSP cues; music needs the VAD's agreement anyway.
    "Confirmed" now requires both detectors on the *same* seconds, and a short mumble in a long loop counts (max-based
-   triggers). A direction that names the `crowd_murmur` bed counts as allowing voices (underscores are words now).
+   triggers). A direction that names the `crowd_murmur` bed was at first counted as allowing voices; the demonstration (§9) showed that this made the loop blind to exactly the mistake it exists to catch, so now the brief decides and bed names never count.
 2. **Corrections that made things worse.** `op_balance` had its sign backwards in the plan (fixed); clipping no longer
    offers a pointless −6 dB step that the final normalise undid; anti-phase stereo gets a polarity flip instead of a
    narrowing that cannot change the mono sum; every filter now runs on a wrap-padded signal so it cannot create the
@@ -195,3 +195,61 @@ measure, a rain "reading band" label that the ambience limit does not support, a
 harmony moves every beat). Each is recorded in `corpus.py` with its reason; the hit rate above counts them as
 corrected labels, and the honest reading is "the detector finds what the corpus says, after the corpus was read
 with the detector's own definitions". A frozen, independently labelled set (the owner's ears) is the next test.
+
+## 9. The demonstration: hear it (added 2026-11-11, morning)
+
+The owner asked for examples. `.dev/audio-intel-demo/make.py` builds a listening page (`index.html`, launch config
+`audio-intel-demo`, http://localhost:8774) from two runs, and the page states only what was measured.
+
+**Part A, corrections on sound that already existed** (`correct_file`: measure → diagnose → plan → apply the DSP as
+real operations → measure again → compare):
+
+| example | what it was | finding | what the engine did | re-measured |
+|---|---|---|---|---|
+| Unrung square (rejected) | crowd under an empty square | `voice_like` hard, confirmed by DSP cues and the VAD on 8 s, 33 % of seconds | **declined**: a third of the file is a layer, not a few seconds; patching would copy it around | drop the layer / regenerate |
+| Unrung dungeon (rejected) | 58 % of energy under 80 Hz | `sub_rumble` | `highpass 90` + LUFS normalise | **improved**, no findings left |
+| benchmark rainy room (baseline) | 59 % in 1–4 kHz | `in_dialogue_band` | `dialogue_dip −4 dB` + normalise | **improved** |
+| Unrung eerie cue (rejected) | 62 % in 200–500 Hz, 1.1 LU range | `muddy`, `flat_dynamics` | `peak_eq 300 Hz −3 dB`; the flatness is composition, so no DSP claims it | **mixed**: mud fixed, flatness remains, and a marginal loop seam (4.6 → 5.5 dB step) crossed the line |
+| constructed rumble + DC | 100 % under 80 Hz | `dc_offset`, `loudness_off`, `sub_rumble` | **declined**: nothing but rumble, there is no place under it for a filter to reveal | regenerate |
+| constructed hard-cut loop | 7.9 dB level step at the seam | `loop_seam` | `reloop 500 ms` | **improved** (0.3 dB step) |
+| constructed clipped tone | 241 k samples at full scale | `clipping` | **declined**: no honest DSP undoes clipping | re-render quieter |
+
+**Part B, new sound through the loop** (`produce_for_brief`, Sonnet directing through the signed-in Claude CLI,
+three candidates a round, at most two refinement rounds, every candidate on the page with the loop's reasons):
+
+- *Curfew square* (constructed: a hand-written direction with the `crowd_murmur` bed at the Unrung level, under a
+  brief that says nobody is there). Round 0: all three renders `voice_like` hard (score 0); refinement "dropped the
+  crowd_murmur layer"; round 1: three clean renders, two kept at 1.0. At −24 dB under the wind (10 dB quieter) the
+  detector caught one render of three: that floor is the corpus's known miss, and it is stated on the page.
+- *After the loss* (piano, strings): one round, two kept at 0.8 with `repetitive` as the open issue (self-similarity
+  0.66 against a 0.32 ceiling). The loop accepts 0.8 by design; a listener decides whether the repetition wears.
+- *Rain cabin* (rain on a wooden roof, fire, far thunder): the in-place correction worked each round (`dialogue_dip`
+  fixed `in_dialogue_band`, kept as the primary variant), but `too_busy` survived three rounds: cutting event rates
+  did nothing because the busyness is the fire bed's crackle and the roof rain, so the loop now *escalates* a
+  refinement that did not move the measure (`quality.ESCALATIONS`: the eventful bed −6 dB, then dropped). Even so
+  the chosen render sits at 4.6 salient events/s against a 2.7 ceiling derived from the writer's `activity 0.2`.
+  Whether roof rain at that density is "busy" under text is a question for a listener, not for the threshold.
+- *Court whispers* (harpsichord, low strings): one round, two kept at 0.8, `repetitive` open.
+
+**What building the page found** (none of it had shown in the unit tests or the 71-file corpus, because those only
+check that findings *fire*; the page applies the corrections and measures again):
+
+1. The diagnosis counted the direction's own bed names as proof that voices were wanted, so a `crowd_murmur` pick
+   could never be caught by the loop. The brief decides now; bed names never count.
+2. "Patching" a murmur that covered a third of the file copied it around (33 % → 13 % of seconds, still a finding)
+   and the verdict read "unchanged". Patching is declined above `MAX_PATCH_SHARE` (25 %), donors must score ≤ 0.35.
+3. A file that was nothing but rumble got a filter and a normalise that pushed the residue into the limiter. A
+   finding whose only option is a regeneration condemns the file: no DSP runs on it, and the plan says why.
+4. A 120 ms seam crossfade left a 7.9 dB level step at 6.5 dB. The level is judged over 250 ms, so a level step
+   gets 500 ms (measured: 0.3 dB after), a click keeps 120 ms.
+5. "Rain on the window" was read as expecting wind. Expected sounds match whole words.
+6. Deep "problem" findings did not count in the loop's review, so a kept second choice could be one the Workbench
+   flags. They now cost 0.3 of the score; hard ones still zero it.
+7. A refinement that does not move the measure was repeated for three rounds (above).
+8. The production loop measured the OGG delivery copy; it now reads the WAV master.
+
+Regression tests for 1–7 are in `tests/test_audio_analysis.py::test_correction_rules_from_the_demonstration` and
+`tests/test_audio_production.py::test_refinement_escalates_when_a_problem_survives_a_round`. The corpus harness
+after these changes: 14/17 expected findings as problems, unchanged. The lesson is in LESSONS.md: the corpus tests
+detection; only a run that corrects and re-measures, with outputs a person can hear, tests the loop.
+

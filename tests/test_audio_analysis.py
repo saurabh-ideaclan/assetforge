@@ -162,12 +162,23 @@ def test_corrections_fix_what_they_target(tmp_path: Path) -> None:
                 [{"op": "replace_segment", "start_s": 1.0, "end_s": 1.4, "donor_start_s": 2.0}], [{"op": "narrow", "width": 0.5}], [{"op": "compress"}], [{"op": "expand"}]):
         (y, _), _ = apply_ops((x.copy(), SR), ops)
         assert y.shape[1] == 2 and np.isfinite(y).all() and np.max(np.abs(y)) <= 1.0
-    # a voice-like second gets a donor from the cleanest second two seconds away
+    # a murmur that is everywhere is a layer, not a patch job: patching is declined and says why
     murmur = analyze_array(_murmur(), SR, kind="ambience", with_vad=False)
     f = diagnose(murmur, kind="ambience", brief="an empty corridor", loop=False)
+    assert "voice_like" in {x["code"] for x in f}
     plan = fill_donors(plan_corrections(f, kind="ambience"), murmur)
+    assert not any(op["op"] == "replace_segment" for op in plan["dsp"]) and "layer" in plan["declined"] and plan["dsp"] == []
+    # a few voice-like seconds in clean wind get donors from clean seconds two seconds away
+    mixed = _wind(16.0)
+    mixed[6 * SR:8 * SR] = 0.3 * mixed[6 * SR:8 * SR] + 0.7 * _murmur(2.0)
+    rep = analyze_array(mixed, SR, kind="ambience", with_vad=False)
+    f = diagnose(rep, kind="ambience", brief="an empty corridor", loop=False)
+    plan = fill_donors(plan_corrections(f, kind="ambience"), rep)
     seg_ops = [op for op in plan["dsp"] if op["op"] == "replace_segment"]
-    assert all(op["donor_start_s"] is not None and abs(op["donor_start_s"] - op["start_s"]) >= 2.0 for op in seg_ops)
+    if seg_ops:  # the detector is a heuristic: when it flags those seconds, every patch has a clean donor
+        assert all(op["donor_start_s"] is not None and abs(op["donor_start_s"] - op["start_s"]) >= 2.0 for op in seg_ops)
+        scores = {s["start_s"]: s["score"] for s in rep["speech"]["segments"]}
+        assert all(scores[op["donor_start_s"]] <= 0.35 for op in seg_ops)
     # compare() names fixed / remaining / regressions
     cmp_ = compare({"findings": [{"code": "a", "severity": "problem"}, {"code": "b", "severity": "problem"}]},
                    {"findings": [{"code": "b", "severity": "problem"}, {"code": "c", "severity": "problem"}]}, ["a", "b"])  # fmt: skip
@@ -216,3 +227,36 @@ def test_diagnose_file_and_cli(tmp_path: Path, capsys, home: Path) -> None:
     assert code == 0 and payload["silero_vad"]["installed"] is False
     code, payload, _ = run_cli(capsys, "audio", "correct", str(src), "--kind", "ambience", "--brief", "an empty corridor", "--out", str(tmp_path / "fixed.wav"), "--json")
     assert code == 0 and payload["plan"]["reasons"]
+
+
+def test_correction_rules_from_the_demonstration(tmp_path: Path) -> None:
+    """Rules the first before/after listening page forced (LESSONS 2026-11-11)."""
+    # 1. the brief decides whether voices belong; the direction's bed names never do
+    assert not _brief_allows_voices("A deserted square. No people anywhere.", {"beds": [{"bed": "crowd_murmur"}], "environment": "deserted square"})
+    assert not _brief_allows_voices("rain on a window", {"beds": [{"bed": "crowd_murmur"}]})
+    assert _brief_allows_voices("rain on a window", {"environment": "a crowded tavern"})
+    assert _brief_allows_voices("a busy market at noon", None) and not _brief_allows_voices("quiet night, no voices", None)
+    # 2. a finding whose only way out is a regeneration condemns the file: no DSP on it, and the plan says so
+    findings = [{"code": "clipping", "severity": "hard", "corrections": [{"action": "re-render quieter", "kind": "regenerate", "params": {}, "why": "x"}]},
+                {"code": "dc_offset", "severity": "problem", "corrections": [{"action": "dc_remove", "kind": "dsp", "params": {}, "why": "x"}]}]
+    plan = plan_corrections(findings, kind="ambience")
+    assert plan["dsp"] == [] and "clipping" in plan["declined"] and plan["regenerate"] is not None
+    # 3. a level step at the seam gets a crossfade longer than the 250 ms level window, and it fixes the seam
+    t = np.arange(20 * SR) / SR
+    cut = 0.3 * np.sin(2 * np.pi * 330.7 * t) * np.linspace(1.0, 0.4, t.size)
+    src = _write(tmp_path / "cut.wav", cut)
+    report = analyze_file(src, kind="music", with_vad=False)
+    f = diagnose(report, kind="music", loop=True)
+    seam = next(x for x in f if x["code"] == "loop_seam")
+    reloop = next(c for c in seam["corrections"] if c["action"] == "reloop")
+    assert reloop["params"]["crossfade_ms"] == 500
+    out = correct_file(src, tmp_path / "cut_fixed.wav", f, report, kind="music", loop=True)
+    assert out["applied"] and "loop_seam" in out["comparison"]["fixed"]
+    # 4. expected sounds match whole words: "window" is not wind
+    f = diagnose(analyze_array(_tone(6), SR, kind="ambience", with_vad=False), kind="ambience", brief="rain on the window", loop=False)
+    missing = [x for x in f if x["code"] == "expected_sound_missing"]
+    assert missing and "wind" not in missing[0]["message"] and "rain_like" in missing[0]["message"]
+    # 5. a quiet file is normalised with a ceiling, never into the limiter
+    f = diagnose(analyze_array(_tone(6, level=0.002), SR, kind="ambience", with_vad=False), kind="ambience", loop=False)
+    off = next(x for x in f if x["code"] == "loudness_off")
+    assert off["corrections"][0]["params"]["ceiling_db"] == -1.5

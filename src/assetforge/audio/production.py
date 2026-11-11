@@ -338,18 +338,37 @@ def _render(lib: Library, d: Any, kind: Kind, *, name: str, seed: int, project: 
 # ---------------------------------------------------------------------- refinement
 
 
-def refine(d: Any, problems: list[dict[str, Any]]) -> tuple[Any, list[str]]:
-    """Apply the refinements the worst problems call for (each at most once), and say what changed."""
+def refine(d: Any, problems: list[dict[str, Any]], history: set[str] | None = None) -> tuple[Any, list[str]]:
+    """Apply the refinements the worst problems call for (each at most once), and say what changed. A problem
+    already refined in an earlier round (`history`) and still present gets its escalation instead."""
     changes: list[str] = []
     data = d.model_dump()
     seen: set[str] = set()
+    kind = "music" if "instruments" in data else "ambience"
     for p in sorted(problems, key=lambda x: -x["weight"]):
-        if p["code"] in seen or not p.get("refinement"):
+        refinement = p.get("refinement") or {}
+        if history and p["code"] in history and quality.ESCALATIONS.get(p["code"], {}).get(kind):
+            refinement = quality.ESCALATIONS[p["code"]][kind]
+        if p["code"] in seen or not refinement:
             continue
         seen.add(p["code"])
-        for field, delta in p["refinement"].items():
+        for field, delta in refinement.items():
             if field in ("reseed", "instrument_swap"):
                 changes.append(f"{p['code']}: {field} {delta}")
+                continue
+            if field == "bed_level_scale" and "beds" in data:
+                hit = [b for b in data["beds"] if b.get("bed") in delta["beds"]]
+                for b in hit:
+                    if b["level_db"] + float(delta["db"]) < -36.0:  # already quiet: the layer goes
+                        data["beds"] = [x for x in data["beds"] if x is not b]
+                        changes.append(f"{p['code']}: dropped the {b['bed']} layer (its texture is the busyness)")
+                    else:
+                        b["level_db"] = round(b["level_db"] + float(delta["db"]), 1)
+                        changes.append(f"{p['code']}: {b['bed']} {delta['db']:+} dB (its texture is the busyness)")
+                if not hit:
+                    changes.append(f"{p['code']}: no eventful bed to lower; event rates × 0.5")
+                    for e in data.get("events", []):
+                        e["rate"] = max(0.1, round(e["rate"] * 0.5, 2))
                 continue
             if field == "drop_bed" and "beds" in data:
                 before = len(data["beds"])
@@ -383,7 +402,9 @@ def _deep(lib: Library, asset_id: str, kind: str, brief: str, direction: dict[st
     from assetforge.audio.analysis.diagnose import diagnose, summarize
 
     asset = lib.get_asset(asset_id)
-    report = analyze_file(Path(asset.path), kind=kind)
+    # measure the WAV master, not the OGG delivery copy the primary variant points at
+    path = next((v.file.path for v in asset.variants if v.label == "v1" and v.file.path.lower().endswith(".wav")), asset.path)
+    report = analyze_file(Path(path), kind=kind)
     findings = diagnose(report, kind=kind, brief=brief, direction=direction, loop=bool(direction.get("loop", True)))
     return {"findings": findings, "summary": summarize(findings), "report": report}
 
@@ -473,11 +494,18 @@ def produce_for_brief(lib: Library, text: str, *, kind: Kind, name: str, seed: i
             # brief-adherence ranges alone (analysis/diagnose.py; a confirmed voice in a voiceless brief is unusable)
             deep = _deep(lib, asset.id, kind, text, current.model_dump())
             for f in deep["findings"]:
-                if f["severity"] == "hard" and f["code"] not in {p["code"] for p in rev["problems"]}:
-                    rev["problems"].append({"code": f["code"], "message": f["message"], "hard": True, "weight": 0.5,
-                                            "refinement": quality.REFINEMENTS.get(f["code"], {}).get(kind, {})})  # fmt: skip
+                if f["severity"] == "note" or f["code"] in {p["code"] for p in rev["problems"]}:
+                    continue
+                hard = f["severity"] == "hard"
+                # a "problem" from the deep diagnosis (a suspected voice, mud, a rumble) counts against the candidate
+                # too, so a kept second choice is never one the Workbench would flag (demonstration, 2026-11-11)
+                rev["problems"].append({"code": f["code"], "message": f["message"], "hard": hard, "weight": 0.5 if hard else 0.3,
+                                        "refinement": quality.REFINEMENTS.get(f["code"], {}).get(kind, {})})  # fmt: skip
+                if hard:
                     rev["ok"] = False
                     rev["score"] = 0.0
+                else:
+                    rev["score"] = round(max(0.0, rev["score"] - 0.3), 3)
             dist = quality.reference_distance(m, ref["measured"]) if ref else None
             rank = rev["score"] - (0.3 * dist if dist is not None else 0.0)
             batch.append({"asset_id": asset.id, "round": round_no, "seed": take_seed, "review": rev, "reference_distance": dist,
@@ -493,7 +521,8 @@ def produce_for_brief(lib: Library, text: str, *, kind: Kind, name: str, seed: i
         if best["review"]["ok"] and best["review"]["score"] >= 0.8:
             break
         if round_no < max_rounds and best["review"]["problems"]:
-            current, changes = refine(current, best["review"]["problems"])
+            history = {c.split(":")[0] for r in rounds[:-1] for c in r.get("refinements", [])}
+            current, changes = refine(current, best["review"]["problems"], history)
             rounds[-1]["refinements"] = changes
             if not changes:
                 break

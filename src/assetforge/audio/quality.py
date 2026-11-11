@@ -22,6 +22,19 @@ from assetforge.audio.codecs import read_audio
 from assetforge.audio.master import LOUDNESS_TARGETS
 from assetforge.validation.audio import analyze as technical
 
+# beds whose texture is made of small events (crackle, drips, chirps): the usual reason an ambience stays "busy"
+# after its event rates were cut
+EVENTFUL_BEDS = ("fire_crackle", "water_stream", "lava_bubble", "insects_night", "swamp", "electrical_buzz")
+
+# when a refinement was applied in an earlier round and the same problem is still there, the next round escalates
+# instead of repeating a change that did not move the measure (demonstration, 2026-11-11: three rounds of
+# event-rate cuts left a cabin at 5 events/s because the busyness was the fire bed's crackle)
+ESCALATIONS: dict[str, dict[str, Any]] = {
+    "too_busy": {"ambience": {"bed_level_scale": {"beds": list(EVENTFUL_BEDS), "db": -6.0}}, "music": {"percussion": "none", "energy": -0.15, "melody": -0.2}},
+    "in_dialogue_band": {"ambience": {"high_cut": 3500, "level_scale": -3}, "music": {"warmth": +0.3, "instrument_swap": "darker"}},
+    "too_static": {"ambience": {"intensity": +0.2, "event_rate_scale": 1.6}, "music": {"energy": +0.2, "percussion": "light"}},
+}
+
 REFINEMENTS: dict[str, dict[str, Any]] = {
     # metric code → what to change on the next candidate (music / ambience)
     "too_busy": {"music": {"energy": -0.15, "percussion": "light", "melody": -0.3}, "ambience": {"intensity": -0.15, "event_rate_scale": 0.6}},

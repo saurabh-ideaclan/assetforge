@@ -17,6 +17,8 @@ removal in an ambience spec, or a method change), never "ask the prompt for bett
 
 from __future__ import annotations
 
+import re
+
 from typing import Any
 
 from assetforge.audio.master import LOUDNESS_TARGETS
@@ -35,17 +37,28 @@ NEGATIONS = r"(?:\bno\b|\bwithout\b|\bnever\b|\bnot\b|\bfree of\b|\bempty of\b|\
 
 
 def _brief_allows_voices(brief: str | None, direction: dict[str, Any] | None) -> bool:
-    """Does the brief put people in the scene? "crowd murmur" yes; "no voices", "without people", "deserted
-    square" no. A negation within three words before a voice word cancels it."""
-    import re
-
-    text = (brief or "").lower().replace("_", " ")
-    if direction:
-        text += " " + " ".join(str(b.get("bed", "")).replace("_", " ") for b in direction.get("beds", []) if isinstance(b, dict))
-        text += " " + str(direction.get("environment", "")).lower().replace("_", " ")
+    """Does the scene have people in it? The brief decides: "crowd murmur" or "a busy market" yes; "no voices",
+    "without people", "deserted", "nobody" no (a negation within three words before a voice word cancels it).
+    Only when the brief says nothing does the direction's environment phrase count. Bed names never count: a
+    `crowd_murmur` pick under a brief with nobody in it is exactly the mistake this finding exists to catch."""
     words = "|".join(re.escape(w) for w in VOICE_WORDS)
-    text = re.sub(NEGATIONS + r"(?:\s+\w+){0,3}?\s+(?:" + words + r")\b", " ", text)
-    return any(re.search(r"\b" + re.escape(w) + r"\b", text) for w in VOICE_WORDS)
+    negated = NEGATIONS + r"(?:\s+\w+){0,3}?\s+(?:" + words + r")\b"
+
+    def scan(text: str) -> bool | None:
+        text = text.lower().replace("_", " ")
+        if not text.strip():
+            return None
+        positive = any(re.search(r"\b" + re.escape(w) + r"\b", re.sub(negated, " ", text)) for w in VOICE_WORDS)
+        if positive:
+            return True
+        if re.search(negated, text) or re.search(r"\b(nobody|no one|no-one|noone|deserted|empty|uninhabited|abandoned|alone)\b", text):
+            return False
+        return None
+
+    verdict = scan(brief or "")
+    if verdict is None and direction:
+        verdict = scan(str(direction.get("environment", "")))
+    return bool(verdict)
 
 
 def diagnose(report: dict[str, Any], *, kind: str | None = None, brief: str | None = None,
@@ -82,12 +95,15 @@ def diagnose(report: dict[str, Any], *, kind: str | None = None, brief: str | No
                            where=[{"start_s": p, "end_s": p + 0.01} for p in d["positions_s"][:10]]))  # fmt: skip
     lp = t.get("loop")
     if lp and not lp["seam_ok"] and (expect_loop or (kind == "music" and not loop_known)):
+        # a click is fixed by a short crossfade; a level step needs one longer than the 250 ms the level is judged
+        # over, so the two levels blend inside that window (measured: 500 ms takes a 7.9 dB step to 0.3 dB)
+        cross = 500 if lp["loop_level_jump_db"] > max(4.0, lp.get("level_change_p95_db", 0) + 3) else 120
         findings.append(_f("loop_seam", "hard" if expect_loop else "note", "measured", "sound_design",
                            f"the loop boundary is audible: click={lp['loop_click']}, level jump {lp['loop_level_jump_db']} dB "
                            f"(the sound itself moves {lp['level_change_p95_db']} dB)",
                            ([{"action": "reseed", "kind": "regenerate", "params": {"reseed": "structure"}, "why": "a bar-aligned render loops by construction; a crossfade would shorten the bar grid"},
-                             {"action": "reloop", "kind": "dsp", "params": {"crossfade_ms": 120}, "why": "equal-power crossfade (shortens the loop by 120 ms)"}] if kind == "music" else
-                            [{"action": "reloop", "kind": "dsp", "params": {"crossfade_ms": 120}, "why": "equal-power crossfade of the tail into the head"},
+                             {"action": "reloop", "kind": "dsp", "params": {"crossfade_ms": cross}, "why": f"equal-power crossfade (shortens the loop by {cross} ms)"}] if kind == "music" else
+                            [{"action": "reloop", "kind": "dsp", "params": {"crossfade_ms": cross}, "why": "equal-power crossfade of the tail into the head"},
                              {"action": "reseed", "kind": "regenerate", "params": {"reseed": True}, "why": "re-render the beds past the loop point"}]),
                            where=[{"start_s": max(0.0, dur - 0.5), "end_s": dur}]))  # fmt: skip
     sil = t["silence"]
@@ -109,7 +125,7 @@ def diagnose(report: dict[str, Any], *, kind: str | None = None, brief: str | No
     lufs = t["loudness"]["integrated"]
     if lufs > -120 and abs(lufs - target) > 2.0 and not sfx:
         findings.append(_f("loudness_off", "problem" if abs(lufs - target) > 4.0 else "note", "measured", "mix", f"{lufs} LUFS, the {kind} target is {target}",
-                           [{"action": "normalize", "kind": "dsp", "params": {"mode": "lufs", "target": target}, "why": "level only; nothing else changes"}]))
+                           [{"action": "normalize", "kind": "dsp", "params": {"mode": "lufs", "target": target, "ceiling_db": -1.5}, "why": "level only; nothing else changes"}]))
     if kind == "music" and t["crest_db"] < 8 and t["loudness"]["lra"] < 2:
         findings.append(_f("over_compressed", "problem", "estimated", "mix",
                            f"crest {t['crest_db']} dB and loudness range {t['loudness']['lra']} LU: no transients, no breathing",
@@ -128,8 +144,10 @@ def diagnose(report: dict[str, Any], *, kind: str | None = None, brief: str | No
         findings.append(_f("sub_rumble", "problem" if (shares["rumble"] > 0.6 or summ["centroid"] < 100) else "note", "estimated",
                            "sound_design" if kind == "ambience" else "mix",
                            f"{shares['rumble']:.0%} of the energy is below 80 Hz (centre {summ['centroid']:.0f} Hz): a rumble, not a place",
-                           [{"action": "highpass", "kind": "dsp", "params": {"hz": 90}, "why": "take the rumble out of the bus"},
-                            {"action": "relayer", "kind": "layer", "params": {"low_cut": 90}, "why": "re-render the beds with the bus low-cut"}]))  # fmt: skip
+                           ([{"action": "regenerate", "kind": "regenerate", "params": {"low_cut": 90}, "why": "nothing but rumble: there is no place under it for a filter to reveal"}]
+                            if shares["rumble"] > 0.9 else
+                            [{"action": "highpass", "kind": "dsp", "params": {"hz": 90}, "why": "take the rumble out of the bus"},
+                             {"action": "relayer", "kind": "layer", "params": {"low_cut": 90}, "why": "re-render the beds with the bus low-cut"}])))  # fmt: skip
     if shares["mud"] > 0.62 and kind == "music" and summ["bandwidth"] > 300:
         findings.append(_f("muddy", "problem", "estimated", "mix", f"{shares['mud']:.0%} of the energy sits in 200–500 Hz",
                            [{"action": "peak_eq", "kind": "dsp", "params": {"hz": 300, "q": 1.0, "gain_db": -3}, "why": "clear the low-mids"},
@@ -268,8 +286,9 @@ def diagnose(report: dict[str, Any], *, kind: str | None = None, brief: str | No
     if brief and ev:
         got = {e["label"] for e in ev.get("summary", []) if e["share"] >= 0.1}
         text = brief.lower()
-        wants = {"rain_like": "rain" in text, "wind": "wind" in text or "breeze" in text, "water_drips": "drip" in text,
-                 "footsteps": "footstep" in text or "boots" in text, "music": kind == "music"}  # fmt: skip
+        words = set(re.findall(r"[a-z]+", text))  # whole words: "window" is not wind, "drain" is not rain
+        wants = {"rain_like": bool(words & {"rain", "raining", "rainy", "downpour", "drizzle"}), "wind": bool(words & {"wind", "windy", "breeze", "gust", "gusts"}),
+                 "water_drips": bool(words & {"drip", "drips", "dripping"}), "footsteps": bool(words & {"footstep", "footsteps", "boots"}), "music": kind == "music"}  # fmt: skip
         missing = [k for k, w in wants.items() if w and k not in got]
         if missing:
             findings.append(_f("expected_sound_missing", "note", "estimated", "sound_design",

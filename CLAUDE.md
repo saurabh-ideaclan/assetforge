@@ -637,6 +637,15 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
 - Corpus and harness: `.dev/audio-lab/corpus.py` builds `corpus/` + `corpus.json` (labels, `expect`, `loop`);
   `run.py` → `results.json`. Known miss: a murmur 10 dB under wind. Known limits: the event signatures are patterns, not
   recognition; "repetitive" and "mechanical" are estimates; nothing measures whether a melody is good.
+- Demonstration (listen to it): `.dev/audio-intel-demo/make.py [fix|produce|page|<brief id>]` builds `demo.json` +
+  `index.html` (launch config `audio-intel-demo`, :8774). Part A runs `correct_file` on rejected story assets, a benchmark
+  render and constructed cases (before/after audio, spectrograms, findings, the comparison verdict, or "declined, because…");
+  Part B runs `produce_for_brief` in its own library (`lib/`, SoundFont + Silero linked) for four briefs, one of them a
+  constructed direction with the `crowd_murmur` bed under a "no people" brief. Rules the demo forced: the brief decides
+  whether voices belong (never the direction's bed names); `replace_segment` is declined when voice-like seconds cover more
+  than `MAX_PATCH_SHARE` (a layer, not a patch job) and donors must score ≤ `CLEAN_DONOR_SCORE`; a finding whose only option
+  is `regenerate` condemns the file, so no DSP is run on it; a seam level step gets a 500 ms crossfade (a click 120 ms);
+  expected sounds match whole words; `production._deep` measures the WAV master, not the OGG copy.
 
 ### Sharing (GitHub)
 

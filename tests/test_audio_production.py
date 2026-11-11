@@ -117,3 +117,16 @@ def test_studio_routes(server: AppServer, home: Path) -> None:
     assert g["references"][0]["asset_id"] == cand["asset_id"]
     _, m = jcall(server, f"/api/audio/measure/{cand['asset_id']}")
     assert m["measured"]["lufs"] and m["review"]["score"] >= 0
+
+
+def test_refinement_escalates_when_a_problem_survives_a_round() -> None:
+    """A change that did not move the measure is not repeated: the next round lowers the eventful bed, then drops it."""
+    d = pr.AmbienceDirection(beds=[{"bed": "rain", "level_db": -14}, {"bed": "fire_crackle", "level_db": -34}], events=[{"event": "drip", "rate": 2}])
+    prob = [{"code": "too_busy", "weight": 1.0, "refinement": quality.REFINEMENTS["too_busy"]["ambience"]}]
+    d1, c1 = pr.refine(d, prob)
+    assert any("event rates" in c for c in c1) and d1.events[0].rate == 1.2
+    d2, c2 = pr.refine(d1, prob, {"too_busy"})
+    assert c2 == ["too_busy: dropped the fire_crackle layer (its texture is the busyness)"] and [b.bed for b in d2.beds] == ["rain"]
+    m = pr.MusicDirection(percussion="light", energy=0.5)
+    m2, c3 = pr.refine(m, [{"code": "too_busy", "weight": 1.0, "refinement": quality.REFINEMENTS["too_busy"]["music"]}], {"too_busy"})
+    assert m2.percussion == "none" and m2.energy < 0.5 and c3

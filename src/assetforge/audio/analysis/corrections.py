@@ -20,6 +20,9 @@ from assetforge.audio.analysis import analyze_file, to_json
 from assetforge.audio.analysis.diagnose import diagnose, summarize
 
 # findings whose first correction is DSP, in a sensible chain order (filters before dynamics before loop)
+MAX_PATCH_SHARE = 0.25  # above this, voice-like seconds are a layer, not a patch job
+CLEAN_DONOR_SCORE = 0.35  # a donor second must itself be well under the voice-like threshold
+
 DSP_ORDER = ["dc_remove", "declick", "highpass", "lowpass", "peak_eq", "shelf", "dialogue_dip", "polarity", "narrow", "balance", "compress", "expand",
              "replace_segment", "reloop", "normalize", "gain"]  # fmt: skip
 
@@ -34,12 +37,15 @@ def plan_corrections(findings: list[dict[str, Any]], *, kind: str, prefer: str =
     regenerate: dict[str, Any] | None = None
     method: list[dict[str, Any]] = []
     reasons: list[str] = []
+    condemned: list[str] = []
     for f in findings:
         if f["severity"] == "note" and f["code"] not in ("harmonic_stasis",):
             continue
         options = f["corrections"]
         if not options:
             continue
+        if all(c["kind"] == "regenerate" for c in options):
+            condemned.append(f["code"])
         if prefer == "precise":
             ranked = sorted(options, key=lambda c: {"dsp": 0, "layer": 1, "composition": 2, "regenerate": 3, "method": 4}[c["kind"]])
         else:
@@ -70,31 +76,59 @@ def plan_corrections(findings: list[dict[str, Any]], *, kind: str, prefer: str =
         elif chosen["kind"] == "method":
             method.append(chosen)
         reasons.append(f"{f['code']} → {chosen['action']} ({chosen['why']})")
+    if condemned and dsp:
+        # polishing a file that has to be made again is wasted work and a false "improved": say so instead
+        reasons.append(f"DSP declined: {', '.join(condemned)} can only be fixed by regenerating, so the other corrections wait for the new render")
+        dsp = []
     dsp.sort(key=lambda o: DSP_ORDER.index(o["op"]) if o["op"] in DSP_ORDER else 99)
     # a LUFS normalise at the end keeps the level honest after filters and dynamics changed it
     if dsp and not any(o["op"] == "normalize" for o in dsp):
         from assetforge.audio.master import LOUDNESS_TARGETS
 
         dsp.append({"op": "normalize", "mode": "lufs", "target": LOUDNESS_TARGETS.get(kind, -16.0), "ceiling_db": -1.5})
-    return {"dsp": dsp, "composition": composition, "layer": layer, "regenerate": regenerate, "method": method, "reasons": reasons}
+    out = {"dsp": dsp, "composition": composition, "layer": layer, "regenerate": regenerate, "method": method, "reasons": reasons}
+    if condemned:
+        out["declined"] = f"{', '.join(condemned)}: only a regeneration fixes this"
+    return out
 
 
 def fill_donors(plan: dict[str, Any], report: dict[str, Any]) -> dict[str, Any]:
     """`replace_segment` needs a donor: the cleanest second (lowest speech score, not silent) at least two
     seconds away from the patch, chosen from the report's speech timeline."""
     speech = (report.get("speech") or {}).get("segments", [])
-    if not speech:
+    patches = [op for op in plan["dsp"] if op.get("op") == "replace_segment"]
+    if not speech or not patches:
+        plan["dsp"] = [op for op in plan["dsp"] if op.get("op") != "replace_segment"]
         return plan
-    clean = sorted(speech, key=lambda s: s["score"])
-    for op in plan["dsp"]:
-        if op.get("op") == "replace_segment" and op.get("donor_start_s") is None:
+    # patching is for a few suspicious seconds in otherwise clean material. When the voice-like seconds cover a
+    # quarter of the file, the "clean" donors are the same layer at a lower score: copying them spreads the murmur
+    # around instead of removing it (measured on the Unrung square: 33 % → 13 %, still a finding). Decline, and say so.
+    total = max(speech[-1]["end_s"], 1e-9)
+    covered = max(sum(op["end_s"] - op["start_s"] for op in patches) / total, float((report.get("speech") or {}).get("voice_like_share") or 0.0))
+    if covered > MAX_PATCH_SHARE:
+        plan["dsp"] = [op for op in plan["dsp"] if op.get("op") != "replace_segment"]
+        plan["declined"] = (f"voice-like content in {covered:.0%} of the file is a layer, not a few seconds: "
+                            "patching would copy it around; drop the layer or regenerate")
+        plan["reasons"].append("replace_segment declined: " + plan["declined"])
+        _drop_lonely_normalize(plan)
+        return plan
+    clean = sorted((s for s in speech if s["score"] <= CLEAN_DONOR_SCORE), key=lambda s: s["score"])
+    for op in patches:
+        if op.get("donor_start_s") is None:
             length = op["end_s"] - op["start_s"]
             for s in clean:
                 if abs(s["start_s"] - op["start_s"]) >= 2.0 and s["end_s"] - s["start_s"] >= length:
                     op["donor_start_s"] = s["start_s"]
                     break
     plan["dsp"] = [op for op in plan["dsp"] if not (op.get("op") == "replace_segment" and op.get("donor_start_s") is None)]
+    _drop_lonely_normalize(plan)
     return plan
+
+
+def _drop_lonely_normalize(plan: dict[str, Any]) -> None:
+    """The closing LUFS normalise only makes sense after another op changed the level."""
+    if plan["dsp"] and all(op.get("op") == "normalize" for op in plan["dsp"]) and not any(r.startswith("loudness_off →") for r in plan["reasons"]):
+        plan["dsp"] = []
 
 
 def correct_asset(lib, asset_id: str, plan: dict[str, Any], *, label: str | None = None, variant: str | None = None) -> dict[str, Any] | None:
@@ -131,7 +165,7 @@ def correct_file(path: Path, out_path: Path, findings: list[dict[str, Any]], rep
     plan = fill_donors(plan_corrections(findings, kind=kind), report)
     ops = [{k: v for k, v in op.items() if v is not None} for op in plan["dsp"]]
     if not ops:
-        return {"plan": plan, "applied": False, "reason": "no DSP step in the plan (composition, layer or regeneration needed)"}
+        return {"plan": plan, "applied": False, "reason": plan.get("declined") or "no DSP step in the plan (composition, layer or regeneration needed)"}
     audio, enc = apply_ops(load(path), ops)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     encode(audio, out_path.with_suffix(""), {"format": "wav"})
