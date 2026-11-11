@@ -14,7 +14,7 @@ from typing import Any
 from assetforge.story import direction as creative
 from assetforge.story.models import Cast, NamingGuide, Outline, PlannedScene, Scene, StoryConfig, World
 
-PROMPT_VERSION = 4
+PROMPT_VERSION = 5
 
 
 def system(config: StoryConfig) -> str:
@@ -172,17 +172,34 @@ CHOICE_RULES = (
     "and in character for the protagonist; most options `set` a declared stat (relationship +1/-1, a personality "
     "axis, a flag). Mix flavour choices (how you say it), relationship choices, establishing choices (who you are) "
     "and tests (from chapter 3). Gate an option with `require` only at extremes (e.g. trust >= 4 or bold <= -2). "
-    "Never write more than ~150-200 words between two choices. Callbacks: lines with `when` conditions on stats set "
-    "in earlier chapters, so the player sees their choices mattered."
+    "Space choices about 200-300 words apart, never more than ~350. Before every choice the reader must already know "
+    "what is being decided, why it matters to the protagonist now and the immediate trade-off (what each option costs "
+    "or risks), from what the scene has shown; never require an unexplained rule to choose. After the choice, the "
+    "reactions show the immediate consequence. Callbacks: lines with `when` conditions on stats set in earlier "
+    "chapters, so the player sees their choices mattered."
 )
 LINES = (
     "LINES. Node kinds: `narrate` (text), `say` (speaker id, text, expression from that character's list, optional "
     "position left|center|right), `show`/`hide` (character id; show may set expression and position), `place` "
     "(location id, optional time and music, optional text: move to another place within the chapter; clears the "
     "stage), `music` (mood), `sfx` (cue: snake_case id, text: what it sounds like), `cg` (cg: snake_case id, text: a "
-    "full-screen illustration of a big moment; at most one per chapter), `set` (assign). Every box is 1-2 sentences "
-    "(at most ~30 words), as on a textbox; a reaction or expression on most lines. Show characters before they speak. "
-    "Write in second person for the protagonist's actions when narrating."
+    "full-screen illustration of a big moment; at most one per chapter), `set` (assign). A box is one to three "
+    "sentences, up to about 45 words; vary the length, and when one more sentence makes the moment clearer, write it. "
+    "A reaction or expression on most lines. Show characters before they speak. Perspective, always: second person, "
+    "present tense for narration ('You brace the shaft'); spoken lines carry the speaker, the protagonist's too."
+)
+CLARITY_RULES = (
+    "CLARITY WITHOUT SIMPLIFICATION. The reader has not read the bible. (1) A fictional term, rule or institution is "
+    "understood the first time the scene depends on it, through what people do and say (a clerk's board, a price "
+    "chalked up, a line someone would naturally say), never through a lecture; one sentence of plain context beats a "
+    "mystery nobody asked for. (2) Dialogue: every line answers the line before it, or the reader sees why it does "
+    "not; people speak plainly most of the time; no dramatic one-liners where a person would just talk; a frightened "
+    "person stumbles, a tired one answers short, an angry one interrupts. (3) Cause and effect: for every event, the "
+    "reader can tell what caused it, why now, how the protagonist understands it and what it changes; the next action "
+    "follows. (4) Emotion: show why the moment matters to the protagonist here, in his body or his words, not in a "
+    "biography. (5) Transitions: when place or time changes, the first line says where, when and who is there. (6) "
+    "Keep the mystery that creates curiosity ('why does his card say NULL when he can do the work?'); remove the "
+    "confusion that creates friction ('what is this trial and why does the clerk want the slip back?')."
 )
 
 
@@ -201,7 +218,7 @@ def _exit_rule(plan: PlannedScene) -> str:
 def scene_prompt(config: StoryConfig, world: World, cast: Cast, outline: Outline, plan: PlannedScene,
                  previous: list[str], written_before: Scene | None = None, note: str | None = None, *,
                  part: int = 1, parts: int = 1, so_far: list[Any] | None = None, upcoming: list[str] | None = None,
-                 decided: list[str] | None = None) -> str:  # fmt: skip
+                 decided: list[str] | None = None, knowledge: str = "") -> str:  # fmt: skip
     """One call of a chapter: the whole chapter (parts=1), or part `part` of its `parts` beat passes, continuing
     `so_far` (the nodes the earlier parts wrote). `upcoming` summarises the chapters this one leads to (so the
     writer does not write their events), `decided` lists flags earlier chapters can set (never offered again)."""
@@ -218,7 +235,10 @@ def scene_prompt(config: StoryConfig, world: World, cast: Cast, outline: Outline
                                "expressions": c.expressions} for c in on_stage]),  # fmt: skip
         LINES,
         CHOICE_RULES,
+        CLARITY_RULES,
     ]
+    if knowledge:
+        blocks.append(knowledge)
     ending = bool(plan.ending)
     words = max(150, round(config.chapter_words * 1.4) // (3 if ending else 1) // parts)  # Sonnet delivers ~70% of what is asked
     choices = max(1, math.ceil((1 if ending else config.chapter_choices) / parts))

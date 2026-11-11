@@ -620,6 +620,20 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   /api/stories/{id}/dynamics`, run actions `dynamics_plan` / `dynamics_estimate` (chapter); the story page's
   Dynamics tab (`dynamicsTab` in `views/story.js`: SVG line chart planned solid / estimated dashed, findings,
   milestones, the branching map with hover details). Tests: `tests/test_story_dynamics.py`.
+- **Narrative clarity** (`story/clarity.py`; owner's brief 2026-11-11: chapters were hard to follow although the plan
+  was sound). Three gates, because a coherent outline ≠ a readable script ≠ a playable experience: `reader_view(scene)`
+  is the chapter exactly as the player meets it (no ids, conditions, expressions; route-only lines marked), and every
+  audit reads only that; `terms_plan(ctx)` is the knowledge model (`clarity.json`: each fictional term, first chapter
+  needed, how it is introduced, what stays concealed) and `knowledge_block()` hands the writer the slice for the chapter
+  (met / introduce now / not yet); `audit(ctx, scene)` is the cold read (task `clarity.<scene>`, Sonnet when Claude is
+  signed in): ten first-reader answers per section, terms without context, dialogue continuity exchange by exchange,
+  motivation, choice stakes, continuity, emotion, intentional vs unintended mystery, verdict ok|revise, stored in
+  `clarity/<scene>.json`; `revise()` rewrites from `revision_note(report)` (Opus when signed in); `leaks()` is Stage H
+  (ids/conditions/markup in player text). `steps.write` → `_clarity_gate`: audit after the linter, one revision on
+  `revise`, kept only if it lints and reads no worse. Writer standards in `prompts.py` (PROMPT_VERSION 5): boxes 1–3
+  sentences up to ~45 words, choices 200–300 words apart with stakes shown first, `CLARITY_RULES` (terms in the
+  moment, every line answers the last, plain speech, cause and effect, emotion on the page, transitions), perspective
+  fixed as second person present with labelled speech (`clarity.PERSPECTIVE`). Tests: `tests/test_story_clarity.py`.
 - **Editorial evaluation** (`story/evaluate.py`, `evaluation.json`): the owner's fifteen questions (`QUESTIONS`) answered
   yes|partly|no with scene evidence and a targeted change per miss; task `evaluation` (kind in `HEAVY_KINDS`); run it on a
   different model from the writer (the Improve tab's card defaults to claude-cli opus). `summary()` counts and lists the

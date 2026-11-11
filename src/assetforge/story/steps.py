@@ -377,16 +377,20 @@ def write(ctx: Ctx, *, only: list[str] | None = None, rewrite: bool = False, wor
                             found.append(a.var)
         return found
 
+    from assetforge.story import clarity
+
     def one(planned: PlannedScene, worker: Ctx) -> list[str]:
-        """A chapter in 1-3 beat passes (a single call drifts short), then the linter, then one targeted repair."""
+        """A chapter in 1-3 beat passes (a single call drifts short), then the linter, then one targeted repair,
+        then the clarity gate: a cold read from the reader's view, and one revision when it says `revise`."""
         so_far = _story_so_far(plan, parent, planned.id)
         parts = 1 if planned.ending else parts_for(config)
         nodes: list[Node] = []
         upcoming, decided = upcoming_for(planned), decided_for(planned)
+        knowledge = clarity.knowledge_block(ctx.project, plan, planned.id)
         for part in range(1, parts + 1):
             task = f"scene.{planned.id}" + (f".p{part}" if parts > 1 else "")
             prompt = prompts.scene_prompt(config, world_, cast_, plan, planned, so_far, part=part, parts=parts,
-                                          so_far=nodes or None, upcoming=upcoming, decided=decided)  # fmt: skip
+                                          so_far=nodes or None, upcoming=upcoming, decided=decided, knowledge=knowledge)  # fmt: skip
             draft: SceneDraft = _ask(worker, task, prompt, SceneDraft,
                                      offline.scene(planned, cast_, config, part=part, parts=parts, variables=variables),
                                      fresh=fresh)  # fmt: skip
@@ -405,6 +409,7 @@ def write(ctx: Ctx, *, only: list[str] | None = None, rewrite: bool = False, wor
             else:
                 scene_fixes.append(f"linter repair kept the first version ({', '.join(_codes(report))})")
         ctx.project.save_scene(scene)
+        scene_fixes += _clarity_gate(worker, planned, numbers[planned.id], flags)
         return scene_fixes
 
     outcomes = _parallel(ctx, todo, one, workers=workers)
@@ -416,6 +421,53 @@ def write(ctx: Ctx, *, only: list[str] | None = None, rewrite: bool = False, wor
     result: dict[str, Any] = {"written": written, "kept": skipped, "fixes": fixes}
     result.update(assemble(ctx.project))
     return result
+
+
+def _clarity_gate(worker: Ctx, planned: PlannedScene, number: int, flags: set[str]) -> list[str]:
+    """Stage E-G of the clarity workflow: audit from the reader's view (Sonnet when Claude is signed in), revise once
+    on `revise` (Opus for the rewrite when signed in), keep the revision only if it still lints and reads better."""
+    from assetforge.story import clarity
+
+    config = worker.config
+    audit_kw, revise_kw = _clarity_models(worker)
+    try:
+        report = clarity.audit(worker, planned.id, **audit_kw)
+    except Exception as exc:  # noqa: BLE001 - the gate never loses a written chapter
+        return [f"clarity audit skipped: {type(exc).__name__}: {str(exc)[:120]}"]
+    fixes = [f"clarity: {report.verdict} ({len(clarity.problems(report))} points)"]
+    if report.verdict != "revise":
+        return fixes
+    before = worker.project.load_scene(planned.id)
+    try:
+        clarity.revise(worker, planned.id, report, **revise_kw)
+    except Exception as exc:  # noqa: BLE001
+        return fixes + [f"clarity revision failed: {type(exc).__name__}: {str(exc)[:120]}"]
+    after = worker.project.load_scene(planned.id)
+    lint_after = lint_scene(after, config, number, flags=flags)
+    try:
+        again = clarity.audit(worker, planned.id, fresh=True, **audit_kw)
+    except Exception:  # noqa: BLE001
+        again = None
+    kept = lint_after["ok"] and (again is None or len(clarity.problems(again)) <= len(clarity.problems(report)))
+    if not kept and before is not None:
+        worker.project.save_scene(before)
+        fixes.append("clarity revision discarded (it lint-failed or read no better)")
+    else:
+        fixes.append(f"clarity revision kept ({len(clarity.problems(report))} → {len(clarity.problems(again)) if again else '?'} points)")
+    return fixes
+
+
+def _clarity_models(worker: Ctx) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Sonnet audits, Opus revises, when Claude is signed in; otherwise the story's own plan does both."""
+    try:
+        from assetforge.llm import provider_chain
+
+        names = {p.name for p in provider_chain(None, worker.settings or load_settings(worker.lib.paths.home))}
+    except Exception:  # noqa: BLE001
+        names = set()
+    if "claude-cli" in names:
+        return {"provider": "claude-cli", "model": "sonnet"}, {"provider": "claude-cli", "model": "opus"}
+    return {}, {}
 
 
 def _codes(report: dict[str, Any]) -> list[str]:
