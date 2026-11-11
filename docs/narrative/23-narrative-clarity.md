@@ -139,3 +139,10 @@ worse (and tripped the wall-of-text rule), so they were discarded; the kept text
 and 7 (unpaid) with one section each the reader cannot follow and one choice without understood stakes. Next:
 re-plan chapter 5 as movements that introduce one new thing each, as was done for chapter 3, then write it fresh.
 The knowledge model now carries Director Pike and the stored claim at chapter 5.
+
+**Chapter 5, re-planned (later on 2026-11-11).** Both routes were re-planned as three movements (the pump room and
+the limit of six; the wall of still air and Idris naming it in plain words, never the word Calling; the summons
+and Director Pike explained in one breath before the recording choice) and written fresh through the gate. Result:
+rostered route `ok` at 2 points, unpaid route `ok` at 5, every section easy, every choice understood, no term
+without context, no knowledge-state violation. The pilot's six chapters now all pass the cold read on every
+section; chapters 2 and the shared route of 3 keep a `revise` verdict only by the strict three-note rule.
