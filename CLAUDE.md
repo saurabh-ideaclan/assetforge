@@ -634,6 +634,20 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   sentences up to ~45 words, choices 200–300 words apart with stakes shown first, `CLARITY_RULES` (terms in the
   moment, every line answers the last, plain speech, cause and effect, emotion on the page, transitions), perspective
   fixed as second person present with labelled speech (`clarity.PERSPECTIVE`). Tests: `tests/test_story_clarity.py`.
+- **Character acting** (`story/acting.py`, `acting.json`; owner's brief 2026-11-11: characters act, no emotion matrix). Per
+  character: an `ActingProfile` drafted from the Studio profile (`profile`, task `acting.profile.<cid>`, kind `acting` in
+  `HEAVY_KINDS`; proposed until approved); `analyze` reads the written chapters with the character's current sprite marked
+  (`acting_view`) plus existing sprites and their scene usage, gives a verdict per sprite and proposes `Performance`s (scene,
+  line range, moment, feeling, intent, counterpart, nine-part `Direction`, need reuse|face_only|new_pose, justification);
+  `decide` approve|modify|reuse|dismiss, where approve retargets the lines to the performance name and registers it as an
+  expression; `directions()` feeds `assets.manifest(acting=…)` so the manifest asks for exactly the sprites scenes use with
+  the acting brief (reuse directions brief unmade sprites too); `generate(pid)` makes one approved gap from the master.
+  Routes `GET /api/stories/{id}/acting[?character=]`, `POST …/acting/{cid}/profile`, `POST …/acting/performances/{pid}`;
+  run actions `acting_profile`, `acting_analyze`, `acting_generate`; Studio panel "Acting and performances" in
+  `views/characters.js`. Doc `docs/narrative/24-character-acting.md`; tests `tests/test_story_acting.py`.
+- Image prompts: `NO_TEXT` forbids lettering in any script and painted swatches; `art.render` names palette colours in words
+  (`_palette_words`), never hex (models paint hex lists as swatch strips); `transparency.remove_background` also removes
+  enclosed key-coloured pools ≥ `HOLE_MIN_PIXELS` with mean distance < `HOLE_MAX_MEAN` (arm gaps, keyed panels).
 - **Editorial evaluation** (`story/evaluate.py`, `evaluation.json`): the owner's fifteen questions (`QUESTIONS`) answered
   yes|partly|no with scene evidence and a targeted change per miss; task `evaluation` (kind in `HEAVY_KINDS`); run it on a
   different model from the writer (the Improve tab's card defaults to claude-cli opus). `summary()` counts and lists the

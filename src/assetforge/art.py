@@ -123,6 +123,27 @@ def _words(text: str) -> str:
     return text.replace("_", " ").strip().rstrip(".")
 
 
+def _palette_words(palette: list[str]) -> list[str]:
+    """`#1B1F2B` → "near-black navy": a coarse name plus a lightness/warmth hint, so the brief reads as prose."""
+    import colorsys
+
+    from assetforge.core.visual import color_name
+
+    out: list[str] = []
+    for hexcode in palette:
+        try:
+            rgb = tuple(int(hexcode.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+        except ValueError:
+            continue
+        h, s_, v = colorsys.rgb_to_hsv(*(c / 255 for c in rgb))
+        name = color_name(rgb)  # type: ignore[arg-type]
+        tone = "deep" if v < 0.35 else "pale" if v > 0.85 and s_ < 0.35 else "muted" if s_ < 0.4 else "rich"
+        word = f"{tone} {name}" if name not in ("black", "white", "gray") else name
+        if word not in out:
+            out.append(word)
+    return out
+
+
 def render(direction: ArtDirection, *, preset: Preset | None = None) -> str:
     """Prompt lines for a merged direction (empty string when there is nothing to say)."""
     d = direction
@@ -142,7 +163,8 @@ def render(direction: ArtDirection, *, preset: Preset | None = None) -> str:
         if value:
             lines.append(f"{label}: {_words(value)}.")
     if d.palette:
-        lines.append("Colour palette (keep to these hues): " + ", ".join(d.palette) + ".")
+        # named colours, never hex codes: image models paint hex lists as swatch strips inside the picture
+        lines.append("Colour palette (the hues of the scene itself, never painted as swatches): " + ", ".join(_palette_words(d.palette)) + ".")
     if d.detail:
         lines.append({"low": "Detail: low, simple readable forms.",
                       "medium": "Detail: moderate.",

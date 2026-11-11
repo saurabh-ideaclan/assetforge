@@ -586,3 +586,12 @@ ul.findings li.warning b { color: #b54708; } ul.findings li.note b { color: var(
 .eval-row.no { border-color: #b42318; } .eval-row.partly { border-color: #b54708; }
 .eval-q { font-weight: 600; }
 .tag.yes { color: #027a48; } .tag.partly { color: #b54708; } .tag.no { color: #b42318; }
+
+/* acting */
+.cs-sprites { display: flex; flex-wrap: wrap; gap: 10px; margin: 6px 0 12px; }
+.cs-sprite { width: 150px; padding: 6px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; }
+.cs-sprite img { width: 100%; height: 150px; object-fit: contain; background: var(--muted-bg); border-radius: 6px; }
+.cs-sprite-none { height: 150px; display: grid; place-items: center; color: var(--text-muted); background: var(--muted-bg); border-radius: 6px; }
+.cs-sprite.good { border-color: #027a48; } .cs-sprite.bad { border-color: #b42318; }
+.cs-perf { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; margin: 8px 0; }
+.cs-perf.proposed { border-color: #b54708; } .cs-perf.dismissed { opacity: 0.6; }

@@ -53,7 +53,10 @@ def story_key(slug: str, *parts: str) -> str:
 
 
 def manifest(script: Script, config: StoryConfig, world: World | None, *, image_provider: str = "auto",
-             quality: str = "auto", sound_plan: SoundPlan | None = None) -> list[Item]:  # fmt: skip
+             quality: str = "auto", sound_plan: SoundPlan | None = None,
+             acting: dict[tuple[str, str], str] | None = None) -> list[Item]:  # fmt: skip
+    """`acting` maps (character id, expression name) to a performance brief (`acting.directions`): those sprites are
+    requested with the acting direction instead of the generic "with a <name> expression" line."""
     slug, project, collection = config.slug, config.asset_project, f"vn-{config.slug}"
     tags = ["visual-novel", slug]
     items: list[Item] = []
@@ -85,9 +88,11 @@ def manifest(script: Script, config: StoryConfig, world: World | None, *, image_
         for expr in c.expressions[1:]:
             if expr not in used_expr.get(c.id, set()):
                 continue
-            image(story_key(slug, "char", c.id, expr), "expr", f"{c.name} ({expr})", AssetType.CHARACTER,
-                  f"{c.name} with a {expr.replace('_', ' ')} expression. Same character as the reference image: "
-                  "identical face, hair, outfit, body, pose, framing and scale; change only the facial expression.",
+            brief = (acting or {}).get((c.id, expr))
+            text = (f"{c.name}, performance '{expr.replace('_', ' ')}'. {brief} Full body, centred, nothing else in frame." if brief else
+                    f"{c.name} with a {expr.replace('_', ' ')} expression. Same character as the reference image: "
+                    "identical face, hair, outfit, body, pose, framing and scale; change only the facial expression.")
+            image(story_key(slug, "char", c.id, expr), "expr", f"{c.name} ({expr})", AssetType.CHARACTER, text,
                   aspect="2:3", transparent=True, refs=[base], name=f"{slug}_{c.id}_{expr}")  # fmt: skip
 
     used_times = _used_times(script)
@@ -248,8 +253,10 @@ def produce(lib: Library, project: StoryProject, *, only: list[str] | None = Non
             raise InvalidInputError(f"Unknown asset groups {sorted(unknown)}", known=sorted(ONLY))
     wants_sound = bool(groups & {"music", "ambience"})
     sound_plan, sound_note = load_sound_plan(lib, project, make=wants_sound and not dry_run, fresh=replan and wants_sound)
+    from assetforge.story import acting
+
     items = [i for i in manifest(script, config, world, image_provider=image_provider, quality=quality,
-                                 sound_plan=sound_plan) if i.group in groups]  # fmt: skip
+                                 sound_plan=sound_plan, acting=acting.directions(project)) if i.group in groups]  # fmt: skip
     if redo and not dry_run:
         from assetforge.core import review
 

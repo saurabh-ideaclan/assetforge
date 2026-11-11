@@ -29,7 +29,8 @@ from assetforge.story.models import StoryConfig
 from assetforge.story.project import StoryProject, register, registered
 
 ACTIONS = ("write", "improve", "check", "assets_plan", "assets", "export", "refine", "character", "alternatives", "concepts",
-           "audio_plan", "audio_make", "dynamics_plan", "dynamics_estimate", "evaluate")  # fmt: skip
+           "audio_plan", "audio_make", "dynamics_plan", "dynamics_estimate", "evaluate", "acting_profile", "acting_analyze",
+           "acting_generate")  # fmt: skip
 _tasks: dict[str, dict[str, Any]] = {}
 _busy: dict[str, str] = {}  # story id → running task id
 _lock = threading.Lock()
@@ -316,6 +317,36 @@ def register_routes(router: Router) -> None:  # noqa: C901 - one place for all s
         profile = characters.set_master(lib, project, req.match["cid"], str((req.body or {}).get("asset_id", "")))
         return {"profile": profile.model_dump(mode="json")}
 
+    @router.route("GET", r"/api/stories/(?P<sid>[a-z0-9-]+)/acting")
+    def story_acting(req: Request, lib: Library) -> dict[str, Any]:
+        from assetforge.story import acting
+
+        sid, project = _story(lib, req.match["sid"])
+        return acting.plan(lib, project, (req.query.get("character") or [None])[0])
+
+    @router.route("POST", r"/api/stories/(?P<sid>[a-z0-9-]+)/acting/(?P<cid>[a-z0-9_]+)/profile")
+    def story_acting_profile(req: Request, lib: Library) -> dict[str, Any]:
+        """patch fields, or set state approved|changes_requested|proposed with a note."""
+        from assetforge.story import acting
+
+        sid, project = _story(lib, req.match["sid"])
+        body = dict(req.body or {})
+        data = acting.set_profile(project, req.match["cid"], patch=dict(body.get("patch") or {}) or None, state=body.get("state") or None,
+                                  note=str(body.get("note", "")))  # fmt: skip
+        return {"profile": data.profiles[req.match["cid"]].model_dump(mode="json")}
+
+    @router.route("POST", r"/api/stories/(?P<sid>[a-z0-9-]+)/acting/performances/(?P<pid>[a-z0-9]+)")
+    def story_acting_decide(req: Request, lib: Library) -> dict[str, Any]:
+        """action approve | modify | reuse | dismiss (direction patch, reuse_sprite, note)."""
+        from assetforge.story import acting
+
+        sid, project = _story(lib, req.match["sid"])
+        body = dict(req.body or {})
+        data = acting.decide(project, req.match["pid"], str(body.get("action", "")), direction=dict(body.get("direction") or {}) or None,
+                             reuse_sprite=str(body.get("reuse_sprite", "")), note=str(body.get("note", "")))  # fmt: skip
+        perf = next(p for p in data.performances if p.id == req.match["pid"])
+        return {"performance": perf.model_dump(mode="json")}
+
     @router.route("GET", r"/api/stories/(?P<sid>[a-z0-9-]+)/characters/(?P<cid>[a-z0-9_]+)/consistency")
     def story_character_consistency(req: Request, lib: Library) -> dict[str, Any]:
         sid, project = _story(lib, req.match["sid"])
@@ -593,6 +624,25 @@ def _run_action(lib: Library, project: StoryProject, ctx: steps.Ctx, body: dict[
         if result.get("assembled"):
             result["export"] = export_story(lib, project, project.root / "build")
         return result
+    if action in ("acting_profile", "acting_analyze"):
+        from assetforge.story import acting
+
+        cid = str(body.get("character", ""))
+        if not cid:
+            raise InvalidInputError("Which character? Pass `character`")
+        if action == "acting_profile":
+            data = acting.profile(ctx, cid, fresh=bool(body.get("fresh")))
+        else:
+            scenes = [str(x) for x in (body.get("scenes") or [])]
+            data = acting.analyze(ctx, cid, scenes or None, fresh=bool(body.get("fresh")))
+        return {"acting": acting.plan(lib, project, cid)}
+    if action == "acting_generate":
+        from assetforge.story import acting
+
+        pid = str(body.get("performance", ""))
+        if not pid:
+            raise InvalidInputError("Which performance? Pass `performance`")
+        return acting.generate(lib, project, pid, quality=str(body.get("quality", "auto")), image_provider=str(body.get("image_provider", "auto")))
     if action == "evaluate":
         from assetforge.story import evaluate
 

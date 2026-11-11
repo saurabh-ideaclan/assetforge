@@ -104,11 +104,76 @@ export function charactersTab(root, data, sid, run, refresh) {
       p.reference ? h("div.help", `Master reference: ${p.reference.asset_id} · approved ${new Date(p.reference.at).toLocaleDateString()}${row.reference_stale ? " · the spec changed since: regenerate and re-approve" : ""}`) : h("div.help", "No master reference yet: generate candidates, pick one, and it becomes the reference every sprite and CG is made from."),
       h("div.row.wrap", nBox, gen), candidates, consistency), { open: true });
 
+    const acting = actingPanel(p);
+
     const impact = h("div.help");
     api(`/api/stories/${sid}/characters/${p.id}/impact`).then((i) => (impact.textContent = i.summary)).catch(() => {});
     card.append(h("div.cs-profile-head", h("h2", p.identity.name || p.id), h("span.tag", p.identity.role), h("span.help", `version ${p.version}`), impact),
-      ...sections, revise, visual);
+      ...sections, revise, visual, acting);
     return card;
+
+    // ---- acting: the profile, the sprites the chapters use, and the performances the story asks for
+    function actingPanel(p) {
+      const body = h("div", h("span.spinner"), " Reading the acting plan…");
+      const wrap = section("Acting and performances", body, { open: true, note: "story-driven" });
+      const FIELDS_A = [["resting_posture", "Resting posture"], ["mannerisms", "Mannerisms"], ["expression_style", "Expresses or suppresses"], ["presence", "Presence"],
+        ["gestures", "Characteristic gestures"], ["under_stress", "Under stress"], ["development", "Over the arc"]];
+      const DIR = ["face", "eyes", "head", "shoulders", "torso", "hands", "weight", "intensity", "silhouette"];
+      async function postA(path, payload) {
+        try { const r = await api(`/api/stories/${sid}/acting${path}`, { method: "POST", body: payload }); toast("Saved"); await render(); return r; }
+        catch (err) { toast(err.message); }
+      }
+      async function render() {
+        let a;
+        try { a = (await api(`/api/stories/${sid}/acting?character=${p.id}`)).characters[0]; } catch (err) { body.replaceChildren(errorBox(err)); return; }
+        const prof = a.profile;
+        const profBtn = h("button.btn.small", { type: "button", onclick: async () => { profBtn.disabled = true; await run({ action: "acting_profile", character: p.id, fresh: !!prof }); toast("Drafting the acting profile; it appears here when ready"); } }, prof ? "Draft again" : "Draft the acting profile");
+        const values = { ...(prof || {}) };
+        const profForm = prof ? h("div", h("div.cs-sec-head", h("span.cs-state", { class: prof.state }, STATE[prof.state] || prof.state), prof.note ? h("span.help", ` · ${prof.note}`) : null,
+            prof.made_by?.provider ? h("span.help", ` · drafted by ${prof.made_by.provider} ${prof.made_by.model || ""}`) : null),
+          h("div.dir-grid", ...FIELDS_A.map(([k, label]) => { const el = h("textarea", { rows: 2, value: values[k] || "" }); el.addEventListener("input", () => (values[k] = el.value)); return field(label, el); }),
+            field("Around others", h("ul", ...(prof.around_others || []).map((o) => h("li", h("b", o.who), ": ", o.how)))),
+            field("Would never", h("ul", ...(prof.out_of_character || []).map((o) => h("li", o))))),
+          h("div.actions", h("button.btn.small.primary", { type: "button", onclick: () => postA(`/${p.id}/profile`, { patch: Object.fromEntries(FIELDS_A.map(([k]) => [k, values[k] || ""])), note: "edited" }) }, "Save changes"),
+            h("button.btn.small", { type: "button", onclick: () => postA(`/${p.id}/profile`, { state: prof.state === "approved" ? "proposed" : "approved" }) }, prof.state === "approved" ? "Reopen" : "Approve"),
+            h("button.btn.small", { type: "button", onclick: () => { const t = window.prompt("What should change?"); if (t) postA(`/${p.id}/profile`, { state: "changes_requested", note: t }); } }, "Request changes"), profBtn))
+          : h("div", h("p.help", "No acting profile yet: it is drafted from the approved identity, personality and arc, and every performance below follows it."), h("div.actions", profBtn));
+        // sprites the chapters use
+        const sprites = h("div.cs-sprites", ...a.sprites.map((s) => h("div.cs-sprite", { class: s.verdict ? (s.verdict.works ? "good" : "bad") : "" },
+          s.variant_id ? h("img", { src: thumbUrl(s.variant_id, 128), alt: s.expression, onerror: (e) => e.target.remove() }) : h("div.cs-sprite-none", "not made"),
+          h("div", h("b", s.expression), s.performance ? h("span.help", " · performance") : null),
+          h("div.help", s.scenes.length ? `used in ${s.scenes.join(", ")}` : "used in no written chapter"),
+          s.verdict ? h("div.help", { class: s.verdict.works ? "good" : "bad" }, `${s.verdict.works ? "works" : "does not work"}: ${s.verdict.note}`) : null)));
+        const analyze = h("button.btn.small.primary", { type: "button", disabled: !prof, onclick: async () => { analyze.disabled = true; await run({ action: "acting_analyze", character: p.id, fresh: !!a.analyzed }); toast("Reading the chapters for required performances; results appear here when ready"); } }, a.analyzed ? "Analyze the chapters again" : "Analyze the chapters");
+        // performances
+        const perfCard = (pf) => {
+          const dir = { ...pf.direction };
+          const dirForm = h("div.dir-grid", ...DIR.map((k) => { const el = h("input", { type: "text", value: dir[k] || "", disabled: pf.status !== "proposed" }); el.addEventListener("input", () => (dir[k] = el.value)); return field(k, el); }));
+          const actions = pf.status === "proposed" ? h("div.actions",
+            pf.need !== "reuse" ? h("button.btn.small.primary", { type: "button", onclick: () => postA(`/performances/${pf.id}`, { action: "approve", direction: dir }) }, pf.need === "face_only" ? "Approve (face on existing body)" : "Approve (new performance)") : null,
+            h("button.btn.small", { type: "button", onclick: () => { const sp = window.prompt("Reuse which existing sprite?", pf.reuse_sprite || "neutral"); if (sp) postA(`/performances/${pf.id}`, { action: "reuse", reuse_sprite: sp }); } }, "Reuse existing"),
+            h("button.btn.small", { type: "button", onclick: () => postA(`/performances/${pf.id}`, { action: "modify", direction: dir }) }, "Save direction"),
+            h("button.btn.small", { type: "button", onclick: () => { const t = window.prompt("Why dismiss?") || ""; postA(`/performances/${pf.id}`, { action: "dismiss", note: t }); } }, "Dismiss"))
+            : pf.status === "approved" && pf.need !== "reuse" ? h("div.actions", h("button.btn.small.primary", { type: "button", onclick: async (e) => { e.target.disabled = true; await run({ action: "acting_generate", performance: pf.id }); toast("Generating from the master reference"); } }, "Generate from the master"))
+            : null;
+          return h("div.cs-perf", { class: pf.status },
+            h("div", h("span.tag", { class: pf.status === "generated" ? "good" : pf.status === "dismissed" ? "" : "warn" }, pf.status), " ", h("b", `${pf.scene} · lines ${pf.where}`), h("span.help", ` · ${pf.need === "reuse" ? "reuse " + (pf.reuse_sprite || "existing") : pf.need === "face_only" ? "face change on " + (pf.reuse_sprite || "an existing body") : "new performance"} → ${pf.name}`)),
+            h("p", h("b", "Moment: "), pf.moment), h("p.help", h("b", "Feeling: "), pf.emotional_context, " · ", h("b", "Intent: "), pf.intent, pf.with_whom ? ` · with ${pf.with_whom}` : ""),
+            pf.need !== "reuse" ? dirForm : null,
+            h("p.help", h("b", "Why: "), pf.justification), actions);
+        };
+        const order = { proposed: 0, approved: 1, generated: 2, dismissed: 3 };
+        const perfs = [...a.performances].sort((x, y) => order[x.status] - order[y.status]);
+        body.replaceChildren(
+          h("div.lbl", "Acting profile"), profForm,
+          h("div.lbl", "Sprites the chapters use"), a.sprites.length ? sprites : h("p.help", "No sprites yet."),
+          h("div.row.wrap", analyze, h("span.help", a.analyzed ? `last analyzed ${new Date(a.analyzed).toLocaleString()}` : "The analysis reads every written chapter this character appears in and proposes only what the story needs.")),
+          h("div.lbl", `Performances (${a.proposed.length} to decide, ${a.missing.length} approved and not yet generated)`),
+          perfs.length ? h("div", ...perfs.map(perfCard)) : h("p.help", "None proposed yet."));
+      }
+      render();
+      return wrap;
+    }
   }
 }
 

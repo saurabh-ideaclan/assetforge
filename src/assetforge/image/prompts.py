@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from assetforge.core.models import ISOLATED_TYPES, AssetType, StyleProfile
 
-PROMPT_VERSION = 2
+PROMPT_VERSION = 3
 
 # Framing says what the asset is and how it sits in the frame. It deliberately says nothing about
 # the look (shapes, outlines, colours): that comes from the art direction, so styles stay distinct.
@@ -38,7 +38,8 @@ FRAMING: dict[AssetType, str] = {
     "frames.",
     AssetType.ANIMATION: "Animation frames for a game on an even grid with wide empty gaps between frames.",
 }
-NO_TEXT = "No text, letters, watermark or signature."
+NO_TEXT = ("No text, letters, lettering on signs, watermark or signature, in any script. Never paint colour swatches, "
+           "palette strips or hex codes into the picture: the palette is guidance for the colours of the scene itself.")
 
 DEFAULT_ASPECT: dict[AssetType, str] = {AssetType.BACKGROUND: "16:9", AssetType.CHARACTER: "2:3",
                                         AssetType.ENEMY: "2:3"}  # fmt: skip

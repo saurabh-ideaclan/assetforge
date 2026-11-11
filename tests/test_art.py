@@ -123,7 +123,7 @@ def test_generation_uses_profile_quality_and_metadata(lib):
                  purpose="common enemy of level 1")  # fmt: skip
     p = result.prompt
     assert "Purpose in the game: common enemy of level 1." in p and "A single enemy for a game" in p
-    assert "Mood: dark." in p and "#17212D" in p and "Do not include:" in p and "generic cubes" in p
+    assert "Mood: dark." in p and "Colour palette" in p and "#17212D" not in p and "Do not include:" in p and "generic cubes" in p
     assert "Made for a survival game with a derelict station theme." in p
     asset = lib.get_asset(result.assets[0].asset_id)
     assert (asset.type, asset.style, asset.genre, asset.theme) == ("enemy", "sci-fi", "survival", "derelict-station")

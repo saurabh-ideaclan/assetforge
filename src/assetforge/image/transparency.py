@@ -15,6 +15,8 @@ from scipy import ndimage
 
 HARD_THRESHOLD = 48.0  # RGB distance considered background
 SOFT_THRESHOLD = 110.0  # distance above which an edge pixel is fully opaque
+HOLE_MIN_PIXELS = 2000  # an enclosed key-coloured pool this big is background (an arm gap, a keyed panel), not a detail
+HOLE_MAX_MEAN = 30.0  # ... when its mean distance from the key is this close
 
 
 @dataclass(frozen=True)
@@ -44,9 +46,17 @@ def remove_background(image: Image.Image, key_hex: str | None = None) -> KeyResu
     border_dist = np.linalg.norm(border - bg, axis=1)
 
     near = dist < HARD_THRESHOLD
-    labels, _ = ndimage.label(near)
+    labels, count = ndimage.label(near)
     edge_labels = np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
     background = np.isin(labels, edge_labels[edge_labels > 0])
+    # Enclosed pools of the key colour (the gap between an arm and the body, a keyed panel the model painted inside a
+    # transparent frame) are background too, when they are plainly the key: large enough and close to it on average.
+    if count:
+        sizes = ndimage.sum(near, labels, index=np.arange(1, count + 1))
+        means = ndimage.mean(dist, labels, index=np.arange(1, count + 1))
+        enclosed = [i + 1 for i in range(count) if (i + 1) not in edge_labels and sizes[i] >= HOLE_MIN_PIXELS and means[i] < HOLE_MAX_MEAN]
+        if enclosed:
+            background |= np.isin(labels, enclosed)
 
     alpha = np.full((h, w), 255.0)
     alpha[background] = 0.0
