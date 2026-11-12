@@ -74,6 +74,9 @@ def default_dir(title: str) -> Path:
     return Path.cwd() / "story" / slugify(title)
 
 
+DEFAULT_SCREEN = "portrait"
+
+
 def init(directory: str | Path | None, *, title: str, premise: str, force: bool = False, **options: Any) -> StoryProject:
     slug = slugify(options.pop("slug", None) or title)
     if not slug:
@@ -81,7 +84,9 @@ def init(directory: str | Path | None, *, title: str, premise: str, force: bool 
     project = StoryProject(directory or default_dir(title))
     if project.has("config") and not force:
         raise ConflictError(f"A story already exists in {project.root}", hint="Pass --force to replace its config")
-    config = StoryConfig(title=title, slug=slug, premise=premise, **{k: v for k, v in options.items() if v is not None})
+    options = {k: v for k, v in options.items() if v is not None}
+    options.setdefault("screen", DEFAULT_SCREEN)  # stories are read in the mobile app, on a phone held upright
+    config = StoryConfig(title=title, slug=slug, premise=premise, **options)
     project.save("config", config)
     return project
 

@@ -61,10 +61,19 @@ class StoryConfig(Strict):
     direction: CreativeDirection | None = Field(None, description="Creative direction (audience, genre, world, naming, "
                                                                   "narrative style, art). None: the pre-direction behaviour")  # fmt: skip
     ai: ExecutionPlan | None = Field(None, description="This story's AI execution plan (overrides the library plan)")
+    screen: Literal["portrait", "landscape"] | None = Field(
+        None, description="The screen the story is read on. portrait = a phone held upright (the mobile app): every "
+                          "background, illustration and title is a tall 9:16 picture. None = a story made before this "
+                          "setting: landscape, with its prompts unchanged")  # fmt: skip
 
     @property
     def asset_project(self) -> str:
         return self.project or f"vn-{self.slug}"
+
+    @property
+    def screen_shape(self) -> str:
+        """portrait | landscape (stories from before the setting are landscape)."""
+        return self.screen or "landscape"
 
 
 class NamingGuide(Strict):

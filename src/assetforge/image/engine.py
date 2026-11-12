@@ -181,7 +181,7 @@ def prepare_call(provider: ImageProvider, model: str, inp: EngineInput, tmp: Pat
         native_transparency=caps.native_transparency, art_text=inp.art_text, palette=inp.palette,
         style_name=inp.style_name, profile=inp.profile, user_refs=len(inp.references), style_refs=len(style_refs),
         negative=inp.negative, raw=inp.raw_prompt, edit=inp.operation == "edit", sheet=inp.sheet,
-        purpose=inp.purpose,
+        purpose=inp.purpose, aspect=inp.aspect,
     )  # fmt: skip
     images = [Path(r.path) for r in [*required, *style_refs]]
     if inp.source and parts.key_colour:

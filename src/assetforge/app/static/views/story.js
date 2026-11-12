@@ -764,7 +764,18 @@ function settingsTab(root, data, sid, run) {
       data.names.place_names?.length ? h("p", h("b", "Places: "), data.names.place_names.join(", ")) : null,
       data.names.titles?.length ? h("p", h("b", "Titles: "), data.names.titles.join("; ")) : null,
       data.names.reserved?.length ? h("p", h("b", "Reserved: "), data.names.reserved.join(", ")) : null)) : null;
+  const scr = data.screen || { screen: c.screen || "landscape", wrong: [], checked: 0 };
+  const screenPick = h("select", { "aria-label": "Screen", onchange: async () => {
+    try { await api(`/api/stories/${sid}/settings`, { method: "POST", body: { screen: screenPick.value } }); toast("Screen saved", { kind: "good" }); }
+    catch (err) { toast(err.message); } } },
+    h("option", { value: "portrait", selected: scr.screen === "portrait" }, "Portrait (phone held upright)"),
+    h("option", { value: "landscape", selected: scr.screen === "landscape" }, "Landscape (wide)"));
+  const screenNote = scr.wrong?.length
+    ? h("div.dir-warn", `⚠ ${scr.wrong.length} of ${scr.checked} full-screen pictures were made in the other shape. Remake them from Art & sound (backgrounds, event art and the title).`)
+    : (scr.checked ? h("p.help", `All ${scr.checked} full-screen pictures match this screen.`) : null);
   root.append(
+    h("div.card", h("h3", "Screen"), h("p.help", "Where the story is read. Backgrounds, event art and the title are made in this shape (portrait: tall 9:16); the preview player uses it too."),
+      screenPick, screenNote),
     h("div.card", h("h3", "Creative direction"), dirSummary, dirWarnings, h("div.actions", editBtn), dirBox, names),
     h("div.card", h("h3", "Writer"), h("p.help", "Used for the next chapters, revisions and improvements."), writerBox),
     h("div.card.sub-card", h("h3", "Export for a game"),

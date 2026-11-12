@@ -226,4 +226,5 @@ def preview_data(lib: Library, project: StoryProject) -> dict[str, Any] | None:
     version = hashlib.sha256(json.dumps(script["scenes"], sort_keys=True).encode()).hexdigest()[:16]
     drafts = sum(1 for s in script["scenes"] if s.get("draft"))
     return {"format": "assetforge-vn-export/1", "logline": world.logline if world else "", "script": script,
+            "screen": project.config.screen_shape,
             "assets": library_assets(lib, project), "missing": [], "preview": drafts > 0, "version": version}  # fmt: skip

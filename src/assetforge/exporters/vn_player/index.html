@@ -102,6 +102,39 @@
   .h-narrate .h-text { font-style: italic; color: #e9e2d4; }
   .h-choice .h-text { font: 600 1.25cqw var(--ui); color: var(--ink-dim); }
   .h-empty { font-style: italic; color: var(--ink-dim); }
+  /* portrait stories (STORY.screen == "portrait"): a phone held upright. Sizes are shares of the narrow width. */
+  body.portrait #stage { width: min(100vw, 56.25vh); aspect-ratio: 9 / 16; }
+  body.portrait #chars .char { bottom: -5%; height: 66%; }
+  body.portrait .placeholder-bg { font-size: 6cqw; }
+  body.portrait .char-ph { font-size: 3.4cqw; }
+  body.portrait #cg .ph { padding: 10cqw; font-size: 4cqw; }
+  body.portrait #box { left: 3%; right: 3%; bottom: 2%; height: 26%; padding: 6cqw 5cqw 4cqw; border-radius: 3cqw; }
+  body.portrait #name { top: -3.6cqw; left: 4cqw; padding: 1cqw 3cqw; border-radius: 1.6cqw; font-size: 3.4cqw; }
+  body.portrait #text { font-size: 4.1cqw; line-height: 1.4; }
+  body.portrait #more { right: 4cqw; bottom: 2.5cqw; font-size: 3cqw; }
+  body.portrait #choices { gap: 3cqw; }
+  body.portrait .choice { width: 88cqw; padding: 3.2cqw 4.5cqw; font-size: 4cqw; border-radius: 2.4cqw; }
+  body.portrait .choice .n { margin-right: 2cqw; }
+  body.portrait .screen { gap: 3.6cqw; }
+  body.portrait .screen h1 { margin-bottom: 2cqw; padding: 0 5cqw; font-size: 9.5cqw; }
+  body.portrait .screen p { max-width: 86cqw; font-size: 3.8cqw; }
+  body.portrait .btn { min-width: 52cqw; padding: 2.4cqw 5cqw; font-size: 3.8cqw; }
+  body.portrait #menu { top: 2.5cqw; right: 2.5cqw; left: 2.5cqw; gap: 1.4cqw; flex-wrap: wrap; justify-content: flex-end; }
+  body.portrait #menu button, body.portrait #h-close, body.portrait #m-volumes > summary { font-size: 2.7cqw; padding: 1.1cqw 2.3cqw; }
+  body.portrait .vol-panel { border-radius: 2cqw; padding: 2.4cqw 3cqw; gap: 1.4cqw; min-width: 46cqw; }
+  body.portrait .vol-panel label { grid-template-columns: 16cqw 1fr; gap: 1.6cqw; font-size: 2.8cqw; }
+  body.portrait .tag { font-size: 2.4cqw; padding: .9cqw 2cqw; }
+  body.portrait #toast { top: 18cqw; max-width: 90cqw; padding: 1.4cqw 3.4cqw; font-size: 3cqw; }
+  body.portrait .kind { font-size: 3cqw; }
+  body.portrait #draft { top: 18cqw; left: 2.5cqw; max-width: 70cqw; padding: 1.1cqw 2.4cqw; border-radius: 1.6cqw; font-size: 2.6cqw; }
+  body.portrait #card { gap: 2cqw; }
+  body.portrait #card h2 { max-width: 88cqw; font-size: 8cqw; }
+  body.portrait .h-panel { width: 92cqw; height: 86%; padding: 4cqw 5cqw; border-radius: 3cqw; }
+  body.portrait .h-top { margin-bottom: 3cqw; }
+  body.portrait .h-top h2 { font-size: 3.2cqw; }
+  body.portrait #h-list { gap: 2.6cqw; padding-right: 2cqw; font-size: 3.8cqw; }
+  body.portrait .h-name { font-size: 2.8cqw; }
+  body.portrait .h-choice .h-text { font-size: 3.1cqw; }
 </style>
 </head>
 <body>
@@ -145,6 +178,7 @@
   "use strict";
   // All story text comes from a model: it only ever reaches the page through textContent / append, never innerHTML.
   const DATA = window.STORY;
+  if (DATA.screen === "portrait") document.body.classList.add("portrait");  // a phone held upright
   const S = DATA.script, A = DATA.assets || {}, slug = S.slug;
   const $ = (id) => document.getElementById(id);
   const key = (...parts) => ["vn", slug, ...parts].join("/");

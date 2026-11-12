@@ -707,6 +707,18 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   detail); `ok` = no hard violation, no logic fault, no readable text; `fix` remakes with the hard faults as feedback.
   CLI `story art-check`, run actions `visual_canon`, `art_check`, `art_fix`. `acting.directions`: a sprite reused across
   scenes is a general one (the master's stance, face only, no props); only approved poses are moment-specific.
+- **Portrait screen** (owner 2026-11-12: the stories are read in the mobile app, on a phone held upright, so every picture
+  is made for portrait). `StoryConfig.screen` portrait | landscape; `steps.init` makes new stories portrait; unset (stories
+  from before) = landscape with prompts byte for byte as they were. Portrait: backgrounds, time-of-day versions,
+  illustrations and the title are `9:16` with composition wording for a tall frame (`assets.PORTRAIT_BG/CG/TITLE`: features
+  in the upper two thirds and central band, lower third open for characters and the dialogue box), the dialogue box
+  `16:9`; sprites were already `2:3`. `image/prompts.framing()` gives tall backgrounds a tall framing sentence
+  (`PROMPT_VERSION` 4); `visual_canon.PORTRAIT_FRAME` makes the canon choose cameras for a tall frame (long things run away
+  from the viewer, not side to side). `assets.screen_report` lists full-screen pictures made in the other shape (story
+  detail `screen`, the Settings tab's Screen card, CLI `story screen [portrait|landscape]`, `story init --screen`);
+  remaking them is `story assets --only bg --only cg --only ui --redo` (paid, so only on the owner's word). The player
+  gets `STORY.screen` and has a `body.portrait` layout (9:16 stage, sizes as shares of the narrow width). Release image
+  variants already carry `layout` from the real pixels. Tests `tests/test_story_screen.py`.
 - **Story sound**: `audio_direction.apply` lets a planned one-shot cue adopt the writer's own sound line beside it (one
   each, within two nodes) so a sound never plays twice; recipe `steam_whistle` (presets one|two|three = blasts);
   `request.infer_preset` reads a recipe's own presets from the description first; `request.fingerprint` includes the

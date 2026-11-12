@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from assetforge.core.models import ISOLATED_TYPES, AssetType, StyleProfile
 
-PROMPT_VERSION = 3
+PROMPT_VERSION = 4
 
 # Framing says what the asset is and how it sits in the frame. It deliberately says nothing about
 # the look (shapes, outlines, colours): that comes from the art direction, so styles stay distinct.
@@ -38,6 +38,18 @@ FRAMING: dict[AssetType, str] = {
     "frames.",
     AssetType.ANIMATION: "Animation frames for a game on an even grid with wide empty gaps between frames.",
 }
+# A background asked for in a tall shape (a phone held upright) must not be told to compose wide.
+TALL_BACKGROUND = ("A game background scene with a tall upright composition and no characters, leaving clear space in the "
+                   "lower part of the frame.")
+TALL_ASPECTS = ("9:16", "2:3", "3:4")
+
+
+def framing(asset_type: AssetType, aspect: str | None = None) -> str:
+    if asset_type == AssetType.BACKGROUND and aspect in TALL_ASPECTS:
+        return TALL_BACKGROUND
+    return FRAMING[asset_type]
+
+
 NO_TEXT = ("No text, letters, lettering on signs, watermark or signature, in any script. Never paint colour swatches, "
            "palette strips or hex codes into the picture: the palette is guidance for the colours of the scene itself.")
 
@@ -162,6 +174,7 @@ def build_prompt(
     edit: bool = False,
     sheet: SheetSpec | None = None,
     purpose: str | None = None,
+    aspect: str | None = None,
 ) -> PromptParts:
     palette = list(palette or (profile.palette if profile else []))
     key_hex = None
@@ -179,7 +192,7 @@ def build_prompt(
     if sheet is not None:
         parts.append(sheet_text(sheet))
     elif not edit and asset_type in FRAMING:
-        parts.append(FRAMING[asset_type])
+        parts.append(framing(asset_type, aspect))
     art = art_text or style_text(style_name, profile, has_style_refs)
     if art:
         parts.append(art)

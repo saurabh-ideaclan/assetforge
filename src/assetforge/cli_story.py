@@ -92,6 +92,8 @@ def init_(
     preset: Annotated[str | None, typer.Option(help="Creative-direction preset (`story presets`).")] = None,
     direction: Annotated[str | None, typer.Option(help="Creative direction as JSON, or @file.json/@file.yaml; "
                                                        "fields override the preset.")] = None,  # fmt: skip
+    screen: Annotated[str, typer.Option(help="portrait (a phone held upright: the mobile app) or landscape. Backgrounds, "
+                                             "illustrations and title art are made in that shape.")] = "portrait",  # fmt: skip
     provider: Provider = None,
     model: Model = None,
     force: Annotated[bool, typer.Option(help="Replace an existing story.json.")] = False,
@@ -105,7 +107,7 @@ def init_(
         proj = steps.init(directory, title=title, premise=premise, force=force, genre=genre, audience=audience,
                           language=language, tone=tone, behaviour=behaviour, scenes=scenes, endings=endings,
                           chapter_words=chapter_words, chapter_choices=chapter_choices, art_style=style, project=project, provider=provider, model=model,
-                          direction=resolved)  # fmt: skip
+                          direction=resolved, screen=_screen(screen))  # fmt: skip
         config = proj.config
         register(s.lib.paths.home, proj)
         warnings = creative.warnings(resolved) if resolved else []
@@ -163,6 +165,44 @@ def presets_(
                 c.print(f"[bold]{p['name']}[/bold] ({p['source']}): {escape(p['summary'] or p['title'])}")
 
         s.out.emit({"presets": items}, human)
+
+
+def _screen(value: str) -> str:
+    if value not in ("portrait", "landscape"):
+        raise InvalidInputError("screen must be portrait or landscape")
+    return value
+
+
+@story_app.command("screen")
+def screen_(
+    ctx: typer.Context,
+    shape: Annotated[str | None, typer.Argument(help="portrait or landscape; leave out to see the current one.")] = None,
+    directory: Dir = None,
+    json_: JsonOpt = False,
+) -> None:
+    """Show or set the screen the story is read on. portrait = a phone held upright (the mobile app): backgrounds,
+    illustrations and title art are tall 9:16 pictures. Pictures already made in the other shape are listed; remake
+    them with `story assets --only bg --only cg --only ui --redo` (paid)."""
+    from assetforge.story.assets import screen_report
+
+    with session(ctx, json_) as s:
+        proj = find_dir(directory)
+        register(s.lib.paths.home, proj)
+        if shape is not None:
+            proj.save("config", proj.config.model_copy(update={"screen": _screen(shape)}))
+        report = screen_report(s.lib, proj)
+
+        def human(c: Console) -> None:
+            c.print(f"Screen: [bold]{report['screen']}[/bold]" + ("" if report["set"] else " (made before this setting)"))
+            if report["wrong"]:
+                c.print(f"{len(report['wrong'])} of {report['checked']} full-screen pictures are in the other shape:")
+                for w in report["wrong"]:
+                    c.print(f"  {escape(w['label'])}  {w['width']}x{w['height']}")
+                c.print("Remake them (paid): assetforge story assets --only bg --only cg --only ui --redo")
+            elif report["checked"]:
+                c.print(f"All {report['checked']} full-screen pictures match.")
+
+        s.out.emit(report, human)
 
 
 @story_app.command("direction")

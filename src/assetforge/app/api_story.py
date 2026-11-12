@@ -598,6 +598,9 @@ def register_routes(router: Router) -> None:  # noqa: C901 - one place for all s
             data["direction"] = {"summary": creative.summary(project.config.direction),
                                  "warnings": creative.warnings(project.config.direction)}  # fmt: skip
         data["cover"] = (library_assets(lib, project).get(f"vn/{project.config.slug}/ui/title") or {}).get("image")
+        from assetforge.story.assets import screen_report
+
+        data["screen"] = screen_report(lib, project)
         data["written"] = {sid_: sc.model_dump(mode="json", exclude_none=True) for sid_, sc in project.scenes().items()}
         data["progress"] = progress(lib, project, with_assets=project.has("script"))
         data["workflow"] = workflow.status(lib, project, data["progress"])

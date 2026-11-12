@@ -68,7 +68,7 @@ def export_story(lib: Library, project: StoryProject, out: str | Path, *, includ
         exported = {"files": len(result.files), "counts": result.counts, "warnings": result.warnings}
         missing += [by_asset[s["asset_id"]] for s in skipped if s.get("asset_id") in by_asset]
 
-    data = {"format": "assetforge-vn-export/1", "logline": world.logline if world else "",
+    data = {"format": "assetforge-vn-export/1", "logline": world.logline if world else "", "screen": config.screen_shape,
             "script": script.model_dump(mode="json", exclude_none=True), "assets": files, "missing": sorted(set(missing))}  # fmt: skip
     if not dry_run:
         text = json.dumps(data, ensure_ascii=False, indent=1)

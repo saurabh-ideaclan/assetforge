@@ -97,6 +97,16 @@ def usage(script: Script, location: str) -> list[str]:
     return unique[:MAX_USAGE]
 
 
+PORTRAIT_FRAME = (
+    "THE FRAME: every background and illustration is painted for a phone held upright, a TALL 9:16 picture, about "
+    "half as wide as it is high. Write each `geometry` for that frame: pick a camera that works in a tall picture and "
+    "say what fills the top, the middle and the bottom of it. Long things (a train, a corridor, a street, a ship) are "
+    "seen along their length, running away from the viewer up the frame, not side-on from left to right: a side view "
+    "needs width the frame does not have. Height is free (sky, ceilings, towers, cliffs, stairs); width is scarce. "
+    "The lowest third is floor or ground where characters stand and the dialogue box sits, so nothing the story needs "
+    "to show goes there or at the far left and right edges.")
+
+
 def prompt(project: StoryProject, script: Script) -> str:
     world = project.load("world") if project.has("world") else None
     direction = project.config.direction
@@ -120,6 +130,7 @@ def prompt(project: StoryProject, script: Script) -> str:
         "- Motion: blur only what is close to a moving viewer; the distance stays sharp.\n"
         "- `props`: recurring objects or effects that must look the same everywhere.\n"
         "- Never ask for text, lettering, signs with words or numbers in an image.",
+        *([PORTRAIT_FRAME] if project.config.screen_shape == "portrait" else []),
         f"WORLD\nSetting: {world.setting if world else ''}\nRules: {world.rules if world else ''}\n"
         f"Art direction: {world.art_direction if world else ''}",
     ]

@@ -2,8 +2,8 @@
 
 Keys (all under the story's project, default `vn-<slug>`):
     vn/<slug>/char/<character>/<expression>    transparent sprite; neutral first, others edited from it
-    vn/<slug>/bg/<location>/<time>             16:9 background; first time first, others relit from it
-    vn/<slug>/cg/<id>                          16:9 event illustration, character sprites as references
+    vn/<slug>/bg/<location>/<time>             background (9:16 for portrait stories, else 16:9); first time first, others relit from it
+    vn/<slug>/cg/<id>                          event illustration (same shape), character sprites as references
     vn/<slug>/ui/{title,textbox,choice}        title art and dialogue UI
     vn/<slug>/music/<mood>  vn/<slug>/amb/<location>  vn/<slug>/sfx/<cue>
 
@@ -36,6 +36,18 @@ ONLY = {"chars": ("char", "expr"), "bg": ("bg", "bg_time"), "cg": ("cg",), "ui":
         "audio": ("music", "ambience", "sfx"), "music": ("music",), "ambience": ("ambience",), "sfx": ("sfx",)}  # fmt: skip
 LIGHT = {"day": "bright natural daylight", "evening": "warm orange sunset light, long shadows, lamps starting to glow",
          "night": "night: dark blue moonlit sky, warm artificial lights, deep shadows"}  # fmt: skip
+
+# Portrait stories (StoryConfig.screen == "portrait"): the picture fills a phone held upright. The dialogue box covers the
+# lowest quarter and characters stand in front of the lower half, so the place itself has to read in the upper part.
+PORTRAIT_BG = ("composed for a phone held upright (a tall 9:16 frame), eye-level: the place's defining features in the "
+               "upper two thirds and inside the central vertical band, so nothing important is lost at the left or right "
+               "edge; open floor or ground across the lower third where characters and the dialogue box will sit. "
+               "A complete tall view of the place, never a wide picture cropped or letterboxed.")
+PORTRAIT_CG = ("a tall 9:16 picture for a phone held upright, the subject large and inside the central vertical band, "
+               "nothing essential in the lowest quarter (the dialogue box covers it), composed vertically, never a wide "
+               "picture cropped or letterboxed")
+PORTRAIT_TITLE = (" A tall 9:16 picture for a phone held upright, composed vertically: the protagonist in the middle of "
+                  "the frame, the place rising behind and above.")
 MUSIC_MOOD = {"romantic": "peaceful", "eerie": "scary"}
 
 
@@ -63,6 +75,10 @@ def manifest(script: Script, config: StoryConfig, world: World | None, *, image_
 
     rules = world_block(canon)
     rules = f" {rules}" if rules else ""
+    # the screen the story is read on: portrait (a phone held upright) makes every full-screen picture a tall 9:16
+    # frame composed for it; landscape keeps the earlier 16:9 wording byte for byte
+    tall = config.screen_shape == "portrait"
+    full = "9:16" if tall else "16:9"
     slug, project, collection = config.slug, config.asset_project, f"vn-{config.slug}"
     tags = ["visual-novel", slug]
     items: list[Item] = []
@@ -109,13 +125,13 @@ def manifest(script: Script, config: StoryConfig, world: World | None, *, image_
         first = story_key(slug, "bg", loc.id, times[0])
         image(first, "bg", f"{loc.name} ({times[0]})", AssetType.BACKGROUND,
               f"{loc.name}: {location_text(canon, loc)} Visual novel background, {LIGHT[times[0]]}, no people, no text, "
-              f"eye-level wide view with room for characters in the foreground.{rules}",
-              aspect="16:9", transparent=False, name=f"{slug}_{loc.id}_{times[0]}")  # fmt: skip
+              + (PORTRAIT_BG if tall else "eye-level wide view with room for characters in the foreground.") + rules,
+              aspect=full, transparent=False, name=f"{slug}_{loc.id}_{times[0]}")  # fmt: skip
         for t in times[1:]:
             image(story_key(slug, "bg", loc.id, t), "bg_time", f"{loc.name} ({t})", AssetType.BACKGROUND,
                   f"The same place as the reference image ({loc.name}) at {t}: keep the exact composition, camera and "
                   f"every object; change only the lighting and sky to {LIGHT[t]}. No people, no text.{rules}",
-                  aspect="16:9", transparent=False, refs=[first], name=f"{slug}_{loc.id}_{t}")  # fmt: skip
+                  aspect=full, transparent=False, refs=[first], name=f"{slug}_{loc.id}_{t}")  # fmt: skip
 
     locs = {loc.id: loc for loc in script.locations}
     chars = {c.id: c for c in script.characters}
@@ -130,14 +146,14 @@ def manifest(script: Script, config: StoryConfig, world: World | None, *, image_
                 refs = [story_key(slug, "char", cid, "neutral") for cid in cast_ids][:3]
                 who = ", ".join(f"{chars[c].name} ({chars[c].look})" for c in cast_ids)
                 image(story_key(slug, "cg", node.cg), "cg", f"CG {node.cg}", AssetType.IMAGE,
-                      f"Visual novel event illustration (CG), cinematic full scene: {node.text or scene.title}. "
+                      f"Visual novel event illustration (CG), {PORTRAIT_CG if tall else 'cinematic full scene'}: {node.text or scene.title}. "
                       + (f"'You' in that description is {chars[cast_ids[0]].name}. " if you and cast_ids else "")
                       + f"Setting (its usual state; where the event described above differs, the event wins): "
                         f"{location_text(canon, loc, illustration=True) if loc else where}. Time of day: {when} ({LIGHT.get(when, LIGHT['day'])}). "
                       + (f"The only named people in the picture, matching the reference images: {who}. Nobody else from the "
                          "story's cast appears; unnamed people only where the description asks for them." if who
                          else "No named characters in the picture.") + rules,
-                      aspect="16:9", transparent=False, refs=refs, name=f"{slug}_cg_{node.cg}")  # fmt: skip
+                      aspect=full, transparent=False, refs=refs, name=f"{slug}_cg_{node.cg}")  # fmt: skip
 
     look = world.art_direction if world else ""
     leads = [story_key(slug, "char", c.id, "neutral") for c in script.characters[:2]]
@@ -145,11 +161,12 @@ def manifest(script: Script, config: StoryConfig, world: World | None, *, image_
           f"Title screen key art for the visual novel '{script.title}': "
           f"{world.logline if world else ''} The protagonist (first reference image) in the story's defining place and "
           "action, large in the frame; a second lead (second reference image) only smaller and apart, never posed beside "
-          f"the protagonist as a pair. Clear space at the top for a logo. No text.{rules}", aspect="16:9", transparent=False, refs=leads,
+          f"the protagonist as a pair. Clear space at the top for a logo. No text.{PORTRAIT_TITLE if tall else ''}{rules}", aspect=full,
+          transparent=False, refs=leads,
           name=f"{slug}_title")  # fmt: skip
     image(story_key(slug, "ui", "textbox"), "ui", "Dialogue box", AssetType.UI,
           f"Empty visual novel dialogue box panel: a wide translucent dark panel with a thin ornamental border "
-          f"in this style: {look} No text, no characters, flat front view.", aspect="21:9", transparent=True,
+          f"in this style: {look} No text, no characters, flat front view.", aspect="16:9" if tall else "21:9", transparent=True,
           name=f"{slug}_textbox")  # fmt: skip
     image(story_key(slug, "ui", "choice"), "ui", "Choice button", AssetType.UI,
           f"Empty visual novel choice button: a wide rounded banner panel with a subtle frame in this style: {look} "
@@ -356,6 +373,37 @@ def produce(lib: Library, project: StoryProject, *, only: list[str] | None = Non
             "sound_plan": "story" if sound_plan else "guessed", "notes": [sound_note] if sound_note else [],
             "total": len(items), "counts": counts, "estimated_cost_usd": round(estimate, 4) if dry_run else None,
             "items": results}  # fmt: skip
+
+
+FULL_SCREEN = ("bg", "bg_time", "cg")  # plus the title art
+
+
+def screen_report(lib: Library, project: Any) -> dict[str, Any]:
+    """The story's screen and the full-screen pictures (backgrounds, illustrations, title) already made in the other
+    shape: a story switched to portrait keeps its wide pictures until they are remade (`story assets --redo`)."""
+    config = project.config
+    tall = config.screen_shape == "portrait"
+    out: dict[str, Any] = {"screen": config.screen_shape, "set": config.screen is not None, "checked": 0, "wrong": []}
+    if not project.has("script"):
+        return out
+    world = project.load("world") if project.has("world") else None
+    title = story_key(config.slug, "ui", "title")
+    for item in manifest(project.load("script"), config, world):
+        if item.group not in FULL_SCREEN and item.key != title:
+            continue
+        asset_id = by_key(lib, item.request)
+        if not asset_id:
+            continue
+        row = lib.conn.execute(
+            "SELECT f.width, f.height FROM assets a JOIN asset_variants v ON v.id = a.primary_variant_id "
+            "JOIN asset_files f ON f.sha256 = v.file_sha256 WHERE a.id = ?", (asset_id,)).fetchone()  # fmt: skip
+        if row is None or not row["width"] or not row["height"]:
+            continue
+        out["checked"] += 1
+        if (row["height"] > row["width"]) != tall:
+            out["wrong"].append({"key": item.key, "label": item.label, "group": item.group, "asset_id": asset_id,
+                                 "width": row["width"], "height": row["height"]})  # fmt: skip
+    return out
 
 
 def _resolve_refs(lib: Library, item: Item) -> tuple[list[str], list[str]]:
