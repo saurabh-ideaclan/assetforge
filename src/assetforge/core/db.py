@@ -313,9 +313,48 @@ SCHEMA_V6 = [
     """,
 ]
 
+# Durable records of long work (core/tasks.py): started by the app, the CLI or a script, visible in the app's Activity
+# centre, never left "running" after their process is gone (heartbeat + pid). Times are epoch seconds.
+SCHEMA_V7 = [
+    """
+    CREATE TABLE tasks (
+        id               TEXT PRIMARY KEY,
+        kind             TEXT NOT NULL,
+        title            TEXT NOT NULL DEFAULT '',
+        story            TEXT,
+        project          TEXT,
+        state            TEXT NOT NULL,
+        steps            TEXT NOT NULL DEFAULT '[]',
+        progress         REAL,
+        message          TEXT,
+        started_by       TEXT NOT NULL DEFAULT 'script',
+        pid              INTEGER,
+        host             TEXT,
+        command          TEXT,
+        request          TEXT,
+        locks            TEXT NOT NULL DEFAULT '[]',
+        cancellable      INTEGER NOT NULL DEFAULT 0,
+        retryable        INTEGER NOT NULL DEFAULT 0,
+        cancel_requested INTEGER NOT NULL DEFAULT 0,
+        error            TEXT,
+        result           TEXT,
+        result_link      TEXT,
+        log              TEXT NOT NULL DEFAULT '[]',
+        created_at       REAL NOT NULL,
+        started_at       REAL,
+        ended_at         REAL,
+        heartbeat_at     REAL,
+        updated_at       REAL NOT NULL,
+        rev              INTEGER NOT NULL DEFAULT 1
+    )
+    """,
+    "CREATE INDEX idx_tasks_state ON tasks (state)",
+    "CREATE INDEX idx_tasks_story ON tasks (story, state)",
+]
+
 # Append (version, statements) pairs; never edit a migration that has shipped.
 MIGRATIONS: list[tuple[int, list[str]]] = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4),
-                                           (5, SCHEMA_V5), (6, SCHEMA_V6)]  # fmt: skip
+                                           (5, SCHEMA_V5), (6, SCHEMA_V6), (7, SCHEMA_V7)]  # fmt: skip
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 
 

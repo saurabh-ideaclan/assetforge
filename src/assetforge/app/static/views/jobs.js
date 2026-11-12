@@ -1,5 +1,8 @@
 import { api, qs, h, fmt, badge, errorBox } from "/static/lib.js";
+import { rerender } from "/static/live.js";
 import { jobsTable } from "/static/views/overview.js";
+
+const parseHashJob = () => (location.hash.match(/^#\/jobs\/(job_\d+)/) || [])[1];
 
 export async function jobsView(root, { rest, params }) {
   const state = { status: params.get("status") || "", kind: params.get("kind") || "" };
@@ -13,12 +16,12 @@ export async function jobsView(root, { rest, params }) {
   root.append(h("div.page-head", h("div", h("h1", "Jobs"), h("div.sub", "Every generation run: what was asked, which provider answered, what it cost."))),
     h("div.toolbar", status, kind, h("button.btn", { onclick: load }, "Refresh")), detail, list);
 
-  async function load() {
-    list.innerHTML = "";
+  async function load(live = false) {
     try {
       const { jobs } = await api("/api/jobs" + qs({ status: state.status, kind: state.kind, limit: 200 }));
-      list.append(jobs.length ? jobsTable(jobs, (j) => (location.hash = `#/jobs/${j.id}`)) : h("div.empty", "No jobs."));
-    } catch (err) { list.append(errorBox(err)); }
+      const fill = (t) => t.replaceChildren(jobs.length ? jobsTable(jobs, (j) => (location.hash = `#/jobs/${j.id}`)) : h("div.empty", "No jobs."));
+      if (live) await rerender(list, fill); else fill(list);
+    } catch (err) { list.replaceChildren(errorBox(err), h("button.btn.small", { type: "button", onclick: () => load() }, "Retry")); }
   }
 
   async function show(id) {
@@ -42,5 +45,6 @@ export async function jobsView(root, { rest, params }) {
 
   await load();
   await show(rest[0]);
-  return { update: ({ rest: r }) => show(r[0]) };
+  // live: new jobs, status changes (any process); the open job's detail too
+  return { update: ({ rest: r }) => show(r[0]), topics: ["jobs"], refresh: async () => { await load(true); if (parseHashJob()) await show(parseHashJob()); } };
 }

@@ -65,6 +65,16 @@ class RawResponse:
 
 
 @dataclass
+class StreamResponse:
+    """A long-lived response written chunk by chunk (server-sent events). The handler releases its pooled catalog
+    connection before streaming; the iterator must not use it."""
+
+    chunks: Iterator[bytes]
+    mime: str = "text/event-stream; charset=utf-8"
+    on_close: Callable[[], None] | None = None
+
+
+@dataclass
 class Request:
     method: str
     path: str
@@ -113,7 +123,7 @@ class AppServer(ThreadingHTTPServer):
     allow_reuse_address = True
 
     def __init__(self, home: str | Path | None, router: Router, *, port: int = 0, token: str | None = None,
-                 verbose: bool = False) -> None:  # fmt: skip
+                 verbose: bool = False, recover: bool = True) -> None:  # fmt: skip
         super().__init__(("127.0.0.1", port), RequestHandler)
         self.router = router
         self.token = token or secrets.token_urlsafe(24)
@@ -124,6 +134,31 @@ class AppServer(ThreadingHTTPServer):
         self._pool.put(first)
         self._created = 1
         self._lock = threading.Lock()
+        self.recovered = self._recover(first) if recover else {}
+        from assetforge.app.feed import Feed
+
+        self.feed = Feed(self.home)
+        self.feed.start()
+
+    @staticmethod
+    def _recover(lib: Library) -> dict[str, Any]:
+        """A fresh server means nothing started by an earlier one is still running: requeue or fail expired and
+        orphaned jobs, and mark tasks whose process is gone `interrupted`."""
+        from assetforge.core import queue, tasks
+
+        out: dict[str, Any] = {}
+        try:
+            out["jobs"] = queue.recover(lib)
+        except AssetForgeError as exc:  # pragma: no cover - never block the app on recovery
+            out["jobs_error"] = exc.message
+        out["tasks"] = tasks.recover(lib)
+        return out
+
+    def server_close(self) -> None:
+        feed = getattr(self, "feed", None)
+        if feed is not None:
+            feed.stop()
+        super().server_close()
 
     @property
     def port(self) -> int:
@@ -218,6 +253,10 @@ class RequestHandler(BaseHTTPRequestHandler):
                 return self._send_file(result, method)
             if isinstance(result, RawResponse):
                 return self._send_raw(result, method)
+            if isinstance(result, StreamResponse):
+                return self._send_stream(result, extra_headers)
+            if method == "POST":
+                self.server.feed.poke()  # the app changed something: tell every open page now, not in a second
             self._send_json({"status": "ok", **result} if isinstance(result, dict) else {"status": "ok", "data": result},
                             200, extra_headers)  # fmt: skip
         except AssetForgeError as exc:
@@ -275,6 +314,26 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         if method != "HEAD":
             self.wfile.write(data)
+
+    def _send_stream(self, response: StreamResponse, headers: dict[str, str]) -> None:
+        self.close_connection = True
+        self.send_response(200)
+        self.send_header("Content-Type", response.mime)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self.send_header("X-Accel-Buffering", "no")
+        for k, v in headers.items():
+            self.send_header(k, v)
+        self.end_headers()
+        try:
+            for chunk in response.chunks:
+                self.wfile.write(chunk)
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+        finally:
+            if response.on_close:
+                response.on_close()
 
     def _send_raw(self, response: RawResponse, method: str) -> None:
         self.send_response(200)

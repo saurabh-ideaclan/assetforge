@@ -587,15 +587,34 @@ export async function assets(root, { rest, params }) {
         h("span.help", "Empty fields stay as they are; type - to clear a field.")), out);
   }
 
+  // Undo for reject and archive: put each asset back to the status it had (archive → restore; reject → its old status).
+  const BACK = { candidate: "candidate", approved: "approve", rejected: "reject", archived: "archive" };
+  async function undo(prev, action) {
+    try {
+      if (action === "archive") await api("/api/review/bulk", { method: "POST", body: { ids: [...prev.keys()], action: "restore" } });
+      else {
+        const groups = new Map();
+        for (const [id, st] of prev) { const a = BACK[st] || "candidate"; groups.set(a, [...(groups.get(a) || []), id]); }
+        for (const [a, ids] of groups) await api("/api/review/bulk", { method: "POST", body: { ids, action: a, force: true } });
+      }
+      toast(`Undone: ${prev.size} asset${prev.size === 1 ? "" : "s"} back as before`, { kind: "good" });
+      refreshCounts();
+      reload();
+    } catch (err) { toast(err.message, { kind: "bad" }); }
+  }
+  const statusOf = (id) => state.items.find((a) => a.id === id)?.status || "candidate";
+  const undoable = (action, prev) => (["reject", "archive"].includes(action) ? { actions: [{ label: "Undo", onclick: () => undo(prev, action) }] } : {});
+
   async function bulk(action, force = false) {
     const ids = [...picked];
     if (!ids.length) return;
     if (ids.length >= 20 && ["reject", "archive"].includes(action) && !confirm(`${action === "archive" ? "Archive" : "Reject"} ${ids.length} assets?`)) return;
+    const prev = new Map(ids.map((id) => [id, statusOf(id)]));
     try {
       const { review: r } = await api("/api/review/bulk", { method: "POST", body: { ids, action, force } });
       const n = action === "restore" ? Object.keys(r.restored || {}).length : ids.length;
       const verb = { approve: "approved", reject: "rejected", archive: "moved to the archive", restore: "restored", candidate: "sent back to review" }[action];
-      toast(`${n} asset${n === 1 ? "" : "s"} ${verb}`);
+      toast(`${n} asset${n === 1 ? "" : "s"} ${verb}`, undoable(action, prev));
       refreshCounts();
       picked.clear();
       editPanel.innerHTML = "";
@@ -609,9 +628,10 @@ export async function assets(root, { rest, params }) {
 
   async function review(action, force = false) {
     if (!state.selected) return;
+    const prev = new Map([[state.selected, statusOf(state.selected)]]);
     try {
       const { review: r } = await api(`/api/assets/${state.selected}/review`, { method: "POST", body: { action, force } });
-      toast(`${state.selected} ${r.status === "archived" ? "moved to the archive" : r.status}`);
+      toast(`${state.selected} ${r.status === "archived" ? "moved to the archive" : r.status}`, undoable(action, prev));
       refreshCounts();
       const reviewed = state.selected;
       const next = neighbour(1) !== reviewed ? neighbour(1) : neighbour(-1);
@@ -684,8 +704,8 @@ export async function assets(root, { rest, params }) {
 
   // New or changed assets (an agent or the CLI just made something): reload what is shown, in place,
   // keeping scroll, selection and picks; new cards get a brief highlight.
-  async function refresh({ assets: changed }) {
-    if (!changed || state.loading) return;
+  async function refresh() {
+    if (state.loading) return;
     const known = new Set(state.items.map((a) => a.id));
     const limit = Math.min(600, Math.max(PAGE, state.offset));
     const data = await api("/api/assets" + qs({ q: state.q, sort: state.sort, ...state.filters, offset: 0, limit }));
@@ -707,6 +727,7 @@ export async function assets(root, { rest, params }) {
   }
 
   return {
+    topics: ["library"],
     refresh,
     cleanup: () => {
       observer.disconnect();

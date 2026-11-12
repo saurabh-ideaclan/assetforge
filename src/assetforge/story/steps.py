@@ -460,7 +460,10 @@ def _clarity_gate(worker: Ctx, planned: PlannedScene, number: int, flags: set[st
 
 
 def _clarity_models(worker: Ctx) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Sonnet audits, Opus revises, when Claude is signed in; otherwise the story's own plan does both."""
+    """Sonnet audits, Opus revises, when Claude is signed in; otherwise the story's own plan does both.
+    A run that asked for the fake provider stays offline: it must never reach a signed-in CLI."""
+    if (worker.provider or worker.config.provider) == "fake":
+        return {}, {}
     try:
         from assetforge.llm import provider_chain
 

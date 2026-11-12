@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import threading
 import time
-import uuid
 from pathlib import Path
 from typing import Any
 
@@ -15,8 +14,6 @@ from assetforge.core.catalog import Library
 from assetforge.core.models import AssetPatch, Status
 from assetforge.errors import AssetForgeError, InternalError, InvalidInputError, NotFoundError
 
-_tasks: dict[str, dict[str, Any]] = {}
-_lock = threading.Lock()
 STEPS = ["Brief understood", "Direction prepared", "Existing approved assets checked", "Candidates rendered",
          "Quality review", "Refinement", "Candidates ready for listening"]  # fmt: skip
 
@@ -50,24 +47,22 @@ def register_routes(router: Router) -> None:
             raise InvalidInputError("kind must be music or ambience")
         if not str(body.get("brief", "")).strip() and not body.get("direction"):
             raise InvalidInputError("Give a brief or a direction")
-        task_id = uuid.uuid4().hex[:10]
-        task = {"id": task_id, "kind": kind, "state": "running", "started": time.time(), "step": 0, "steps": STEPS,
-                "label": "Brief understood", "result": None, "error": None, "name": body.get("name") or f"{kind}_{task_id[:4]}"}  # fmt: skip
-        with _lock:
-            _tasks[task_id] = task
-        threading.Thread(target=_work, args=(lib.paths.home, task_id, body), daemon=True).start()
-        return {"task_id": task_id, "task": _public(task)}
+        return start_production(lib, body)
 
     @router.route("GET", r"/api/audio/tasks/(?P<tid>[0-9a-f]+)")
     def audio_task(req: Request, lib: Library) -> dict[str, Any]:
-        task = _tasks.get(req.match["tid"])
-        if task is None:
-            raise NotFoundError("No such production run")
-        return {"task": _public(task)}
+        from assetforge.core import tasks
+
+        try:
+            return {"task": _public(tasks.get(lib, req.match["tid"]))}
+        except NotFoundError:
+            raise NotFoundError("No such production run") from None
 
     @router.route("GET", "/api/audio/tasks")
     def audio_tasks(req: Request, lib: Library) -> dict[str, Any]:
-        return {"tasks": [_public(t) for t in sorted(_tasks.values(), key=lambda t: -t["started"])[:20]]}
+        from assetforge.core import tasks
+
+        return {"tasks": [_public(t) for t in tasks.list_tasks(lib, kind="audio", limit=20, full=True)]}
 
     @router.route("POST", "/api/audio/approve")
     def audio_approve(req: Request, lib: Library) -> dict[str, Any]:
@@ -267,23 +262,47 @@ def register_routes(router: Router) -> None:
         return {"project": project, "kind": kind, "files": len(paths), "profile": prof, "described": describe(prof)}
 
 
+def start_production(lib: Library, body: dict[str, Any]) -> dict[str, Any]:
+    """Record a production run as a durable task and run it in a thread."""
+    from assetforge.core import tasks
+
+    kind = str(body.get("kind", "music"))
+    name = body.get("name") or f"{kind}_{time.strftime('%H%M%S')}"
+    body = {**body, "name": name}
+    task = tasks.create(lib, f"audio.{kind}", title=f"Produce {kind}: {str(body.get('brief') or name)[:60]}",
+                        project=body.get("project") or None, story=body.get("story") or None, started_by="app",
+                        request=body, steps=STEPS, retryable=True, result_link="#/audio?task={id}")  # fmt: skip
+    task.step(0)
+    threading.Thread(target=_work, args=(lib.paths.home, task, body), daemon=True, name=f"audio-{kind}").start()
+    return {"task_id": task.id, "task": _public(tasks.get(lib, task.id))}
+
+
+_LEGACY = {"queued": "running", "running": "running", "waiting": "done", "succeeded": "done", "failed": "failed",
+           "cancelled": "failed", "interrupted": "failed"}  # fmt: skip
+
+
 def _public(task: dict[str, Any]) -> dict[str, Any]:
-    return {k: v for k, v in task.items() if k != "result"} | {"result": task.get("result"), "elapsed": round(time.time() - task["started"])}
+    """The shape the studio has always read: state running|done|failed, step index, label, steps as labels."""
+    steps = task.get("steps") or []
+    current = next((i for i, s in enumerate(steps) if s.get("state") == "running"), None)
+    if current is None:
+        current = max((i for i, s in enumerate(steps) if s.get("state") == "done"), default=0)
+    request = task.get("request") or {}
+    return {"id": task["id"], "kind": task["kind"].removeprefix("audio."), "state": _LEGACY.get(task["state"], task["state"]),
+            "status": task["state"], "started": task["started_at"] or task["created_at"], "step": current,
+            "steps": [s.get("label") for s in steps] or STEPS, "label": steps[current]["label"] if steps else "",
+            "result": task.get("result"), "error": task.get("error"), "name": request.get("name"),
+            "elapsed": round(task["elapsed"]), "message": task.get("message")}  # fmt: skip
 
 
-def _work(home: Path, task_id: str, body: dict[str, Any]) -> None:
-    task = _tasks[task_id]
-
-    def step(i: int) -> None:
-        task["step"], task["label"] = i, STEPS[min(i, len(STEPS) - 1)]
-
+def _work(home: Path, task: Any, body: dict[str, Any]) -> None:
     try:
         with Library(home) as lib:
-            step(1)
+            task.step(1)
             direction = body.get("direction") or None
-            step(2)
+            task.step(2)
             result = production.produce_for_brief(
-                lib, str(body.get("brief", "")), kind=body["kind"], name=str(task["name"]), seed=int(body.get("seed") or 0),
+                lib, str(body.get("brief", "")), kind=body["kind"], name=str(body["name"]), seed=int(body.get("seed") or 0),
                 candidates=max(1, min(4, int(body.get("candidates") or 3))), project=body.get("project") or None,
                 context=body.get("context") or None, reference=body.get("reference") or None, direction=direction,
                 provider=body.get("provider") or None, model=body.get("model") or None, feedback=body.get("feedback") or None,
@@ -292,10 +311,13 @@ def _work(home: Path, task_id: str, body: dict[str, Any]) -> None:
                 a = lib.get_asset(c["asset_id"])
                 c["variant_id"] = a.primary_variant.id if a.primary_variant else None
                 c["name"] = a.name
-            step(6)
-            task["result"] = result
-            task["state"] = "done"
+            task.step(6)
+            task.succeed(result, message=f"{len(result['candidates'])} candidate(s) ready for listening")
     except AssetForgeError as exc:
-        task.update(state="failed", error=exc.to_dict())
+        task.fail(exc.to_dict())
     except Exception as exc:  # noqa: BLE001 - reported to the UI
-        task.update(state="failed", error=InternalError(f"{type(exc).__name__}: {exc}").to_dict())
+        task.fail(InternalError(f"{type(exc).__name__}: {exc}").to_dict())
+    finally:
+        if not task.ended:
+            task.succeed()
+        task.close()

@@ -1,9 +1,10 @@
 """Story endpoints for the desktop app: list/create stories, pick the writer (any signed-in subscription and any
 model it offers), run the long steps in the background, improve from feedback, and play the exported demo.
 
-Long work (writing, improving, assets, export) runs as an in-process task: POST returns `task_id`, the UI polls
-`GET /api/story-tasks/{id}`. One task per story at a time. Every model call is still a cached `text` job, so a
-task that dies part-way loses nothing (re-running continues).
+Long work (writing, improving, assets, export) runs as a durable task (core/tasks.py) in a background thread: POST
+returns `task_id`; the Activity centre and the change feed show it, and `GET /api/story-tasks/{id}` still answers in
+the old shape. Tasks on one story run side by side unless their `LOCKS` intersect; then the later one is queued.
+Every model call is still a cached `text` job, so a task that dies part-way loses nothing (re-running continues).
 """
 
 from __future__ import annotations
@@ -12,7 +13,6 @@ import json
 import mimetypes
 import threading
 import time
-import uuid
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +20,7 @@ from assetforge.app.server import FileResponse, Request, Router
 from assetforge.config import load_settings
 from assetforge.core.catalog import Library
 from assetforge.core.util import slugify
-from assetforge.errors import AssetForgeError, ConflictError, InternalError, InvalidInputError, NotFoundError
+from assetforge.errors import AssetForgeError, InternalError, InvalidInputError, NotFoundError
 from assetforge.llm import plans
 from assetforge.story import audio_direction, characters, workflow
 from assetforge.story import direction as creative
@@ -32,10 +32,92 @@ ACTIONS = ("write", "improve", "check", "assets_plan", "assets", "export", "refi
            "audio_plan", "audio_make", "dynamics_plan", "dynamics_estimate", "evaluate", "acting_profile", "acting_analyze",
            "acting_generate", "payoffs_draft", "rules_draft", "contract", "publish", "visual_canon", "art_check",
            "art_fix")  # fmt: skip
-_tasks: dict[str, dict[str, Any]] = {}
-_busy: dict[str, str] = {}  # story id → running task id
 _lock = threading.Lock()
 _providers_cache: dict[str, Any] = {}
+
+# What each action reads or writes in the story (the concurrency rule: intersecting locks queue; see core/tasks.py).
+LOCKS: dict[str, tuple[str, ...]] = {
+    "write": ("text", "cast", "workflow"), "improve": ("text",), "refine": ("text",), "alternatives": ("text",),
+    "check": ("text", "checks"), "evaluate": ("text", "evaluation"), "dynamics_plan": ("dynamics",),
+    "dynamics_estimate": ("dynamics",), "payoffs_draft": ("stakes",), "rules_draft": ("stakes",),
+    "character": ("cast",), "acting_profile": ("acting",), "acting_analyze": ("acting",), "acting_generate": ("art",),
+    "concepts": ("art", "cast"), "visual_canon": ("canon",), "art_check": ("visual_check",), "art_fix": ("art", "visual_check"),
+    "audio_plan": ("audio",), "audio_make": ("audio", "build"), "assets": ("art", "audio", "build"), "assets_plan": (),
+    "export": ("build",), "contract": ("releases",), "publish": ("releases",),
+}  # fmt: skip
+TITLES = {"write": "Write the story", "improve": "Improve from feedback", "refine": "Revise a chapter",
+          "alternatives": "Write alternatives", "check": "Continuity check", "evaluate": "Editorial evaluation",
+          "dynamics_plan": "Rate the plan (dynamics)", "dynamics_estimate": "Estimate a chapter's dynamics",
+          "payoffs_draft": "Draft the payoff ledger", "rules_draft": "Draft the rule registry", "character": "Revise a character",
+          "acting_profile": "Acting profile", "acting_analyze": "Analyse performances", "acting_generate": "Make a performance sprite",
+          "concepts": "Character concepts", "visual_canon": "Draft the visual canon", "art_check": "Check art logic",
+          "art_fix": "Remake an image", "audio_plan": "Plan a chapter's audio", "audio_make": "Make missing sounds",
+          "assets": "Make art & sound", "assets_plan": "Estimate art & sound", "export": "Export the demo",
+          "contract": "Compile a release", "publish": "Publish a release"}  # fmt: skip
+TABS = {"write": "chapters", "improve": "chapters", "refine": "chapters", "alternatives": "improve", "check": "improve",
+        "evaluate": "improve", "dynamics_plan": "dynamics", "dynamics_estimate": "dynamics", "payoffs_draft": "workflow",
+        "rules_draft": "workflow", "character": "characters", "acting_profile": "characters", "acting_analyze": "characters",
+        "acting_generate": "characters", "concepts": "characters", "visual_canon": "assets", "art_check": "assets",
+        "art_fix": "assets", "audio_plan": "chapters", "audio_make": "chapters", "assets": "assets", "assets_plan": "assets",
+        "export": "play", "contract": "settings", "publish": "settings"}  # fmt: skip
+# actions whose work goes through story model calls (TrackedCtx): they stop cleanly between calls
+CANCELLABLE = {"write", "improve", "refine", "alternatives", "check", "evaluate", "dynamics_plan", "dynamics_estimate",
+               "payoffs_draft", "rules_draft", "character", "acting_profile", "acting_analyze", "visual_canon",
+               "art_check", "audio_plan"}  # fmt: skip
+LEGACY_STATE = {"queued": "running", "running": "running", "waiting": "done", "succeeded": "done", "failed": "failed",
+                "cancelled": "failed", "interrupted": "failed"}  # fmt: skip
+
+
+def legacy_task(task: dict[str, Any] | None) -> dict[str, Any] | None:
+    """A task in the shape the story views have always read (`state` running|done|failed, `action`)."""
+    if task is None:
+        return None
+    return {**task, "action": task["kind"].removeprefix("story."), "status": task["state"],
+            "state": LEGACY_STATE.get(task["state"], task["state"]), "started": task["started_at"] or task["created_at"],
+            "finished": task["ended_at"]}  # fmt: skip
+
+
+def _link(sid: str, action: str, body: dict[str, Any]) -> str:
+    tab = TABS.get(action, "workflow")
+    chapter = body.get("scene") or body.get("chapter")
+    return f"#/story/{sid}/{tab}" + (f"?chapter={chapter}" if chapter and tab == "chapters" else "")
+
+
+def _title(project: StoryProject, action: str, body: dict[str, Any]) -> str:
+    base = TITLES.get(action, action)
+    extra = body.get("scene") or body.get("chapter") or body.get("character") or body.get("key") or ""
+    try:
+        name = project.config.title
+    except AssetForgeError:
+        name = project.root.name
+    return f"{base}{f' · {extra}' if extra else ''} — {name}"
+
+
+def start_story_task(home: Path, lib: Library, sid: str, body: dict[str, Any]) -> dict[str, Any]:
+    """Record the task (queued when a conflicting one is live on this story) and run it in a thread."""
+    from assetforge.core import tasks
+
+    _, project = _story(lib, sid)
+    action = str(body.get("action"))
+    with _lock:  # one decision at a time, so two clicks never both see "nothing conflicting"
+        probe = {"id": "", "story": sid, "locks": list(LOCKS.get(action, ())), "created_at": time.time() + 1}
+        blockers = tasks.conflicting(lib, probe)
+        task = tasks.create(home, f"story.{action}", title=_title(project, action, body), story=sid,
+                            project=_project_name(project), started_by="app", request=body, locks=LOCKS.get(action, ()),
+                            cancellable=action in CANCELLABLE, retryable=True, result_link=_link(sid, action, body),
+                            queued=bool(blockers))  # fmt: skip
+    threading.Thread(target=_work, args=(home, sid, project.root, task, body), daemon=True, name=f"story-{action}").start()
+    out: dict[str, Any] = {"task_id": task.id, "queued": bool(blockers)}
+    if blockers:
+        out["waiting_for"] = blockers[0]["title"]
+    return out
+
+
+def _project_name(project: StoryProject) -> str | None:
+    try:
+        return project.config.asset_project
+    except AssetForgeError:
+        return None
 
 
 def register_routes(router: Router) -> None:  # noqa: C901 - one place for all story routes
@@ -101,6 +183,9 @@ def register_routes(router: Router) -> None:  # noqa: C901 - one place for all s
         """Every story the library knows (app, CLI or agent), with live progress and a cover."""
         from assetforge.story.progress import library_assets, progress
 
+        from assetforge.core import tasks
+
+        live = {t["story"] for t in tasks.list_tasks(lib, states=tasks.LIVE, limit=100) if t["story"]}
         items = []
         for sid, root in sorted(registered(lib.paths.home).items()):
             project = StoryProject(root)
@@ -116,7 +201,7 @@ def register_routes(router: Router) -> None:  # noqa: C901 - one place for all s
                           "provider": config.provider, "model": config.model, "status": project.status(),
                           "progress": {k: prog[k] for k in ("stage", "steps", "active", "running", "eta_seconds",
                                                             "playable_chapters")},
-                          "busy": sid in _busy or prog["active"], "cover": cover,
+                          "busy": sid in live or prog["active"], "cover": cover,
                           "playable": prog["playable_chapters"] > 0,
                           "updated": max((p.stat().st_mtime for p in [*root.glob("*.json"), *root.glob("scenes/*.json")]),
                                          default=0)})  # fmt: skip
@@ -161,10 +246,18 @@ def register_routes(router: Router) -> None:  # noqa: C901 - one place for all s
                 continue
             sid, title = projects[req_data["project"]]
             busy.setdefault(sid, {"id": sid, "title": title, "running": 0})["running"] += 1
-        for sid, task_id in list(_busy.items()):
-            entry = busy.setdefault(sid, {"id": sid, "title": sid, "running": 0})
-            entry["task"] = _tasks.get(task_id, {}).get("action")
-        return {"stories": list(busy.values()), "running": sum(b["running"] for b in busy.values()) or len(busy)}
+        from assetforge.core import tasks
+
+        live = tasks.list_tasks(lib, states=tasks.LIVE, limit=100)
+        for t in live:
+            if not t["story"]:
+                continue
+            entry = busy.setdefault(t["story"], {"id": t["story"], "title": t["story"], "running": 0})
+            entry["task"] = t["kind"].removeprefix("story.")
+            if t["story"] in {sid for sid, _ in projects.values()}:
+                entry["title"] = next(title for sid, title in projects.values() if sid == t["story"])
+        return {"stories": list(busy.values()), "running": sum(b["running"] for b in busy.values()) or len(busy),
+                "tasks": tasks.counts(lib), "live": [{k: t[k] for k in ("id", "kind", "title", "story", "state", "message")} for t in live]}
 
     @router.route("GET", r"/preview/(?P<sid>[a-z0-9-]+)/(?P<path>.*)")
     def preview(req: Request, lib: Library) -> Any:
@@ -486,7 +579,7 @@ def register_routes(router: Router) -> None:  # noqa: C901 - one place for all s
     def story_detail(req: Request, lib: Library) -> dict[str, Any]:
         sid, project = _story(lib, req.match["sid"])
         data: dict[str, Any] = {"id": sid, "dir": str(project.root), "config": project.config.model_dump(mode="json"),
-                                "status": project.status(), "task": _task_for(sid)}  # fmt: skip
+                                "status": project.status(), "task": _task_for(lib, sid)}  # fmt: skip
         for part in ("world", "cast", "outline", "check"):
             if project.has(part):
                 data[part] = project.load(part).model_dump(mode="json", exclude_none=True)
@@ -551,26 +644,18 @@ def register_routes(router: Router) -> None:  # noqa: C901 - one place for all s
             raise InvalidInputError(f"action must be one of {ACTIONS}")
         if action == "improve" and not str(body.get("feedback", "")).strip() and not body.get("use_check"):
             raise InvalidInputError("Write some feedback first")
-        with _lock:
-            if sid in _busy:
-                raise ConflictError("This story is already working on something", task_id=_busy[sid])
-            task_id = uuid.uuid4().hex[:12]
-            _tasks[task_id] = {"id": task_id, "story": sid, "action": action, "state": "running",
-                               "started": time.time(), "result": None, "error": None}  # fmt: skip
-            _busy[sid] = task_id
-        threading.Thread(target=_work, args=(req.server.home, sid, project.root, task_id, body), daemon=True,
-                         name=f"story-{action}").start()  # fmt: skip
-        return {"task_id": task_id}
+        return start_story_task(req.server.home, lib, sid, body)
 
     @router.route("GET", r"/api/story-tasks/(?P<task>[0-9a-f]+)")
     def task_detail(req: Request, lib: Library) -> dict[str, Any]:
-        task = _tasks.get(req.match["task"])
-        if task is None:
-            raise NotFoundError("No such task (the app may have restarted)")
-        sid = task["story"]
-        root = registered(lib.paths.home).get(sid)
-        return {"task": {**task, "elapsed": round(time.time() - task["started"])},
-                "status": StoryProject(root).status() if root else None}  # fmt: skip
+        from assetforge.core import tasks
+
+        try:
+            task = tasks.get(lib, req.match["task"])
+        except NotFoundError:
+            raise NotFoundError("No such task") from None
+        root = registered(lib.paths.home).get(task["story"]) if task["story"] else None
+        return {"task": legacy_task(task), "status": StoryProject(root).status() if root else None}
 
     @router.route("GET", r"/play/(?P<sid>[a-z0-9-]+)/(?P<path>.*)")
     def play(req: Request, lib: Library) -> FileResponse:
@@ -613,33 +698,54 @@ def _story(lib: Library, sid: str) -> tuple[str, StoryProject]:
     return sid, StoryProject(root)
 
 
-def _task_for(sid: str) -> dict[str, Any] | None:
-    task_id = _busy.get(sid)
-    if task_id:
-        return _tasks[task_id]
-    done = [t for t in _tasks.values() if t["story"] == sid]
-    return max(done, key=lambda t: t["started"]) if done else None
+def _task_for(lib: Library, sid: str) -> dict[str, Any] | None:
+    """The story's live task (running first, then queued), else its newest one."""
+    from assetforge.core import tasks
+
+    items = tasks.list_tasks(lib, story=sid, limit=20, full=True)
+    for state in ("running", "queued"):
+        live = [t for t in items if t["state"] == state]
+        if live:
+            return legacy_task(live[-1])
+    return legacy_task(items[0]) if items else None
 
 
-def _work(home: Path, sid: str, root: Path, task_id: str, body: dict[str, Any]) -> None:
-    task = _tasks[task_id]
+def _work(home: Path, sid: str, root: Path, task: Any, body: dict[str, Any]) -> None:
+    from assetforge.core.tasks import TaskCancelled
+    from assetforge.errors import ProviderError
+    from assetforge.story.tracked import TrackedCtx
+
+    action = str(body["action"])
     try:
+        task.wait_turn()
+        task.check_cancel()
+        task.step(TITLES.get(action, action))
         with Library(home) as lib:
             project = StoryProject(root)
-            ctx = steps.Ctx(lib=lib, project=project, provider=body.get("provider") or None,
-                            model=body.get("model") or None, fresh=bool(body.get("fresh")),
-                            allow_paid=bool(body.get("allow_paid")))  # fmt: skip
-            task["result"] = _run_action(lib, project, ctx, body)
-            task["calls"] = ctx.calls
-            task["state"] = "done"
+            ctx = TrackedCtx(lib=lib, project=project, provider=body.get("provider") or None,
+                             model=body.get("model") or None, fresh=bool(body.get("fresh")),
+                             allow_paid=bool(body.get("allow_paid")), task=task)  # fmt: skip
+            result = _run_action(lib, project, ctx, body)
+            if isinstance(result, dict) and result.get("paused_at"):
+                task.wait_for_you(str(result.get("needs") or "Waiting for your approval"), result=result,
+                                  link=f"#/story/{sid}/workflow", calls=list(ctx.calls))  # fmt: skip
+            else:
+                task.succeed(result, calls=list(ctx.calls))
+    except TaskCancelled:
+        task.cancel_done()
+    except ProviderError as exc:
+        if exc.details.get("kind") == "needs_confirmation":
+            task.wait_for_you("A paid fallback is waiting for your yes (retry with paid steps allowed)", error=exc.to_dict())
+        else:
+            task.fail(exc.to_dict())
     except AssetForgeError as exc:
-        task.update(state="failed", error=exc.to_dict())
+        task.fail(exc.to_dict())
     except Exception as exc:  # noqa: BLE001 - reported to the UI
-        task.update(state="failed", error=InternalError(f"{type(exc).__name__}: {exc}").to_dict())
+        task.fail(InternalError(f"{type(exc).__name__}: {exc}").to_dict())
     finally:
-        task["finished"] = time.time()
-        with _lock:
-            _busy.pop(sid, None)
+        if not task.ended:
+            task.succeed()
+        task.close()
 
 
 def _run_action(lib: Library, project: StoryProject, ctx: steps.Ctx, body: dict[str, Any]) -> dict[str, Any]:

@@ -1,11 +1,16 @@
 // ⌘K command palette: jump to any page or story, search assets (with thumbnails), run common actions.
 import { api, h, thumbUrl, toast } from "/static/lib.js";
+import { tasks as currentTasks } from "/static/store.js";
+import { openDrawer } from "/static/activity.js";
+
+const STORY_TABS = [["workflow", "Workflow"], ["characters", "Characters"], ["dynamics", "Dynamics"], ["chapters", "Chapters"],
+  ["play", "Play"], ["assets", "Assets"], ["improve", "Improve"], ["settings", "Settings"]];
 
 const PAGES = [
   ["Overview", "#/overview", "◎"], ["Review candidates", "#/assets?status=candidate", "✓"], ["Assets", "#/assets", "▦"],
   ["Images", "#/assets?kind=image", "◧"], ["Sound", "#/assets?kind=audio", "♪"], ["Stories", "#/story", "✎"],
   ["Create an image", "#/generate?tab=image", "✦"], ["Create a sound", "#/generate?tab=sound", "♫"],
-  ["Art direction", "#/art", "◐"], ["Jobs", "#/jobs", "≡"], ["Usage & cost", "#/usage", "$"], ["Publishing", "#/backend", "⇪"],
+  ["Art direction", "#/art", "◐"], ["Jobs", "#/jobs", "≡"], ["Activity", "#activity", "◷"], ["Usage & cost", "#/usage", "$"], ["Publishing", "#/backend", "⇪"],
 ];
 
 let open = false;
@@ -49,10 +54,15 @@ async function show(actions) {
     const q = input.value.trim().toLowerCase();
     const match = (s) => !q || s.toLowerCase().includes(q);
     const groups = [
-      ["Pages", PAGES.filter(([t]) => match(t)).map(([t, href, ico]) => ({ title: t, ico, run: () => (location.hash = href), hint: "Go" }))],
+      ["Pages", PAGES.filter(([t]) => match(t)).map(([t, href, ico]) => ({ title: t, ico, run: () => (href === "#activity" ? openDrawer() : (location.hash = href)), hint: "Go" }))],
       ["Stories", stories.filter((s) => match(`${s.title} ${s.genre}`)).slice(0, 6).map((s) => ({
         title: s.title, sub: `${s.progress.steps.chapters[0]}/${s.progress.steps.chapters[1]} chapters · ${s.genre}`, ico: "✎",
         run: () => (location.hash = `#/story/${s.id}`), hint: "Open" }))],
+      ["Running tasks", (currentTasks().tasks || []).filter((t) => ["running", "queued", "waiting"].includes(t.state) && match(`${t.title} ${t.kind}`)).slice(0, 6)
+        .map((t) => ({ title: t.title, sub: `${t.state} · ${t.message || t.kind}`, ico: t.state === "waiting" ? "!" : "⟳", run: () => openDrawer(t.id), hint: "Show" }))],
+      ["Story tabs", q.length < 2 ? [] : stories.filter((s) => match(`${s.title} ${s.genre}`) || STORY_TABS.some(([, l]) => match(l))).slice(0, 3)
+        .flatMap((s) => STORY_TABS.filter(([, l]) => match(`${s.title} ${l}`) || match(l) || match(s.title)).map(([id, l]) => ({
+          title: `${s.title} › ${l}`, ico: "✎", run: () => (location.hash = `#/story/${s.id}/${id}`), hint: "Open" }))).slice(0, 10)],
       ["Assets", assets.map((a) => ({ title: a.name, sub: `${a.type} · ${a.status}${a.key ? " · " + a.key : ""}`,
         img: a.primary_variant?.file?.kind === "image" ? thumbUrl(a.primary_variant.id, 128) : null,
         ico: a.primary_variant?.file?.kind === "audio" ? "♪" : "▦", run: () => (location.hash = `#/assets/${a.id}`), hint: "Open" }))],

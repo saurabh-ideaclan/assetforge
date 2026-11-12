@@ -76,3 +76,21 @@ def test_leaks_find_ids_and_markup_in_player_text() -> None:
     ])
     found = clarity.leaks(scene, {"eli_hale": "Eli"})
     assert {f["line"] for f in found} == {0, 2}
+
+
+def test_a_fake_provider_run_never_picks_a_signed_in_cli(lib: Library, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The clarity gate prefers Claude (Sonnet audit, Opus revision) when it is signed in, but a run that asked for the
+    fake provider must stay offline: a manual `story write --provider fake` once reached the real CLI through it."""
+    import assetforge.llm as llm
+
+    class Signed:
+        name = "claude-cli"
+
+    monkeypatch.setattr(llm, "provider_chain", lambda *a, **k: [Signed()])
+    project = steps.init(tmp_path / "s", title="T", premise="A lighthouse keeper finds a letter.", scenes=3, endings=2)
+    real = steps.Ctx(lib=lib, project=project)
+    assert steps._clarity_models(real) == ({"provider": "claude-cli", "model": "sonnet"}, {"provider": "claude-cli", "model": "opus"})
+    offline = steps.Ctx(lib=lib, project=project, provider="fake")
+    assert steps._clarity_models(offline) == ({}, {})
+    configured = steps.init(tmp_path / "f", title="T", premise="A lighthouse keeper finds a letter.", scenes=3, endings=2, provider="fake")
+    assert steps._clarity_models(steps.Ctx(lib=lib, project=configured)) == ({}, {})

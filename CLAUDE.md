@@ -188,21 +188,53 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   validated first), `POST /api/collections/add`, `GET /api/asset-ids` (ids matching the browse filters; it can't
   live under `/api/assets/…`, which the detail route matches first); `/api/assets` hides archived unless `status=archived`
   (`review.restore` returns assets to their pre-archive status); reads are `GET /api/art`, `/api/assets/{id}/similar`, and `/api/assets` accepts
-  `color/orientation/tone/transparent/similar` (handled in `core/browse.py`). Live refresh: `GET /api/revision`
-  (asset/variant/event and job change markers) is polled every 3 s by `lib.watchLibrary` while the window is in
-  front; overview/jobs/usage re-render in place, assets reloads its grid keeping scroll/selection (new cards
-  highlighted), and form views (generate, sound, art) are never touched. Static files are served `no-cache`,
-  but Python changes need a server restart (relaunch the app).
+  `color/orientation/tone/transparent/similar` (handled in `core/browse.py`). Live data and tasks: see "App: live
+  data and tasks" below (`/api/revision` still answers but nothing in the app polls it). Static files are served
+  `no-cache`; Python changes need a server restart (relaunch the app), and open pages then offer to reload.
 - `macos/AssetForgeApp.swift`: Cocoa + WKWebView shell. It runs `python -m assetforge [--home LIB] ui --json
   --port 0 --parent-pid PID`, reads the first stdout line `{"url", "port", "token", "home"}`, and loads the URL.
   The library path is in UserDefaults `com.ideaclan.assetforge LibraryPath`. `app/installer.py` (`assetforge
   app install`) compiles it with swiftc and writes Info.plist, `Resources/launch.json` (venv python + repo),
   the icon (Pillow → iconutil) and an ad-hoc signature.
 - Dev loop: `.claude/launch.json` → `assetforge-ui` serves `.dev/live` on :8767 with token `dev`
-  (open `http://localhost:8767/?token=dev`).
+  (open `http://localhost:8767/?token=dev`); `app-dev` serves `.dev/app-lib` (fake providers) on :8776.
 - **Tests never call real APIs**: the autouse `no_real_providers` fixture in `tests/conftest.py` chdirs away from the
   repo `.env`, clears key variables, and makes `openai.OpenAI`/`genai.Client` raise. Keep it that way.
   Live checks go in `.dev/` with `ASSETFORGE_HOME=$PWD/.dev/live` and cost real money, so keep them minimal.
+
+### App: live data and tasks
+
+- Design and status: `docs/app/02-architecture.md` (brief: `docs/app/01-application-brief.md`).
+- `app/feed.py`: one watcher thread per server computes revision markers once a second while anyone listens (5 s
+  idle): `library`, `jobs`, `tasks`, `stories`, `publishing`, `logins`, `build`, and `story:<id>:<area>` for
+  text|cast|art|audio|checks|releases|workflow|settings|progress from the story folder's files (scandir + stat;
+  `AREAS`), story art = library assets keyed `vn/<slug>/…`, progress = the project's text jobs. Ring of 64 snapshots
+  by `seq`; app POSTs `poke()` it; it runs `tasks.recover()` every 10 s.
+- `app/api_live.py`: `GET /api/events` (SSE through `server.StreamResponse`: `hello`, `change`, `ping` every 15 s;
+  `?since=seq`), `GET /api/changes?since=` (same payload, polling fallback), `GET /api/version` (build = Python hash
+  at start + static signature re-checked every 2 s), `/api/tasks[/{id}[/cancel|retry|dismiss]]`.
+- `core/tasks.py` + schema v7 `tasks`: `track(lib, kind, title=, story=, project=, locks=, cancellable=, steps=,
+  request=, …)` / `create()`; states queued|running|waiting|succeeded|failed|cancelled|interrupted. Heartbeat thread
+  (own connection) every 4 s; `effective_state()` = interrupted when the heartbeat is > 30 s old or the pid is dead on
+  this host; `recover()` persists it and fails that task's still-running text jobs. `waiting` = stopped for a decision
+  (gate, paid fallback); superseded by a newer task of the same kind. Cancel is cooperative (`check_cancel()`);
+  queued tasks always cancel. **Concurrency:** tasks on one story with intersecting `locks` queue (`wait_turn`).
+- Registration: app story actions (`api_story.LOCKS/CANCELLABLE/TITLES/TABS`, `start_story_task`), Studio runs
+  (`api_audio.start_production`), CLI long commands (`cli_common.TRACKED`, in `session()`; backend only with `--yes`;
+  `started_by` cli or `$ASSETFORGE_STARTED_BY`), any script (`started_by` script). `story/tracked.py` `TrackedCtx`
+  (via `cli_story._tracked`) turns each model call into a step and checks cancel between calls; steps.py is untouched.
+  `AppServer` runs `queue.recover` + `tasks.recover` at start (`recover=False` to skip).
+- Page: `store.js` is the only listener (`connect`, `watch(topics, fn, {owner})`, scopes per view, `cached/load`,
+  `onTasks`, `waitTask`, `waitJob`, `onStatus`); `live.js` (`rerender` keeps typed text/focus/details/scroll and
+  defers while a field has focus; `data-live-key/sig/state` flash `af-new`/`af-changed`; `panel()` with Retry;
+  `confirmAction()`); `activity.js` (drawer, toasts, badges, offline/outdated banners, auto-reload when nothing is
+  typed or playing). Views return `{topics, refresh}` (or `{topics}` → the shell re-mounts in place). Deep links
+  `#/story/<id>/<tab>?chapter=&asset=&show=&panel=`; `?tab=` still works. No `setInterval` polls data any more.
+- Manual checks: `.dev/app-lib` with the kite-season copy and fake providers (launch config `app-dev`, :8776). The
+  clarity gate picks Sonnet/Opus on the signed-in claude CLI unless the run or the story asks for the `fake` provider
+  (`steps._clarity_models`); a manual `story write` without `--provider fake` therefore makes real model calls.
+- Background waits (agents too): never `until ! pgrep -f <name>` (the loop's own command line matches, so it never
+  ends); wait on a pid or a file, with a time limit.
 
 ### Discovery, art direction, reuse, sprites (post-v1)
 
@@ -412,8 +444,9 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
     `/api/stories` (GET list / POST create in `<library>/stories/<slug>`), `/api/stories/{id}` (detail),
     `/{id}/settings`, `/{id}/run` (`write|improve|refine|check|assets_plan|assets|export`), and
     `/play/{id}/…` (only files in `build/`).
-  - `/run` runs in-process tasks (one per story; `/api/story-tasks/{id}`), which re-export the demo after
-    writing, improving or making assets.
+  - `/run` starts a durable task (`api_story.start_story_task`; queued when its `LOCKS` meet a live task on the
+    story; `/api/story-tasks/{id}` keeps the old shape), which re-exports the demo after writing, improving or making
+    assets.
   - `story/project.register()` keeps `<library>/stories.json` (id → folder); CLI steps register too.
   - The UI lives in `views/story.js` (list + new story with a writer picker; detail tabs Script/Improve/Assets/Play with an iframe player).
 - `story/progress.py` builds the live view from the story files plus `generation_jobs` (kind `text`,

@@ -44,10 +44,22 @@ def _job_brief(job: Any) -> dict[str, Any]:
     return {
         "id": job.id, "kind": job.kind, "status": job.status.value, "provider": job.provider, "model": job.model,
         "asset_id": job.asset_id, "cost_usd": job.cost_usd, "attempts": job.attempts, "created_at": job.created_at,
-        "updated_at": job.updated_at, "error": job.error,
+        "updated_at": job.updated_at, "error": job.error, "stale": _stale(job),
         "summary": request.get("prompt") or request.get("description") or request.get("recipe")
         or (" · ".join(x for x in (request.get("project"), request.get("task")) if x) if job.kind == "text" else None),
     }  # fmt: skip
+
+
+def _stale(job: Any) -> bool:
+    """A job still marked running long after its last update: its process is gone (recovery marks it failed)."""
+    if job.status.value != "running" or not job.updated_at:
+        return False
+    import time
+
+    from assetforge.core.queue import ABANDON_AFTER_SECONDS
+    from assetforge.story.progress import _ts
+
+    return time.time() - _ts(job.updated_at) > ABANDON_AFTER_SECONDS
 
 
 # ---------------------------------------------------------------------- overview
@@ -663,3 +675,6 @@ _register_audio_routes(router)
 from assetforge.app.api_backend import register_routes as _register_backend_routes  # noqa: E402
 
 _register_backend_routes(router)
+from assetforge.app.api_live import register_routes as _register_live_routes  # noqa: E402
+
+_register_live_routes(router)

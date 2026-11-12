@@ -3,6 +3,7 @@
 // feedback in words, approve, and save approved pieces as the project's sound identity.
 import { api, h, toast, errorBox, section, field, segmented, playVariant, chipsInput } from "/static/lib.js";
 import { loadAI, modelSelect, pickerValue } from "/static/views/ai.js";
+import { watch } from "/static/store.js";
 
 const FEEDBACK = ["Too dramatic", "Too repetitive", "Doesn't feel medieval", "Too much percussion", "Not atmospheric enough",
                   "Sounds artificial", "Too distracting during dialogue", "Too dark", "Too bright", "Closer to the reference"];
@@ -115,9 +116,19 @@ export async function audioStudio(root, { params }) {
       st.task = r.task; drawRun(); poll(r.task_id);
     } catch (err) { toast(err.message); }
   }
+  // the run's progress comes through the change feed (topic `tasks`): no polling here
+  let stopWatching = null;
   function poll(id) {
-    const tick = async () => { try { const r = await api(`/api/audio/tasks/${id}`); st.task = r.task; drawRun(); if (r.task.state === "running") setTimeout(tick, 1500); } catch (err) { toast(err.message); } };
-    setTimeout(tick, 1200);
+    stopWatching?.();
+    const tick = async () => {
+      try {
+        const r = await api(`/api/audio/tasks/${id}`);
+        st.task = r.task; drawRun();
+        if (r.task.state !== "running") { stopWatching?.(); stopWatching = null; }
+      } catch (err) { toast(err.message); }
+    };
+    stopWatching = watch("tasks", tick, { debounce: 100 });
+    tick();
   }
   async function refine(feedback) {
     if (!feedback) return toast("Pick or write some feedback");
@@ -147,6 +158,7 @@ export async function audioStudio(root, { params }) {
 
   page.append(briefCard, dirCard, runCard, styleCard);
   drawDirection(); drawRun(); loadStyle();
+  if (params.get("task")) poll(params.get("task"));  // opened from the Activity centre: show that run
   if (st.brief) direct();
   return {};
 }

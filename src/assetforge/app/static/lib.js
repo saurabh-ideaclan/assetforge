@@ -93,13 +93,23 @@ export const fmt = {
 
 export const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
-let toastTimer;
-export function toast(message) {
-  const el = document.getElementById("toast");
-  el.textContent = message;
-  el.classList.add("show");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove("show"), 2600);
+/**
+ * A short message at the bottom of the window. `actions` ([{label, onclick}]) turn it into an actionable toast
+ * (Undo, Open) that stays a little longer; `kind` is "", "good", "bad" or "warn".
+ */
+export function toast(message, { actions = [], timeout, kind = "" } = {}) {
+  let stack = document.getElementById("toasts");
+  if (!stack) { stack = h("div.toasts", { id: "toasts", role: "status", "aria-live": "polite" }); document.body.append(stack); }
+  const close = () => { item.classList.remove("show"); setTimeout(() => item.remove(), 250); };
+  const item = h("div.toast-item", { class: kind },
+    h("span", message),
+    ...actions.map((a) => h("button.toast-act", { type: "button", onclick: async () => { close(); try { await a.onclick(); } catch (err) { toast(err.message, { kind: "bad" }); } } }, a.label)),
+    actions.length ? h("button.toast-x", { type: "button", "aria-label": "Dismiss", onclick: close }, "×") : null);
+  stack.append(item);
+  while (stack.children.length > 4) stack.firstElementChild.remove();
+  requestAnimationFrame(() => item.classList.add("show"));
+  setTimeout(close, timeout ?? (actions.length ? 8000 : 2600));
+  return close;
 }
 
 export function errorBox(err) {
@@ -353,42 +363,8 @@ export function field(label, control, help) {
   return h("label", h("span.lbl", label), control, help ? h("span.help", help) : null);
 }
 
-/** Poll a background image job until it ends. Resolves with the job detail payload. */
-export function pollJob(jobId, onTick) {
-  return new Promise((resolve, reject) => {
-    const started = Date.now();
-    const timer = setInterval(async () => {
-      try {
-        const j = await api(`/api/jobs/${jobId}`);
-        if (j.job.status === "succeeded" || j.job.status === "failed" || j.job.status === "cancelled") {
-          clearInterval(timer);
-          j.job.status === "succeeded" ? resolve(j) : reject(new ApiError(j.job.error || { message: `Job ${j.job.status}` }));
-        } else onTick?.(Math.round((Date.now() - started) / 1000));
-      } catch (err) { clearInterval(timer); reject(err); }
-    }, 2000);
-  });
-}
-
-// Calls onChange({ assets, jobs }) whenever the library changes (agents, the CLI or another window),
-// checking every few seconds while the app is in front, and right away when it comes back to the front.
-export function watchLibrary(onChange, ms = 3000) {
-  let last = null;
-  let busy = false;
-  async function check() {
-    if (busy || document.visibilityState !== "visible") return;
-    busy = true;
-    try {
-      const rev = await api("/api/revision");
-      if (last && (rev.assets !== last.assets || rev.jobs !== last.jobs)) {
-        onChange({ assets: rev.assets !== last.assets, jobs: rev.jobs !== last.jobs });
-      }
-      last = rev;
-    } catch { /* server restarting or offline: try again next tick */ }
-    finally { busy = false; }
-  }
-  check();
-  const timer = setInterval(check, ms);
-  document.addEventListener("visibilitychange", check);
-  window.addEventListener("focus", check);
-  return () => { clearInterval(timer); document.removeEventListener("visibilitychange", check); window.removeEventListener("focus", check); };
+/** Wait for a background image job to end (through the change feed). Resolves with the job detail payload. */
+export async function pollJob(jobId, onTick) {
+  const { waitJob } = await import("/static/store.js");
+  return waitJob(jobId, onTick);
 }

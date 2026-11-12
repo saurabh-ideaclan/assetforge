@@ -3,6 +3,8 @@
 // master visual reference and the consistency review of generated expressions.
 import { api, h, toast, errorBox, section, field, chipsInput, thumbUrl, segmented } from "/static/lib.js";
 import { loadAI, modelSelect, pickerValue } from "/static/views/ai.js";
+import { watch, cached, load as loadCached } from "/static/store.js";
+import { rerender } from "/static/live.js";
 
 const FIELDS = {
   identity: [["name", "Name"], ["aliases", "Aliases", "chips"], ["age", "Age"], ["role", "Narrative role"], ["origin", "Origin"], ["social_position", "Social position"], ["occupation", "Occupation or faction"]],
@@ -23,11 +25,24 @@ export function charactersTab(root, data, sid, run, refresh) {
     ai = info;
     return c;
   }
-  load().then((c) => draw(c)).catch((err) => box.replaceChildren(errorBox(err)));
+  load().then((c) => draw(c)).catch((err) => box.replaceChildren(errorBox(err), h("button.btn.small", { type: "button", onclick: () => reload() }, "Retry")));
+  let shown = "";
+  async function reload() {
+    try { const c = await load(); const sig = JSON.stringify(c); if (sig !== shown) draw(c, true); }
+    catch (err) { toast(err.message, { kind: "bad" }); }
+  }
+  // live: the cast, profiles, acting plan (cast area), sprites and concepts (art) and the chapters (text)
+  watch([`story:${sid}:cast`, `story:${sid}:art`, `story:${sid}:text`], reload, { owner: box });
 
-  function draw(c) {
+  function draw(c, live = false) {
+    shown = JSON.stringify(c);
+    if (live) return rerender(box, (target) => paint(target, c));
+    paint(box, c);
+  }
+  function paint(box, c) {
     if (!c.cast.length) { box.replaceChildren(h("div.empty", h("p", "No characters yet."), h("p.help", "They appear here as soon as the cast is created; approve them before the story is planned."))); return; }
-    const rows = c.cast.map((r) => h("button.cs-row", { type: "button", class: selected === r.id ? "on" : "", onclick: () => { selected = r.id; draw(c); } },
+    const rows = c.cast.map((r) => h("button.cs-row", { type: "button", class: selected === r.id ? "on" : "", onclick: () => { selected = r.id; draw(c); },
+      dataset: { liveKey: `char:${r.id}`, liveSig: JSON.stringify(r) } },
       h("div.cs-cell.name", h("b", r.name), h("div.help", r.role)),
       h("div.cs-cell", r.summary || h("span.muted", "—"), r.motivation ? h("div.help.clamp2", r.motivation) : null),
       h("div.cs-cell", r.relationship || h("span.muted", "—")),
@@ -44,7 +59,7 @@ export function charactersTab(root, data, sid, run, refresh) {
     const card = h("div.card.cs-profile");
     const sectionsEl = h("div");
     async function post(path, body) {
-      try { const r = await api(`/api/stories/${sid}/characters/${p.id}${path}`, { method: "POST", body }); toast("Saved"); const c2 = await load(); draw(c2); return r; }
+      try { const r = await api(`/api/stories/${sid}/characters/${p.id}${path}`, { method: "POST", body }); toast("Saved"); const c2 = await load(); draw(c2, true); return r; }
       catch (err) { toast(err.message); }
     }
     const sections = Object.keys(FIELDS).map((s) => {
@@ -88,13 +103,16 @@ export function charactersTab(root, data, sid, run, refresh) {
     const nBox = h("input", { type: "number", min: 1, max: 6, value: 3 });
     const gen = h("button.btn", { type: "button", onclick: async () => { gen.disabled = true; await run({ action: "concepts", character: p.id, n: +nBox.value }); gen.disabled = false; toast("Generating concepts; candidates appear in Review and below when done"); } }, "Generate concept candidates");
     const candidates = h("div.cs-candidates", h("span.help", "Candidates appear here after generation (also under Review)."));
-    api(`/api/assets?project=${encodeURIComponent(data.config.project || "vn-" + data.config.slug)}&q=${encodeURIComponent(data.config.slug + "_" + p.id + "_concept")}&limit=12`).then((r) => {
+    const candUrl = `/api/assets?project=${encodeURIComponent(data.config.project || "vn-" + data.config.slug)}&q=${encodeURIComponent(data.config.slug + "_" + p.id + "_concept")}&limit=12`;
+    const paintCands = (r) => {
       const items = (r.assets || r.items || []).filter((a) => (a.name || "").includes(`_${p.id}_concept`) || (a.name || "").endsWith(`_${p.id}_neutral`));
       if (!items.length) return;
       candidates.replaceChildren(...items.map((a) => h("div.cs-cand", { class: a.status }, h("img", { src: thumbUrl(a.primary_variant?.id, 256), alt: a.name }),
         h("div.help", `${a.status}${p.reference?.asset_id === a.id ? " · master" : ""}`),
         a.status !== "rejected" && p.reference?.asset_id !== a.id ? h("button.btn.small.primary", { type: "button", onclick: () => post("/master", { asset_id: a.id }) }, "Make this the master") : null)));
-    }).catch(() => {});
+    };
+    if (cached(candUrl)) paintCands(cached(candUrl));
+    loadCached(candUrl).then(paintCands).catch(() => {});
     const consistency = h("div.help", "Consistency review runs against the master reference once expressions exist.");
     if (p.reference) api(`/api/stories/${sid}/characters/${p.id}/consistency`).then((r) => {
       consistency.replaceChildren(h("div.lbl", "Consistency of generated expressions"), r.items.length ? h("ul.wf-ul", r.items.map((i) => h("li", `${i.expression}: `, h("span", { class: i.verdict === "consistent" ? "good" : "bad" }, i.verdict), ` (shape distance ${i.distance}, palette ${i.palette})`))) : h("p.help", "No expressions generated yet."), h("p.help", r.note));
@@ -116,6 +134,7 @@ export function charactersTab(root, data, sid, run, refresh) {
     function actingPanel(p) {
       const body = h("div", h("span.spinner"), " Reading the acting plan…");
       const wrap = section("Acting and performances", body, { open: true, note: "story-driven" });
+      wrap.dataset.panel = "acting";
       const FIELDS_A = [["resting_posture", "Resting posture"], ["mannerisms", "Mannerisms"], ["expression_style", "Expresses or suppresses"], ["presence", "Presence"],
         ["gestures", "Characteristic gestures"], ["under_stress", "Under stress"], ["development", "Over the arc"]];
       const DIR = ["face", "eyes", "head", "shoulders", "torso", "hands", "weight", "intensity", "silhouette"];
@@ -123,9 +142,16 @@ export function charactersTab(root, data, sid, run, refresh) {
         try { const r = await api(`/api/stories/${sid}/acting${path}`, { method: "POST", body: payload }); toast("Saved"); await render(); return r; }
         catch (err) { toast(err.message); }
       }
+      const actingUrl = `/api/stories/${sid}/acting?character=${p.id}`;
       async function render() {
-        let a;
-        try { a = (await api(`/api/stories/${sid}/acting?character=${p.id}`)).characters[0]; } catch (err) { body.replaceChildren(errorBox(err)); return; }
+        const hit = cached(actingUrl);
+        if (hit) paint(hit.characters[0]);
+        try {
+          const fresh = await loadCached(actingUrl);
+          if (!hit || JSON.stringify(fresh) !== JSON.stringify(hit)) paint(fresh.characters[0]);
+        } catch (err) { if (!hit) body.replaceChildren(errorBox(err), h("button.btn.small", { type: "button", onclick: () => render() }, "Retry")); }
+      }
+      function paint(a) {
         const prof = a.profile;
         const profBtn = h("button.btn.small", { type: "button", onclick: async () => { profBtn.disabled = true; await run({ action: "acting_profile", character: p.id, fresh: !!prof }); toast("Drafting the acting profile; it appears here when ready"); } }, prof ? "Draft again" : "Draft the acting profile");
         const values = { ...(prof || {}) };
@@ -156,7 +182,7 @@ export function charactersTab(root, data, sid, run, refresh) {
             h("button.btn.small", { type: "button", onclick: () => { const t = window.prompt("Why dismiss?") || ""; postA(`/performances/${pf.id}`, { action: "dismiss", note: t }); } }, "Dismiss"))
             : pf.status === "approved" && pf.need !== "reuse" ? h("div.actions", h("button.btn.small.primary", { type: "button", onclick: async (e) => { e.target.disabled = true; await run({ action: "acting_generate", performance: pf.id }); toast("Generating from the master reference"); } }, "Generate from the master"))
             : null;
-          return h("div.cs-perf", { class: pf.status },
+          return h("div.cs-perf", { class: pf.status, dataset: { liveKey: `perf:${pf.id}`, liveSig: JSON.stringify([pf.status, pf.direction, pf.need]) } },
             h("div", h("span.tag", { class: pf.status === "generated" ? "good" : pf.status === "dismissed" ? "" : "warn" }, pf.status), " ", h("b", `${pf.scene} · lines ${pf.where}`), h("span.help", ` · ${pf.need === "reuse" ? "reuse " + (pf.reuse_sprite || "existing") : pf.need === "face_only" ? "face change on " + (pf.reuse_sprite || "an existing body") : "new performance"} → ${pf.name}`)),
             h("p", h("b", "Moment: "), pf.moment), h("p.help", h("b", "Feeling: "), pf.emotional_context, " · ", h("b", "Intent: "), pf.intent, pf.with_whom ? ` · with ${pf.with_whom}` : ""),
             pf.need !== "reuse" ? dirForm : null,

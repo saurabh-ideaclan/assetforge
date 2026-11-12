@@ -1,5 +1,8 @@
 // AssetForge desktop UI: hash router and view mounting.
-import { api, h, errorBox, watchLibrary } from "/static/lib.js";
+import { api, h, errorBox } from "/static/lib.js";
+import { connect, watch, beginScope, endScope } from "/static/store.js";
+import { rerender } from "/static/live.js";
+import { initActivity } from "/static/activity.js";
 import { overview } from "/static/views/overview.js";
 import { assets } from "/static/views/assets.js";
 import { generate } from "/static/views/generate.js";
@@ -31,74 +34,52 @@ async function route() {
   // a view can handle in-page changes itself; returning false asks for a fresh mount (e.g. different filters)
   if (current.name === name && current.update && current.update({ rest, params }) !== false) return;
   if (current.cleanup) current.cleanup();
+  endScope(current.scope);
   main.innerHTML = "";
   main.scrollTop = 0; // each page starts at the top (main is the scroll container)
+  const scope = beginScope();
   try {
     const mounted = (await views[name](main, { rest, params })) || {};
-    current = { name, ...mounted };
+    current = { name, scope, ...mounted };
+    liveView(current);
   } catch (err) {
-    main.append(errorBox(err));
-    current = { name: null };
+    main.append(errorBox(err), h("div.actions", h("button.btn", { type: "button", onclick: () => route() }, "Retry")));
+    current = { name: null, scope };
   }
   main.focus({ preventScroll: true });
 }
 
 window.addEventListener("hashchange", route);
 
-// Views that only show library data re-render when it changes; views with forms (generate, sound, art)
-// are left alone so nothing typed is lost. A view can refresh itself in place by returning `refresh`.
-const AUTO_REMOUNT = new Set(["overview", "jobs", "usage"]);
-let refreshing = false;
-watchLibrary(async (changed) => {
-  if (refreshing || !current.name) return;
-  refreshing = true;
-  try {
-    if (current.refresh) await current.refresh(changed);
-    else if (AUTO_REMOUNT.has(current.name)) {
-      const top = main.scrollTop;
-      const { rest, params } = parseHash();
-      const fresh = h("div");
-      const mounted = (await views[current.name](fresh, { rest, params })) || {};
-      if (current.cleanup) current.cleanup();
-      main.replaceChildren(...fresh.childNodes);  // swap in one go: no flash of an empty page
-      current = { name: current.name, ...mounted };
-      main.scrollTop = top;
-    }
-  } catch { /* keep showing what we have */ }
-  finally { refreshing = false; }
-});
+// Live data: every view says what it depends on (`topics`), and either refreshes itself (`refresh`) or is redrawn in
+// place by the shell, keeping scroll, open sections and anything typed. Form-only views list no topics.
+const TOPICS = { overview: ["library", "jobs"], usage: ["jobs"] };
+function liveView(view) {
+  const topics = view.topics || TOPICS[view.name];
+  if (!topics) return;
+  const mine = view;
+  watch(topics, async (changed) => {
+    if (current !== mine) return;
+    if (mine.refresh) return mine.refresh(changed);
+    const { rest, params } = parseHash();
+    let mounted = {};
+    const swapped = await rerender(main, async (fresh) => { mounted = (await views[mine.name](fresh, { rest, params })) || {}; });
+    if (swapped && current === mine) { mine.cleanup?.(); Object.assign(mine, mounted); }
+  });
+}
+
+connect();
+initActivity();
 
 (async () => {
   try {
-    const info = await api("/api/overview?tz=" + encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone));
-    document.getElementById("library-path").textContent = info.library.home;
-  } catch { /* the overview view shows the error */ }
+    const info = await api("/api/version");
+    document.getElementById("library-path").textContent = info.home;
+  } catch { /* the connection banner says why */ }
   route();
 })();
 
 export { h };
-
-// Sidebar: what is being written right now, wherever it was started (app, CLI or an agent).
-async function pollActivity() {
-  try {
-    const a = await api("/api/activity");
-    const pill = document.getElementById("activity-pill");
-    const badge = document.getElementById("story-badge");
-    if (!pill || !badge) return;
-    if (a.stories.length) {
-      const s = a.stories[0];
-      const more = a.stories.length > 1 ? ` +${a.stories.length - 1} more` : "";
-      pill.replaceChildren(h("span.spinner"), ` Writing “${s.title}”${s.running > 1 ? ` (${s.running} at once)` : ""}${more}`);
-      pill.href = `#/story/${s.id}`;
-      pill.hidden = false;
-      badge.textContent = String(a.stories.length);
-      badge.hidden = false;
-    } else { pill.hidden = true; badge.hidden = true; }
-  } catch { /* offline: try again */ }
-}
-pollActivity();
-setInterval(() => document.visibilityState === "visible" && pollActivity(), 4000);
-
 
 // ---------------------------------------------------------------------- shell: nav, breadcrumbs, theme, badges
 
@@ -134,12 +115,13 @@ document.querySelectorAll("[data-theme-set]").forEach((b) => b.addEventListener(
 initPalette({ setTheme });
 document.querySelectorAll("nav a[data-nav]").forEach((a) => { if (!a.title) a.title = a.textContent.trim(); });
 
-async function pollReview() {
+// The Review badge: candidates waiting for a decision, recounted when the library changes.
+async function reviewBadge() {
   try {
     const d = await api("/api/assets?status=candidate&limit=1");
     const b = document.getElementById("review-badge");
     if (b) { b.textContent = d.total > 999 ? "999+" : String(d.total); b.hidden = !d.total; b.classList.add("warn"); }
   } catch { /* ignore */ }
 }
-pollReview();
-setInterval(() => document.visibilityState === "visible" && pollReview(), 15000);
+reviewBadge();
+watch("library", reviewBadge, { debounce: 600 });

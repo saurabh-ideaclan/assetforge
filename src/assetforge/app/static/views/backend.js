@@ -213,5 +213,7 @@ export async function backendView(root) {
 
   await load(false);  // the cached view first: the page opens instantly
   load(true);         // then the live one
-  return {};
+  // live: the local backend state and every story's releases (topic `publishing`); read from the cached view, so a
+  // change never makes a network call to the bucket by itself
+  return { topics: ["publishing"], refresh: () => { if (!state.busy && !state.confirm) return load(false); } };
 }

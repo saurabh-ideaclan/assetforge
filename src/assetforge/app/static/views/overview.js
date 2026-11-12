@@ -95,8 +95,8 @@ function spendSection(d, spendTile) {
 export function jobsTable(jobs, onRow) {
   return h("div.table-wrap", h("table",
     h("tr", h("th", "Job"), h("th", "Kind"), h("th", "Status"), h("th", "What"), h("th", "Model"), h("th.num", "Cost"), h("th", "When")),
-    jobs.map((j) => h("tr", { class: "click", onclick: () => (onRow ? onRow(j) : (location.hash = j.asset_id ? `#/assets/${j.asset_id}` : `#/jobs/${j.id}`)) },
-      h("td.mono", j.id), h("td", j.kind), h("td", badge(j.status)),
+    jobs.map((j) => h("tr", { class: "click", dataset: { liveKey: j.id, liveSig: `${j.status}|${j.updated_at}` }, onclick: () => (onRow ? onRow(j) : (location.hash = j.asset_id ? `#/assets/${j.asset_id}` : `#/jobs/${j.id}`)) },
+      h("td.mono", j.id), h("td", j.kind), h("td", j.stale ? h("span.badge.failed", { title: "Its process stopped responding long ago; `assetforge jobs recover` (or restarting the app) marks it failed" }, "stale") : badge(j.status)),
       h("td", { style: "max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, j.summary || "–"),
       h("td", [j.provider, j.model].filter(Boolean).join(" / ") || "–"),
       h("td.num", j.cost_usd ? fmt.money(j.cost_usd) : "–"), h("td", fmt.when(j.created_at))))));
@@ -110,6 +110,6 @@ function continueCard(s) {
     h("div", h("div.help", s.busy ? "Being written now" : "Continue your story"), h("h2", { style: "margin:2px 0" }, s.title), h("div.help", s.logline)),
     h("div", total ? `${done}/${total} chapters` : "Not planned yet", now ? h("div.help", now.label) : null),
     h("div.actions", { style: "margin:0" },
-      s.playable ? h("a.btn", { href: `#/story/${s.id}?tab=play` }, "▶ Play") : "",
+      s.playable ? h("a.btn", { href: `#/story/${s.id}/play` }, "▶ Play") : "",
       h("a.btn.primary", { href: `#/story/${s.id}` }, "Open")));
 }

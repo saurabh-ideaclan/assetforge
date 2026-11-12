@@ -87,3 +87,75 @@ nav a:focus-visible, .search-trigger:focus-visible { outline: 2px solid var(--ac
 .pub-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; }
 @media (max-width: 1100px) { .pub-cols { grid-template-columns: 1fr; } }
 .pub-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+
+/* ---------------------------------------------------------------- live data and tasks (store.js, live.js, activity.js) */
+/* new and changed things are marked for a moment so the eye finds them */
+.af-new { animation: af-new 2.4s var(--ease); }
+.af-changed { animation: af-changed 2.4s var(--ease); }
+@keyframes af-new { from { box-shadow: 0 0 0 3px var(--accent); background-color: var(--accent-soft); } to { box-shadow: 0 0 0 0 transparent; } }
+@keyframes af-changed { from { background-color: var(--warn-bg); box-shadow: 0 0 0 2px var(--warn); } to { box-shadow: 0 0 0 0 transparent; } }
+.af-pending { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--accent); background: var(--accent-soft);
+              border-radius: 8px; padding: 5px 10px; margin-bottom: 8px; }
+.af-panel-error { display: grid; gap: 8px; margin: 6px 0 10px; justify-items: start; }
+.af-stale { display: inline-flex; gap: 8px; align-items: center; color: var(--accent); font-size: 12.5px; padding: 3px 8px; border-radius: 8px; background: var(--accent-soft); }
+.af-stale[hidden] { display: none; }
+.linklike { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline; }
+
+/* banners: cut off / out of date */
+.af-banner { flex: none; display: flex; gap: 10px; align-items: center; padding: 7px 24px; font-size: 12.5px; border-bottom: 1px solid var(--border); }
+.af-banner[hidden] { display: none; }
+.af-banner.bad { background: var(--bad-bg); color: var(--bad); }
+.af-banner.info { background: var(--accent-soft); color: var(--text-primary); }
+body.af-offline main { opacity: .85; }
+
+/* toasts (stack, with actions) */
+.toast { display: none; }
+.toasts { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); display: grid; gap: 8px; z-index: 60; justify-items: center; pointer-events: none; }
+.toast-item { pointer-events: auto; display: flex; gap: 10px; align-items: center; background: var(--text-primary); color: var(--surface-0);
+              padding: 8px 12px; border-radius: 10px; font-size: 12.5px; max-width: min(640px, 86vw); box-shadow: var(--shadow-pop);
+              opacity: 0; transform: translateY(6px); transition: opacity .2s var(--ease), transform .2s var(--ease); }
+.toast-item.show { opacity: .97; transform: none; }
+.toast-item.good { border-left: 4px solid var(--good); } .toast-item.bad { border-left: 4px solid var(--bad); } .toast-item.warn { border-left: 4px solid var(--warn); }
+.toast-act { background: transparent; border: 1px solid currentColor; color: inherit; border-radius: 6px; padding: 2px 9px; cursor: pointer; font-size: 12px; }
+.toast-x { background: none; border: 0; color: inherit; opacity: .7; cursor: pointer; font-size: 15px; padding: 0 2px; }
+
+/* the sidebar pill opens the Activity centre */
+.activity-pill { cursor: pointer; background: var(--surface-2); color: var(--text-secondary); }
+.activity-pill.busy { background: var(--accent-soft); color: var(--accent); }
+.activity-pill.waiting { background: var(--warn-bg); color: var(--warn); }
+.activity-pill .nav-badge { margin-left: auto; }
+.activity-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Activity centre drawer */
+.ac-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 94vw); background: var(--surface-1); border-left: 1px solid var(--border);
+             box-shadow: var(--shadow-pop); z-index: 55; display: flex; flex-direction: column; animation: ac-in .18s var(--ease); }
+@keyframes ac-in { from { transform: translateX(24px); opacity: 0; } }
+.ac-head { display: flex; align-items: baseline; gap: 10px; padding: 14px 16px 10px; border-bottom: 1px solid var(--border); }
+.ac-head h2 { margin: 0; font-size: 16px; } .ac-head .close { margin-left: auto; }
+.ac-body { overflow-y: auto; padding: 8px 12px 30px; }
+.ac-group h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); margin: 14px 4px 6px; }
+.ac-task { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 6px; background: var(--surface-0); }
+.ac-task > summary { list-style: none; display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 10px; padding: 9px 10px; cursor: pointer; align-items: start; }
+.ac-task > summary::-webkit-details-marker { display: none; }
+.ac-title { font-weight: 600; overflow-wrap: anywhere; }
+.ac-msg { font-size: 12px; color: var(--text-secondary); margin-top: 2px; overflow-wrap: anywhere; }
+.ac-actions { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.ac-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; background: var(--text-muted); }
+.ac-dot.running { background: var(--accent); animation: ac-pulse 1.4s infinite; } .ac-dot.queued { background: var(--axis); }
+.ac-dot.waiting { background: var(--warn); } .ac-dot.succeeded { background: var(--good); }
+.ac-dot.failed, .ac-dot.interrupted { background: var(--bad); } .ac-dot.cancelled { background: var(--text-muted); }
+@keyframes ac-pulse { 50% { opacity: .35; } }
+.ac-detail { padding: 0 12px 10px 30px; display: grid; gap: 6px; }
+.ac-error { color: var(--bad); background: var(--bad-bg); border-radius: 8px; padding: 6px 8px; font-size: 12px; }
+.ac-steps { margin: 0; padding-left: 18px; font-size: 12px; color: var(--text-secondary); max-height: 180px; overflow-y: auto; }
+.ac-steps li.running { color: var(--accent); font-weight: 600; } .ac-steps li.failed { color: var(--bad); } .ac-steps li.pending { color: var(--text-muted); }
+.ac-log { font-size: 11px; background: var(--surface-2); border-radius: 8px; padding: 6px 8px; margin: 0; max-height: 140px; overflow: auto; white-space: pre-wrap; }
+
+/* one confirm for paid or irreversible actions */
+.af-confirm { width: min(480px, 92vw); background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-pop);
+              padding: 18px 20px; display: grid; gap: 10px; }
+.af-confirm h3 { margin: 0; font-size: 16px; }
+.af-confirm ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.af-cost { display: flex; justify-content: space-between; gap: 10px; background: var(--surface-2); border-radius: 8px; padding: 8px 10px; }
+.af-confirm .actions { justify-content: flex-end; }
+.btn.danger { background: var(--bad); border-color: var(--bad); color: #fff; }

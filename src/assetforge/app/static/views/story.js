@@ -2,6 +2,8 @@
 // being written, read and play every chapter as soon as it exists, improve them from feedback, make their art.
 // Progress comes from the story's files and the library's jobs, so work started from the CLI or by agents shows too.
 import { api, h, errorBox, toast, segmented, field, fmt, copy, thumbUrl, playVariant, section } from "/static/lib.js";
+import { watch, waitTask, cached, load as loadCached } from "/static/store.js";
+import { rerender, panel, confirmAction, flash } from "/static/live.js";
 import { directionForm, loadDirectionOptions } from "/static/views/direction.js";
 import { workflowTab } from "/static/views/workflow.js";
 import { charactersTab } from "/static/views/characters.js";
@@ -12,10 +14,18 @@ const TASK_LABEL = { write: "Writing", improve: "Improving from feedback", check
 const STAGE = { idea: ["Draft", ""], world: ["Building the world", "running"], cast: ["Creating characters", "running"],
                 writing: ["Writing", "running"], written: ["Ready to play", "approved"] };
 
+const TABS = ["workflow", "characters", "dynamics", "chapters", "play", "assets", "improve", "settings"];
+
+// Deep links: #/story/<id>/<tab>?chapter=…&asset=…&panel=…&show=… (the older #/story/<id>?tab=… still works).
 export async function story(root, { rest, params }) {
   if (rest[0] === "new") return wizard(root);
-  if (rest[0]) return detail(root, rest[0], params.get("tab") || "workflow", params.get("chapter"));
+  if (rest[0]) return detail(root, rest[0], tabFrom(rest, params), params);
   return hub(root);
+}
+function tabFrom(rest, params) { const t = rest[1] || params.get("tab") || "workflow"; return TABS.includes(t) ? t : "workflow"; }
+export function storyLink(sid, tab, query = {}) {
+  const q = new URLSearchParams(Object.entries(query).filter(([, v]) => v !== undefined && v !== null && v !== "")).toString();
+  return `#/story/${sid}/${tab}${q ? "?" + q : ""}`;
 }
 
 function elapsed(s) { return s == null ? "" : s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`; }
@@ -123,23 +133,24 @@ async function openSignIn(provider, host) {
   try { s = (await api("/api/llm/login", { method: "POST", body: { provider } })).login; }
   catch (err) { box.replaceChildren(errorBox(err)); return; }
   render(s);
-  const timer = setInterval(async () => {
-    if (!box.isConnected) { clearInterval(timer); return; }
+  // the sign-in session's state comes through the change feed (topic `logins`)
+  const off = watch("logins", async () => {
+    if (!box.isConnected) { off(); return; }
     try {
       const next = (await api(`/api/llm/login/${s.id}`)).login;
       const changed = next.state !== s.state || next.url !== s.url;
       s = next;
       if (changed) render(s);
       if (["done", "failed", "cancelled"].includes(s.state)) {
-        clearInterval(timer);
+        off();
         if (s.state === "done") {
           toast(`Signed in to ${SIGN_IN[provider]}`);
           await loadProviders(true);
-          setTimeout(() => window.dispatchEvent(new HashChangeEvent("hashchange")), 900);
+          window.dispatchEvent(new HashChangeEvent("hashchange"));
         }
       }
-    } catch { /* keep polling */ }
-  }, 1500);
+    } catch { /* the next change tries again */ }
+  }, { owner: box, debounce: 50 });
 }
 
 /** Every subscription and its sign-in state, with sign-in buttons (shown on the Stories page). */
@@ -171,13 +182,14 @@ async function hub(root) {
   search.addEventListener("input", () => draw());
   let data = { stories: [] };
 
-  function draw() {
+  function draw(live = false) {
     const q = search.value.trim().toLowerCase();
     const items = data.stories.filter((s) =>
       (filter === "all" || (filter === "active" ? s.progress.stage !== "written" || s.busy : s.playable)) &&
       (!q || `${s.title} ${s.premise} ${s.genre}`.toLowerCase().includes(q)));
-    grid.replaceChildren(...(items.length ? items.map(card) : [h("div.empty",
+    const fill = (target) => target.replaceChildren(...(items.length ? items.map(card) : [h("div.empty",
       data.stories.length ? "No stories match." : h("div", h("p", "No stories yet."), h("a.btn.primary", { href: "#/story/new" }, "Write your first story")))]));
+    if (live) rerender(grid, fill); else fill(grid);
   }
 
   function card(s) {
@@ -185,7 +197,7 @@ async function hub(root) {
     const [done, total] = p.steps.chapters;
     const [stageLabel, stageClass] = s.busy ? ["Writing…", "running"] : (STAGE[p.stage] || [p.stage, ""]);
     const now = p.running[0];
-    return h("div.card.story-card",
+    return h("div.card.story-card", { dataset: { liveKey: s.id, liveSig: JSON.stringify([p.steps, p.stage, s.busy, s.title, s.cover, now?.label]) } },
       h("a.story-cover", { href: `#/story/${s.id}`, "aria-label": `Open ${s.title}` }, cover(s)),
       h("div.story-body",
         h("div.row", h("a.story-title", { href: `#/story/${s.id}` }, s.title), h("span.badge", { class: stageClass }, stageLabel)),
@@ -194,18 +206,18 @@ async function hub(root) {
         now ? h("div.live", h("span.spinner"), " ", now.label, h("span.muted", ` · ${elapsed(now.seconds)}`)) : null,
         h("div.actions.tight",
           h("a.btn.small", { href: `#/story/${s.id}` }, "Open"),
-          s.playable ? h("a.btn.small.primary", { href: `#/story/${s.id}?tab=play` }, "▶ Play") : null,
+          s.playable ? h("a.btn.small.primary", { href: storyLink(s.id, "play") }, "▶ Play") : null,
           h("span.muted.small", `${s.genre} · ${s.provider || "auto"}${s.model ? " " + s.model : ""}`))));
   }
 
-  async function load() {
+  async function load(live = false) {
     data = await api("/api/stories");
-    draw();
+    draw(live);
   }
   await load();
   loadProviders().then((info) => subs.replaceChildren(subscriptions(info))).catch((err) => subs.replaceChildren(errorBox(err)));
-  const timer = setInterval(() => { if (data.stories.some((s) => s.busy)) load().catch(() => {}); }, 3000);
-  return { cleanup: () => clearInterval(timer), refresh: load };
+  // any story's files, its writing jobs or the tasks change → redraw the cards in place
+  return { topics: ["stories", "story:*:text", "story:*:progress", "story:*:settings", "story:*:art", "tasks"], refresh: () => load(true) };
 }
 
 // ---------------------------------------------------------------------- new story wizard
@@ -293,14 +305,14 @@ async function wizard(root) {
 
 // ---------------------------------------------------------------------- one story
 
-async function detail(root, sid, tab, chapterParam) {
+async function detail(root, sid, tab, params) {
   let data = await api(`/api/stories/${sid}`);
   const head = h("div");
   const tracker = h("div");
-  const body = h("div");
+  const body = h("div.story-tab");
   root.append(head, tracker, body);
-  let timer = null;
-  let selected = chapterParam || null;
+  let selected = params.get("chapter") || null;
+  let query = params;  // the deep link's extra state: asset, panel, show
 
   function primaryAction() {
     const p = data.progress;
@@ -309,7 +321,7 @@ async function detail(root, sid, tab, chapterParam) {
       p.eta_seconds ? h("span.muted", ` · about ${elapsed(p.eta_seconds)} left`) : null);
     if (!data.progress.steps.world) return h("button.btn.primary.big", { type: "button", onclick: () => run({ action: "write" }) }, "Start writing");
     if (p.steps.chapters[0] < p.steps.chapters[1]) return h("button.btn.primary.big", { type: "button", onclick: () => run({ action: "write" }) }, "Continue writing");
-    return h("a.btn.primary.big", { href: `#/story/${sid}?tab=play` }, "▶ Play");
+    return h("a.btn.primary.big", { href: storyLink(sid, "play") }, "▶ Play");
   }
 
   function renderHead() {
@@ -323,10 +335,10 @@ async function detail(root, sid, tab, chapterParam) {
           h("div.help", [c.genre, c.audience, c.art_style, `${c.provider || (c.ai?.steps?.[0]?.provider ? "writer: " + c.ai.steps[0].provider + (c.ai.steps[0].model ? " " + c.ai.steps[0].model : "") : "Fable-managed writer")}${c.model ? " · " + c.model : ""}`].filter(Boolean).join(" · ")),
           data.workflow ? h("div.story-activity", h("span.act-dot", { class: data.workflow.activity.title.startsWith("Working") ? "on" : data.workflow.needs_you.length ? "wait" : "" }),
             h("b", data.workflow.activity.title), h("span.help", ` · ${data.workflow.activity.detail}`),
-            data.workflow.needs_you.length ? h("a.tag.warn", { href: `#/story/${sid}?tab=workflow` }, `${data.workflow.needs_you.length} waiting for you`) : null) : null),
+            data.workflow.needs_you.length ? h("a.tag.warn", { href: storyLink(sid, "workflow") }, `${data.workflow.needs_you.length} waiting for you`) : null) : null),
         h("div.story-head-action", primaryAction())),
       h("div.tabs-row", segmented([["workflow", "Workflow"], ["characters", "Characters"], ["dynamics", "Dynamics"], ["chapters", "Chapters"], ["play", "▶ Play"], ["assets", "Assets"], ["improve", "Improve"], ["settings", "Settings"]], tab,
-        (v) => (location.hash = `#/story/${sid}?tab=${v}`))));
+        (v) => (location.hash = storyLink(sid, v)))));
   }
 
   function renderTracker() {
@@ -340,7 +352,10 @@ async function detail(root, sid, tab, chapterParam) {
     const live = p.running.map((r) => h("div.live", h("span.spinner"), " ", r.label, h("span.muted", ` · ${elapsed(r.seconds)}`)));
     const task = data.task;
     if (task?.state === "running" && !p.running.length) live.push(h("div.live", h("span.spinner"), " ", TASK_LABEL[task.action] || task.action, h("span.muted", ` · ${elapsed(task.elapsed)}`)));
-    if (task?.state === "failed") live.push(errorBox(task.error || {}));
+    // a failed or interrupted run is shown for half an hour (the Activity centre keeps the history)
+    if (task?.state === "failed" && (!task.ended_at || Date.now() / 1000 - task.ended_at < 1800)) live.push(h("div.row.wrap", errorBox(task.error || {}),
+      h("button.linklike", { type: "button", onclick: () => import("/static/activity.js").then((m) => m.openDrawer(task.id)) }, "Details")));
+    if (task?.status === "queued") live.push(h("div.live", h("span.spinner"), " ", task.title, h("span.muted", ` · ${task.message || "queued"}`)));
     const who = (f) => f.chosen_by === "managed" ? "Fable chose" : f.chosen_by === "override" ? "you chose" : f.chosen_by ? `${f.chosen_by} plan` : "";
     const feed = p.feed.map((f) => h("div.feed-row", h("span", { class: f.status === "failed" ? "bad" : "good" }, f.status === "failed" ? "✗" : "✓"), " ", f.label,
       h("span.muted", ` · ${f.seconds}s · ${fmt.date ? fmt.date(f.at) : f.at}${f.provider ? " · " + f.provider : ""}${f.model ? " " + f.model : ""}${f.billing === "api" ? " (API, billed)" : f.billing ? " (subscription)" : ""}${who(f) ? " · " + who(f) : ""}`),
@@ -351,37 +366,84 @@ async function detail(root, sid, tab, chapterParam) {
   }
 
   async function run(payload) {
-    try { await api(`/api/stories/${sid}/run`, { method: "POST", body: payload }); await refresh(true); }
-    catch (err) { toast(err.message); }
+    try {
+      const r = await api(`/api/stories/${sid}/run`, { method: "POST", body: payload });
+      toast(r.queued ? `Queued: waits for “${r.waiting_for}” to finish` : "Started — follow it in Activity", { kind: r.queued ? "warn" : "" });
+      await refresh();
+      return r;
+    } catch (err) { toast(err.message, { kind: "bad" }); return null; }
   }
 
-  let lastSignature = "";
-  async function refresh(force = false) {
-    data = await api(`/api/stories/${sid}`);
+  // which story areas each tab draws from `data` (the rest load their own data and refresh themselves)
+  const SIG = {
+    workflow: () => [data.workflow, data.task?.state],
+    chapters: () => [data.progress.chapters, data.written, data.cast, selected],
+    improve: () => [data.check, data.feedback, (data.scenes || []).map((x) => x.id), data.task?.state],
+    settings: () => [data.config, data.names, data.direction, data.exported],
+  };
+  let bodySig = "";
+  const sigOf = () => JSON.stringify(SIG[tab] ? SIG[tab]() : null);
+  let playNote = null;
+
+  function setData(next) {  // keep the object: self-refreshing tabs hold a reference to it
+    for (const k of Object.keys(data)) if (!(k in next)) delete data[k];
+    Object.assign(data, next);
+  }
+
+  async function refresh() {
+    try { setData(await api(`/api/stories/${sid}`)); }
+    catch (err) { if (err.code === "NOT_FOUND") { body.replaceChildren(errorBox(err)); } return; }
     renderHead();
     renderTracker();
-    const signature = JSON.stringify([data.progress.chapters.map((c) => c.state), data.task?.state, data.workflow?.current, data.workflow?.needs_you?.length]);
-    if (force || signature !== lastSignature) { lastSignature = signature; if (tab === "chapters" || tab === "workflow" || tab === "characters") renderBody(); }
-    const busy = data.progress.active || data.task?.state === "running";
-    clearTimeout(timer);
-    timer = setTimeout(() => refresh().catch(() => {}), busy ? 2500 : 15000);
+    if (tab === "play") { playNote?.(data); return; }
+    if (!SIG[tab]) return;  // characters, dynamics, assets: they refresh themselves from their own topics
+    const sig = sigOf();
+    if (sig !== bodySig) { bodySig = sig; await rerender(body, (fresh) => drawBody(fresh)); }
+  }
+
+  function select(id) {
+    selected = id;
+    history.replaceState(null, "", storyLink(sid, "chapters", { chapter: id }));
+    renderBody();
+  }
+
+  function drawBody(target) {
+    const views = { workflow: (r, d, s, f) => workflowTab(r, d, s, f, refresh), characters: (r, d, s, f) => charactersTab(r, d, s, f, refresh),
+                    chapters: chaptersTab, play: playTab, improve: improveTab, assets: storyAssetsTab, settings: settingsTab, dynamics: dynamicsTab };
+    const out = (views[tab] || workflowTab)(target, data, sid, run, { selected, select, query, setPlayNote: (fn) => (playNote = fn) });
+    return out;
   }
 
   function renderBody() {
-    const scroll = body.querySelector(".reader")?.scrollTop;
-    body.innerHTML = "";
-    const views = { workflow: (r, d, s, f) => workflowTab(r, d, s, f, refresh), characters: (r, d, s, f) => charactersTab(r, d, s, f, refresh),
-                    chapters: chaptersTab, play: playTab, improve: improveTab, assets: storyAssetsTab, settings: settingsTab, dynamics: dynamicsTab };
-    (views[tab] || workflowTab)(body, data, sid, run, { selected, select: (id) => { selected = id; history.replaceState(null, "", `#/story/${sid}?tab=chapters&chapter=${id}`); renderBody(); } });
-    if (scroll) body.querySelector(".reader") && (body.querySelector(".reader").scrollTop = scroll);
+    bodySig = sigOf();
+    playNote = null;
+    body.replaceChildren();
+    drawBody(body);
+    const panelId = query.get("panel");
+    if (panelId) requestAnimationFrame(() => body.querySelector(`[data-panel="${panelId}"]`)?.scrollIntoView({ block: "start" }));
   }
 
   renderHead();
   renderTracker();
-  lastSignature = JSON.stringify([data.progress.chapters.map((c) => c.state), data.task?.state]);
   renderBody();
-  timer = setTimeout(() => refresh().catch(() => {}), 2500);
-  return { cleanup: () => clearTimeout(timer), refresh: () => refresh() };
+  // one subscription: anything in this story's folder, its art in the library, its writing jobs, or any task
+  watch([`story:${sid}:*`, "tasks"], () => refresh(), { debounce: 250 });
+  return {
+    update: ({ rest, params: p }) => {
+      if (rest[0] !== sid || rest[1] === "new") return false;
+      const nextTab = tabFrom(rest, p);
+      const nextChapter = p.get("chapter");
+      const changed = nextTab !== tab || (nextChapter && nextChapter !== selected) || p.toString() !== query.toString();
+      if (!changed) return true;
+      tab = nextTab;
+      if (nextChapter) selected = nextChapter;
+      query = p;
+      root.scrollTop = 0;
+      renderHead();
+      renderBody();
+      return true;
+    },
+  };
 }
 
 // ---------------------------------------------------------------------- chapters: rail + reader
@@ -399,7 +461,8 @@ function chaptersTab(root, data, sid, run, { selected, select }) {
   const current = chapters.find((c) => c.id === selected) || chapters.find((c) => c.state === "written") || chapters[0];
   const icon = { written: "✓", writing: "⟳", revising: "⟳", planned: "○" };
   const rail = h("div.rail", chapters.map((c) => h("button.rail-item", {
-    type: "button", class: `${c.state}${c.id === current.id ? " on" : ""}`, onclick: () => select(c.id) },
+    type: "button", class: `${c.state}${c.id === current.id ? " on" : ""}`, onclick: () => select(c.id),
+    dataset: { liveKey: `rail:${c.id}`, liveSig: `${c.state}|${c.title}|${JSON.stringify(data.written?.[c.id]?.nodes?.length || 0)}` } },
     h("span.rail-num", c.number), h("span.rail-text", h("b", c.title), h("span.help", `${c.location.replace(/_/g, " ")} · ${c.time}${c.ending ? " · ending" : ""}`)),
     h("span.rail-icon", { title: c.state }, c.state === "writing" || c.state === "revising" ? h("span.spinner") : icon[c.state]))));
   root.append(h("div.chapters", rail, h("div.reader", reader(current, data, sid, run, select))));
@@ -410,7 +473,7 @@ function reader(c, data, sid, run, select) {
   const titles = Object.fromEntries(data.progress.chapters.map((x) => [x.id, x]));
   const head = h("div.reader-head", h("div", h("div.help", `Chapter ${c.number}`), h("h2", c.title)),
     c.state === "written" || c.state === "revising"
-      ? h("a.btn.primary", { href: `#/story/${sid}?tab=play&chapter=${c.id}` }, "▶ Play from here") : null);
+      ? h("a.btn.primary", { href: storyLink(sid, "play", { chapter: c.id }) }, "▶ Play from here") : null);
   const scene = data.written?.[c.id];
   if (!scene) return h("div", head, h("div.planned-card",
     c.state === "writing" ? h("p", h("span.spinner"), " Being written right now…") : h("p.help", "Not written yet. This is the plan:"),
@@ -418,9 +481,11 @@ function reader(c, data, sid, run, select) {
   const names = Object.fromEntries((data.cast?.characters || []).map((ch) => [ch.id, ch.name]));
   const locName = Object.fromEntries((data.cast?.locations || []).map((l) => [l.id, l.name]));
   const cond = (cs) => (cs || []).map((x) => `${x.var} ${x.op} ${x.value}`).join(" and ");
-  const lines = scene.nodes.map((n) => {
-    const line = nodeLine(n);
-    return line && n.when?.length ? h("div.vn-when", h("div.help", `Only if ${cond(n.when)}`), line) : line;
+  const lines = scene.nodes.map((n, i) => {
+    let line = nodeLine(n);
+    line = line && n.when?.length ? h("div.vn-when", h("div.help", `Only if ${cond(n.when)}`), line) : line;
+    if (line) { line.dataset.liveKey = `${c.id}:${i}`; line.dataset.liveSig = JSON.stringify(n); }
+    return line;
   });
   function nodeLine(n) {
     if (n.kind === "choice" && !n.choices.some((ch) => ch.goto)) return h("div.vn-choice", h("div.help", "Choice (the chapter carries on)"),
@@ -443,7 +508,7 @@ function reader(c, data, sid, run, select) {
     if (n.kind === "hide") return h("div.vn-stage", `${names[n.character] || n.character} leaves`);
     return null;
   }
-  const audioPanel = h("div.card.audio-panel");
+  const audioPanel = h("div.card.audio-panel", { dataset: { panel: "audio" } });
   sceneAudioPanel(audioPanel, data, sid, c.id, run);
   const note = h("input", { type: "text", placeholder: "What should change in this chapter?" });
   return h("div", head, h("div.vn-lines.big", lines),
@@ -466,24 +531,25 @@ function studioLink(c, v, sid) {
 }
 
 function sceneAudioPanel(root, data, sid, sceneId, run) {
-  root.replaceChildren(h("h3", "Audio direction"), h("div.help", h("span.spinner"), " Loading the audio plan…"));
   let picker = null;
   loadAI().then((info) => { picker = modelSelect(info.providers, {}); }).catch(() => {});
-  api(`/api/stories/${sid}/audio/${sceneId}`).then(draw).catch((err) => root.replaceChildren(h("h3", "Audio direction"), errorBox(err)));
+  // cached draw, then refresh whenever the chapter's audio plan, its sounds in the library or its text change
+  panel(root, { url: `/api/stories/${sid}/audio/${sceneId}`, topics: [`story:${sid}:audio`, `story:${sid}:art`, `story:${sid}:text`],
+                loading: "Loading the audio plan…", render: (v, target) => draw(v, target) });
 
   async function post(body) {
-    try { const v = await api(`/api/stories/${sid}/audio/${sceneId}`, { method: "POST", body }); draw(v); }
-    catch (err) { toast(err.message); }
+    try { const v = await api(`/api/stories/${sid}/audio/${sceneId}`, { method: "POST", body }); await rerender(root, (t) => draw(v, t)); }
+    catch (err) { toast(err.message, { kind: "bad" }); }
   }
-  function draw(v) {
+  function draw(v, target = root) {
     const lineText = Object.fromEntries(v.lines.map((l) => [l.i, l.text]));
     const head = h("div.ap-head", h("h3", "Audio direction"),
       h("div.actions",
         h("button.btn.small", { type: "button", onclick: () => run({ action: "audio_plan", scene: sceneId, ...(picker ? pickerValue(picker) : {}) }) }, v.plan ? "Plan again" : "Plan the soundscape"),
         v.plan ? h("button.btn.small.primary", { type: "button", onclick: () => post({ action: "apply" }) }, "Apply to chapter") : null,
         v.plan ? h("button.btn.small", { type: "button", onclick: () => run({ action: "audio_make", scene: sceneId }) }, "Make missing sounds") : null,
-        v.applied_nodes ? h("a.btn.small", { href: `#/story/${sid}?tab=play&chapter=${sceneId}` }, "▶ Preview with audio") : null));
-    if (!v.plan) { root.replaceChildren(head, h("p.help", "No audio plan yet. Fable reads the chapter, the sound profile and the catalog, then proposes ambience, music, sound events and silence with a purpose each.")); return; }
+        v.applied_nodes ? h("a.btn.small", { href: storyLink(sid, "play", { chapter: sceneId }) }, "▶ Preview with audio") : null));
+    if (!v.plan) { target.replaceChildren(head, h("p.help", "No audio plan yet. Fable reads the chapter, the sound profile and the catalog, then proposes ambience, music, sound events and silence with a purpose each.")); return; }
     const p = v.plan;
     const strip = h("div.ap-strip", v.intensity.map((s) => h("div.ap-col", { title: `line ${s.i}${s.silent ? " · silence" : ""}${s.events.length ? " · " + s.events.map((e) => e.what).join(", ") : ""}` },
       h("div.ap-music", { style: `height:${Math.round(s.music * 100)}%` }), h("div.ap-amb", { style: `height:${Math.round(s.ambience * 60)}%` }),
@@ -500,7 +566,7 @@ function sceneAudioPanel(root, data, sid, sceneId, run) {
       atInput.addEventListener("change", () => post({ action: "update", cue: c.id, patch: { at: +atInput.value } }));
       const purpose = h("input", { type: "text", value: c.purpose, title: "Purpose" });
       purpose.addEventListener("change", () => post({ action: "update", cue: c.id, patch: { purpose: purpose.value } }));
-      return h("div.ap-cue", { class: c.status },
+      return h("div.ap-cue", { class: c.status, dataset: { liveKey: `cue:${c.id}`, liveSig: JSON.stringify([c.what, c.at, c.status, c.library_status, c.asset?.id]) } },
         play,
         h("div.ap-main",
           h("div", h("b", CUE_KIND[c.kind] || c.kind), ` · ${c.what}`, c.loop ? h("span.tag", "loops") : null, c.when?.length ? h("span.tag", `only if ${c.when.map((w) => `${w.var} ${w.op} ${w.value}`).join(" & ")}`) : null, " ", status),
@@ -521,7 +587,7 @@ function sceneAudioPanel(root, data, sid, sceneId, run) {
       const at = window.prompt("Line number it plays with (0 = before the first line)", "0"); if (at === null) return;
       const purpose = window.prompt("Why is this sound here?", ""); if (!purpose) return;
       post({ action: "add", cue_data: { id: `${kind}_${Date.now().toString(36).slice(-4)}`, kind, what: what || "music", purpose, at: +at, text: kind === "sfx" ? what : "" } }); } }, "+ Add a cue");
-    root.replaceChildren(head,
+    target.replaceChildren(head,
       h("p.help", h("b", p.environment), p.mood ? ` · ${p.mood}` : "", h("br"), p.summary),
       h("div.lbl", "Audio intensity along the chapter (music height, ambience, events; dark = silence)"), strip, review,
       h("div.ap-cues", rows), h("div.actions", add),
@@ -573,7 +639,7 @@ function improveTab(root, data, sid, run) {
     (data.check.issues || []).map((i) => h("div.vn-issue", h("span.issue", { class: i.severity === "high" ? "err" : "warn" }, i.severity),
       h("b", ` ${i.scene}: `), i.problem, i.suggestion ? h("div.help", `→ ${i.suggestion}`) : null))));
   if (data.feedback?.length) root.append(h("div.section-head", h("h2", "Feedback rounds")),
-    ...data.feedback.slice().reverse().map((f) => h("div.card.sub-card", h("div.help", fmt.date ? fmt.date(f.at) : f.at),
+    ...data.feedback.slice().reverse().map((f) => h("div.card.sub-card", { dataset: { liveKey: `fb:${f.at}` } }, h("div.help", fmt.date ? fmt.date(f.at) : f.at),
       h("p", h("b", "You: "), f.feedback || "(continuity issues)"), h("p.help", f.summary),
       h("div", f.edits.map((e) => h("span.tag", { title: e.note }, `${f.revised.includes(e.scene) ? "✓" : "✗"} ${e.scene}`))))));
 }
@@ -589,7 +655,7 @@ async function showAlternatives(root, sid, scene, run) {
       h("div", h("b", a.id), ` · ${a.angle}`, h("span.help", ` · ${a.words} words, ${a.choices} choices${a.ok ? "" : " · fails a structural check"} · ${a.provider || ""} ${a.model || ""}`)),
       h("div.help", (a.scene?.nodes || []).filter((n) => n.kind === "narrate" || n.kind === "say").slice(0, 4).map((n) => n.text).join(" / ")),
       h("div.actions", h("button.btn.small.primary", { type: "button", onclick: async () => {
-        try { await api(`/api/stories/${sid}/alternatives/${scene}/${a.id}`, { method: "POST", body: {} }); toast(`Chapter replaced with ${a.id}`); location.reload(); }
+        try { await api(`/api/stories/${sid}/alternatives/${scene}/${a.id}`, { method: "POST", body: {} }); toast(`Chapter replaced with ${a.id}`, { kind: "good" }); }
         catch (err) { toast(err.message); } } }, "Use this version")))));
   } catch (err) { box.replaceChildren(errorBox(err)); }
 }
@@ -610,7 +676,16 @@ function assetsTab(root, data, sid, run) {
         ...groups.map((g) => h("label.check", checks[g], { chars: "Characters", bg: "Backgrounds", cg: "CGs", ui: "UI", audio: "Music & sound" }[g]))),
       h("div.actions",
         h("button.btn", { type: "button", onclick: () => run({ action: "assets_plan", ...opts() }) }, "Estimate cost"),
-        h("button.btn.primary", { type: "button", onclick: () => confirm("Generate the missing assets? Images are billed to your image API key.") && run({ action: "assets", ...opts() }) }, "Make missing assets"))));
+        h("button.btn.primary", { type: "button", onclick: async () => {
+          const est = data.task?.action === "assets_plan" && data.task.state === "done" ? data.task.result : null;
+          const ok = await confirmAction({ title: "Make the missing assets?", confirm: "Make them",
+            lines: [`${a.total - a.have} of ${a.total} assets are missing (${opts().only.join(", ") || "all groups"}).`,
+                    `Images go to ${provider.value === "auto" ? "your configured image provider" : provider.value} at ${quality.value} quality; sound is made locally for free.`,
+                    "Nothing is replaced: only missing keys are made."],
+            cost: est?.estimated_cost_usd ?? "not estimated yet — press Estimate cost first",
+            note: "Images are billed to your image API key." });
+          if (ok) run({ action: "assets", ...opts() });
+        } }, "Make missing assets"))));
   const result = data.task?.state === "done" && (data.task.action === "assets_plan" || data.task.action === "assets") ? data.task.result : null;
   if (result) {
     root.append(h("div.estimate", h("div", result.estimated_cost_usd != null ? h("span.cost", fmt.money ? fmt.money(result.estimated_cost_usd) : `$${result.estimated_cost_usd}`) : null,
@@ -622,7 +697,8 @@ function assetsTab(root, data, sid, run) {
 }
 
 
-function playTab(root, data, sid, run, { selected } = {}) {
+function playTab(root, data, sid, run, opts = {}) {
+  const { selected } = opts;
   if (!data.progress.playable_chapters) {
     root.append(h("div.empty", data.progress.active ? h("div", h("span.spinner"), " The first chapter is being written; you can play it as soon as it's done.")
       : "Write the story first."));
@@ -632,11 +708,23 @@ function playTab(root, data, sid, run, { selected } = {}) {
   const src = () => `/preview/${sid}/${chapter ? `?scene=${encodeURIComponent(chapter)}&` : "?"}t=${Date.now()}`;
   const frame = h("iframe.vn-frame", { src: src(), title: "Story player", allow: "autoplay" });
   const [done, total] = data.progress.steps.chapters;
+  const sigOf = (d) => JSON.stringify([d.progress.chapters.map((c) => c.state), d.written, d.progress.steps.assets]);
+  let loadedSig = sigOf(data);
+  const status = h("span.help", done < total ? `${done} of ${total} chapters written — unwritten chapters play as their plan.` : "Every chapter is written.");
+  const stale = h("span.af-stale", { hidden: true }, "The story changed since the player loaded. ",
+    h("button.btn.small.primary", { type: "button", onclick: () => reload() }, "Reload the player"));
+  function reload() { frame.src = src(); loadedSig = sigOf(data); stale.hidden = true; }
+  // live: the player keeps its place (it is never reloaded behind your back); this says when there is something new
+  opts.setPlayNote?.((d) => {
+    const [dn, tt] = d.progress.steps.chapters;
+    status.textContent = dn < tt ? `${dn} of ${tt} chapters written — unwritten chapters play as their plan.` : "Every chapter is written.";
+    if (sigOf(d) !== loadedSig && stale.hidden) { stale.hidden = false; flash(stale, "af-new"); }
+  });
   root.append(
     h("div.toolbar",
-      h("button.btn", { type: "button", onclick: () => (frame.src = src()) }, "↻ Reload with latest chapters"),
-      chapter ? h("a.btn", { href: `#/story/${sid}?tab=play` }, "Start from the beginning") : null,
-      h("span.help", done < total ? `${done} of ${total} chapters written — unwritten chapters play as their plan.` : "Every chapter is written.")),
+      h("button.btn", { type: "button", onclick: () => reload() }, "↻ Reload with latest chapters"),
+      chapter ? h("a.btn", { href: storyLink(sid, "play") }, "Start from the beginning") : null,
+      status, stale),
     frame,
     h("p.help", "Click or press Space to advance · 1–9 picks a choice · H shows history. Art and sound appear here as soon as they're made."));
 }
@@ -663,7 +751,7 @@ function settingsTab(root, data, sid, run) {
           if (ok) return save(true);
           return;
         }
-        toast("Creative direction saved"); location.reload();
+        toast("Creative direction saved", { kind: "good" }); dirBox.replaceChildren();
       } catch (err) { toast(err.message); }
     };
     dirBox.replaceChildren(form, h("div.actions", h("button.btn.primary", { type: "button", onclick: () => save(false) }, "Save direction"),
@@ -690,18 +778,15 @@ function settingsTab(root, data, sid, run) {
 
 // Content contract v2: compile an immutable release, read its report, publish it to R2 only after a confirm step.
 function releaseCard(sid) {
-  const box = h("div.card.sub-card", h("h3", "Release (content contract v2)"), h("div.empty.small", h("span.spinner")));
+  const box = h("div.card.sub-card", { dataset: { panel: "release" } }, h("h3", "Release (content contract v2)"), h("div.empty.small", h("span.spinner")));
   let busy = false;
-  async function task(body) {  // runs as a story task; polled here so the card shows its own result
+  async function task(body) {  // runs as a story task; the change feed says when it ends
     busy = true; draw.last && draw(draw.last);
     try {
       const { task_id } = await api(`/api/stories/${sid}/run`, { method: "POST", body });
-      for (;;) {
-        await new Promise((r) => setTimeout(r, 1200));
-        const t = (await api(`/api/story-tasks/${task_id}`)).task;
-        if (t.state === "failed") throw new Error(t.error?.message || "failed");
-        if (t.state === "done") return t.result;
-      }
+      const t = await waitTask(task_id);
+      if (t.state !== "succeeded" && t.state !== "waiting") throw new Error(t.error?.message || t.state);
+      return t.result || (await api(`/api/tasks/${task_id}`)).task.result;
     } finally { busy = false; }
   }
   const findingRow = (f) => h("div", { class: f.level === "error" ? "dir-warn" : "help" }, `${f.level} · ${f.code} · ${f.where}: ${f.message}`);
@@ -714,20 +799,25 @@ function releaseCard(sid) {
       ...(plan.errors || []).slice(0, 8).map(findingRow),
       h("div.actions",
         h("button.btn.primary", { type: "button", disabled: !ok || busy, onclick: async () => {
-          if (!window.confirm(`Upload ${plan.release} to ${plan.config?.bucket || "R2"} and publish the catalog? Published objects can't be replaced.`)) return;
+          const yes = await confirmAction({ title: `Publish ${plan.release}?`, confirm: "Upload and publish", danger: true,
+            lines: [`Uploads ${t.upload.count} object(s) (${fmt.bytes(t.upload.bytes)}) to ${plan.config?.bucket || "R2"}; ${t.skip.count} are already there.`,
+                    `Publishes the staging catalog (sequence ${plan.catalog?.current_sequence ?? "none"} → ${plan.catalog?.next_sequence ?? "?"}).`,
+                    "Published objects can't be replaced; a later release can supersede this one."],
+            cost: "R2 storage and requests only (no generation)" });
+          if (!yes) return;
           try { const r = await task({ action: "publish", release, confirm: true }); toast(r.published ? `Published · catalog ${r.receipt.sequence}` : "Not published (see plan)"); load(); }
           catch (err) { toast(err.message); } } }, "Confirm publish"),
         h("button.btn", { type: "button", onclick: () => load() }, "Cancel")));
   }
-  function draw(v, extra) {
+  function draw(v, extra, target = box) {
     draw.last = v;
     const rep = v.last_report;
     const latest = v.releases[v.releases.length - 1];
     const allow = h("input", { type: "checkbox" });
-    const rows = v.releases.slice().reverse().map((r) => h("tr", h("td.mono", r.releaseId), h("td.mono", r.graphId),
+    const rows = v.releases.slice().reverse().map((r) => h("tr", { dataset: { liveKey: `rel:${r.releaseId}`, liveSig: JSON.stringify([r.valid, r.published]) } }, h("td.mono", r.releaseId), h("td.mono", r.graphId),
       h("td", h("span.tag", { class: r.valid ? "good" : "warn" }, r.valid ? "valid" : "invalid")),
       h("td", r.published ? `catalog ${r.published.sequence}` : "—"), h("td.help", r.created)));
-    box.replaceChildren(...[h("h3", "Release (content contract v2)"),
+    target.replaceChildren(...[h("h3", "Release (content contract v2)"),
       h("p.help", "Compiles the finished story and its assets into an immutable, verifiable release under ", h("span.mono", "releases/"),
         ". Nothing is uploaded until you publish and confirm."),
       h("div.actions",
@@ -748,30 +838,58 @@ function releaseCard(sid) {
         : h("p.help", "No release yet."),
       v.draft ? h("p.help", `A draft exists (${v.draft.errors} blocking finding(s)); drafts are never published.`) : null].filter(Boolean));
   }
-  function load() { api(`/api/stories/${sid}/releases`).then((v) => draw(v)).catch((err) => box.replaceChildren(errorBox(err))); }
-  load();
+  function load(live = false) {
+    loadCached(`/api/stories/${sid}/releases`).then((v) => (live ? rerender(box, (t) => draw(v, null, t)) : draw(v)))
+      .catch((err) => box.replaceChildren(h("h3", "Release (content contract v2)"), errorBox(err), h("button.btn.small", { type: "button", onclick: () => load() }, "Retry")));
+  }
+  const hit = cached(`/api/stories/${sid}/releases`);
+  if (hit) draw(hit);
+  load(!!hit);
+  watch([`story:${sid}:releases`, "publishing"], () => { if (!busy) load(true); }, { owner: box });
   return box;
 }
 
 
 // ---------------------------------------------------------------------- story assets (what the story uses, where)
 
-function storyAssetsTab(root, data, sid, run) {
-  const box = h("div", h("div.empty.small", h("span.spinner"), " Loading the story's assets…"));
+function storyAssetsTab(root, data, sid, run, opts = {}) {
+  const box = h("div");
   root.append(box);
-  Promise.all([api(`/api/stories/${sid}/assets`), api(`/api/stories/${sid}/visual-check`).catch(() => ({ verdicts: {} }))])
-    .then(([a, vc]) => renderStoryAssets(box, a, data, sid, run, vc))
-    .catch((err) => box.replaceChildren(errorBox(err)));
+  const q = opts.query || new URLSearchParams();
+  // the lens and filter are part of the deep link: #/story/<id>/assets?chapter=…&show=missing&asset=<key>
+  const st = { show: ["all", "missing", "made"].includes(q.get("show")) ? q.get("show") : "all", chapter: q.get("chapter") || null,
+               focus: q.get("asset") || null };
+  const urls = [`/api/stories/${sid}/assets`, `/api/stories/${sid}/visual-check`];
+  let ready = false;
+  const hitA = cached(urls[0]);
+  if (hitA) { renderStoryAssets(box, hitA, data, sid, run, cached(urls[1]) || { verdicts: {} }, st, false); ready = true; }
+  else box.append(h("div.empty.small", h("span.spinner"), " Loading the story's assets…"));
+  async function reload() {
+    try {
+      const [a, vc] = await Promise.all([loadCached(urls[0]), loadCached(urls[1]).catch(() => ({ verdicts: {} }))]);
+      renderStoryAssets(box, a, data, sid, run, vc, st, ready);
+      ready = true;
+    } catch (err) {
+      const retry = h("div.af-panel-error", errorBox(err), h("button.btn.small", { type: "button", onclick: () => reload() }, "Retry"));
+      if (ready) { box.querySelector(":scope > .af-panel-error")?.remove(); box.prepend(retry); } else box.replaceChildren(retry);
+    }
+  }
+  reload();
+  // live: new or remade images (any process), verdicts, the script and the sound plan
+  watch([`story:${sid}:art`, `story:${sid}:checks`, `story:${sid}:text`, `story:${sid}:audio`, `story:${sid}:cast`], () => reload(), { owner: box });
 }
 
-function renderStoryAssets(box, a, data, sid, run, vc = { verdicts: {} }) {
-  let show = "all";      // all | missing | made
-  let chapter = null;    // chapter id lens
+function renderStoryAssets(box, a, data, sid, run, vc = { verdicts: {} }, st = { show: "all", chapter: null }, live = false) {
   const chapterTitles = Object.fromEntries((data.progress?.chapters || []).map((c) => [c.id, `${c.number}. ${c.title}`]));
-  const keep = (e) => (show === "all" || (show === "missing" ? !e.asset : !!e.asset)) && (!chapter || e.chapters.some((c) => c.id === chapter));
+  const keep = (e) => (st.show === "all" || (st.show === "missing" ? !e.asset : !!e.asset)) && (!st.chapter || e.chapters.some((c) => c.id === st.chapter));
+  const setLens = (patch) => {
+    Object.assign(st, patch);
+    history.replaceState(null, "", storyLink(sid, "assets", { chapter: st.chapter, show: st.show !== "all" ? st.show : null }));
+    draw(false);
+  };
 
   const chips = (e, max = 3) => h("div.sa-chips", e.chapters.length
-    ? e.chapters.slice(0, max).map((c) => h("button.sa-chip", { type: "button", title: `Show only chapter “${c.title}”`, onclick: () => { chapter = c.id; draw(); } }, chapterTitles[c.id] || c.title))
+    ? e.chapters.slice(0, max).map((c) => h("button.sa-chip", { type: "button", title: `Show only chapter “${c.title}”`, onclick: (ev) => { ev.stopPropagation(); setLens({ chapter: c.id }); } }, chapterTitles[c.id] || c.title))
       .concat(e.chapters.length > max ? [h("span.muted.small", { title: e.chapters.slice(max).map((c) => chapterTitles[c.id] || c.title).join("\n") }, `+${e.chapters.length - max} more`)] : [])
     : [h("span.muted.small", "not used yet")]);
   const status = (e) => e.asset ? h("span.sa-status", { class: e.asset.status }, e.asset.status) : h("span.sa-status.missing", "not made");
@@ -784,7 +902,13 @@ function renderStoryAssets(box, a, data, sid, run, vc = { verdicts: {} }) {
     if (!x) return null;
     if (x.ok) return h("span.sa-logic.ok", { title: `Art logic: matches the brief and the canon (${x.model || x.provider})` }, "✓ logic");
     const fix = h("button.sa-logic-fix", { type: "button", title: "Remake it with these faults as feedback (paid image generation, up to 2 rounds)",
-      onclick: (ev) => { ev.stopPropagation(); if (confirm(`Remake ${e.key}?\nThis is a paid image generation (up to 2 rounds).`)) run({ action: "art_fix", key: e.key }).then(() => watchCheck()); } }, "Remake");
+      onclick: async (ev) => {
+        ev.stopPropagation();
+        const ok = await confirmAction({ title: `Remake ${e.key}?`, confirm: "Remake", lines: [`The fault found: ${x.fault || "does not match the brief"}.`,
+          "A new image is generated with these faults as feedback and checked again, up to 2 rounds; the best one is kept.",
+          "The current image is kept in the library (archived), not deleted."], cost: "1–2 image generations at your provider's price" });
+        if (ok) run({ action: "art_fix", key: e.key });
+      } }, "Remake");
     return h("div.sa-logic.bad", { title: [x.fault, ...(x.violations || []).slice(1).map((v) => `${v.rule}: ${v.what}`), ...(x.logic || [])].join("\n") },
       h("b", "✕ "), h("span.clamp2", x.fault || "does not match the brief"), fix);
   }
@@ -792,29 +916,19 @@ function renderStoryAssets(box, a, data, sid, run, vc = { verdicts: {} }) {
   function tile(e, label, { wide = false } = {}) {
     const v = e.asset?.primary_variant;
     const img = v && v.file?.kind === "image" ? h("img", { src: thumbUrl(v.id, wide ? 512 : 256), loading: "lazy", alt: label }) : null;
-    return h("div.sa-tile", { class: `${wide ? "wide" : ""}${e.asset ? "" : " missing"}`, title: e.key, onclick: () => open(e) },
+    const verdict = verdictOf(e);
+    return h("div.sa-tile", { class: `${wide ? "wide" : ""}${e.asset ? "" : " missing"}`, title: e.key, onclick: () => open(e),
+      dataset: { liveKey: e.key, liveSig: JSON.stringify([e.asset?.id, e.asset?.status, e.asset?.primary_variant?.id, verdict?.ok, verdict?.fault]),
+                 liveState: e.asset ? "made" : "missing" } },
       h("div.sa-thumb", img || h("span.muted.small", e.asset ? "no preview" : "not made yet")),
       h("div.sa-cap", h("b", label), e.asset ? h("span.sa-dot", { class: e.asset.status, title: e.asset.status }) : h("span.sa-dot.missing", { title: "not made yet" })),
       logicMark(e), chips(e));
   }
 
-  // after a check or fix starts: poll until the story's task is done, then reload the assets and verdicts
-  function watchCheck() {
-    const timer = setInterval(async () => {
-      try {
-        const d = await api(`/api/stories/${sid}`);
-        if (d.task?.state === "running") return;
-        clearInterval(timer);
-        const [a2, vc2] = await Promise.all([api(`/api/stories/${sid}/assets`), api(`/api/stories/${sid}/visual-check`)]);
-        a = a2; vc = vc2; draw();
-      } catch { clearInterval(timer); }
-    }, 4000);
-  }
-
   function soundRow(e, label, extra) {
     const v = e.asset?.primary_variant;
     const btn = v ? h("button.sa-play", { type: "button", title: "Play", onclick: (ev) => { ev.stopPropagation(); playVariant(v.id, btn); } }, "▶") : h("span.sa-play.off", "·");
-    return h("div.sa-row", { class: e.asset ? "" : "missing" }, btn,
+    return h("div.sa-row", { class: e.asset ? "" : "missing", dataset: { liveKey: e.key, liveSig: JSON.stringify([e.asset?.id, e.asset?.status]), liveState: e.asset ? "made" : "missing" } }, btn,
       h("div.sa-row-main", h("div", h("b", label), " ", status(e)), extra ? h("div.help", extra) : null),
       chips(e, 5), e.asset ? h("button.btn.small", { type: "button", onclick: () => open(e) }, "Open") : null);
   }
@@ -822,16 +936,26 @@ function renderStoryAssets(box, a, data, sid, run, vc = { verdicts: {} }) {
   const section = (id, title, count, body) => body.length ? h("section.sa-section", { id: `sa-${id}` },
     h("h2", title, h("span.muted.small", ` ${count}`)), ...body) : null;
 
-  function draw() {
+  function draw(liveDraw = live) {
+    if (liveDraw) return rerender(box, (target) => fill(target));
+    box.replaceChildren();
+    fill(box);
+    if (st.focus) {  // deep link to one asset: bring it into view and mark it
+      const el = [...box.querySelectorAll("[data-live-key]")].find((x) => x.dataset.liveKey === st.focus);
+      st.focus = null;
+      if (el) requestAnimationFrame(() => { el.scrollIntoView({ block: "center" }); flash(el, "af-new"); });
+    }
+  }
+  function fill(box) {
     const t = a.totals;
     const head = h("div.card.sa-head",
       h("div", h("div.sa-big", `${t.made} of ${t.total}`), h("div.help", `assets made · ${t.approved} approved · ${t.total - t.made} missing`)),
-      segmented([["all", "All"], ["missing", "Missing"], ["made", "Made"]], show, (v) => { show = v; draw(); }),
-      chapter ? h("button.btn.small", { type: "button", onclick: () => { chapter = null; draw(); } }, `Chapter: ${chapterTitles[chapter] || chapter}  ✕`) : null,
+      segmented([["all", "All"], ["missing", "Missing"], ["made", "Made"]], st.show, (v) => setLens({ show: v })),
+      st.chapter ? h("button.btn.small", { type: "button", onclick: () => setLens({ chapter: null }) }, `Chapter: ${chapterTitles[st.chapter] || st.chapter}  ✕`) : null,
       h("span.sa-logic-head", vc.total ? h("span.help", `art logic: ${vc.ok} of ${vc.total} pass`) : null,
         h("button.btn.small", { type: "button", title: "A vision model (your codex or claude sign-in, no image cost) judges each made background, CG and title against its brief and the story's visual canon",
-          onclick: () => run({ action: "art_check" }).then(() => { toast("Checking art logic…"); watchCheck(); }) }, "Check art logic")),
-      h("nav.sa-nav", ["characters", "places", "cgs", "ui", "sound"].map((id) => h("a", { href: `#sa-${id}`, onclick: (ev) => { ev.preventDefault(); box.querySelector(`#sa-${id}`)?.scrollIntoView({ behavior: "smooth" }); } },
+          onclick: () => run({ action: "art_check" }) }, "Check art logic")),
+      h("nav.sa-nav", ["characters", "places", "cgs", "ui", "sound"].map((id) => h("a", { href: `#sa-${id}`, onclick: (ev) => { ev.preventDefault(); document.getElementById(`sa-${id}`)?.scrollIntoView({ behavior: "smooth" }); } },
         { characters: "Characters", places: "Places", cgs: "Event art", ui: "UI", sound: "Sound" }[id]))));
 
     const characters = a.characters.map((c) => {
@@ -943,10 +1067,13 @@ function branchingMap(graph) {
   return h("div", h("div.branch-scroll", svg), legend, section("Major decisions", decisions, { open: true }), section("Endings and what earns them", endings), section("Variables", h("ul", ...graph.variables.map((v) => h("li", h("code", v.name), ` ${v.kind || ""} · ${v.meaning}`)))));
 }
 
-async function dynamicsTab(root, data, sid, run) {
+function dynamicsTab(root, data, sid, run) {
   const box = h("div"); root.append(box);
-  let d;
-  try { d = await api(`/api/stories/${sid}/dynamics`); } catch (err) { box.append(errorBox(err)); return; }
+  panel(box, { url: `/api/stories/${sid}/dynamics`, topics: [`story:${sid}:text`, `story:${sid}:checks`, "tasks"],
+               deps: () => [data.task?.state, data.progress?.steps], render: (d, target) => drawDynamics(d, target, data, sid, run) });
+}
+
+function drawDynamics(d, box, data, sid, run) {
   const chapters = d.chapters || [];
   const planned = {}; (d.planned?.points || []).forEach((p) => { planned[p.chapter] = p; });
   const measured = d.measured || {};
@@ -956,7 +1083,7 @@ async function dynamicsTab(root, data, sid, run) {
     h("button.btn.primary", { type: "button", disabled: busy || !data.progress.steps.outline, onclick: () => run({ action: "dynamics_plan", fresh: !!d.planned }) }, d.planned ? "Rate the plan again" : "Rate the plan"),
     ...chapters.filter((c) => c.written).map((c) => h("button.btn", { type: "button", disabled: busy, onclick: () => run({ action: "dynamics_estimate", chapter: c.id, fresh: !!measured[c.id] }) }, `Estimate ${c.id}`)),
     h("span.help", d.reviewed?.method || "Ratings come from the writer; estimates from the written text are a model's reading, not a measurement."));
-  box.append(
+  box.append(...[
     h("h2", "Narrative dynamics"),
     h("p.help", "Six tracks per chapter. For a power fantasy the engine is the gap between capability (what he can do) and status (how the world rates him): it should open early and close late, in public."),
     controls,
@@ -966,16 +1093,19 @@ async function dynamicsTab(root, data, sid, run) {
     d.planned ? section("Milestones by chapter", h("ul", ...(d.planned.points || []).map((p) => h("li", h("b", p.title || p.chapter), ": ",
       p.milestones.length ? p.milestones.map((m) => `${m.kind}: ${m.text}`).join(" · ") : h("span.help", "none"), p.note ? h("div.help", p.note) : null))), { open: false }) : null,
     h("h2", "Branching"),
-    branchingMap(d.graph));
+    branchingMap(d.graph)].filter(Boolean));
 }
 
 
 // ---------------------------------------------------------------------- editorial evaluation (the fifteen questions, with evidence)
 
-async function evaluationCard(root, data, sid, run) {
-  const box = h("div.card"); root.append(box);
-  let ev;
-  try { ev = await api(`/api/stories/${sid}/evaluation`); } catch (err) { box.append(errorBox(err)); return; }
+function evaluationCard(root, data, sid, run) {
+  const box = h("div.card", { dataset: { panel: "evaluation" } }); root.append(box);
+  panel(box, { url: `/api/stories/${sid}/evaluation`, topics: [`story:${sid}:checks`, "tasks"], deps: () => data.task?.state,
+               render: (ev, target) => drawEvaluation(ev, target, data, sid, run) });
+}
+
+function drawEvaluation(ev, box, data, sid, run) {
   const busy = data.task?.state === "running";
   const pickerBox = h("div"); let picker = null;
   loadAI().then((info) => { picker = modelSelect(info.providers, { provider: "claude-cli", model: "opus" }); pickerBox.replaceChildren(field("Evaluator", picker, "A different model from the writer keeps the review independent (Opus when signed in).")); }).catch(() => {});
@@ -984,17 +1114,17 @@ async function evaluationCard(root, data, sid, run) {
     ev.feedback ? h("button.btn", { type: "button", disabled: busy, onclick: () => run({ action: "improve", feedback: ev.feedback, scenes: ev.evaluation.scenes }) }, "Apply its changes with Improve") : null,
     pickerBox);
   const q = Object.fromEntries(ev.questions.map((x) => [x.id, x.text]));
-  const rows = ev.evaluation ? ev.evaluation.answers.map((a) => h("div.eval-row", { class: a.verdict },
+  const rows = ev.evaluation ? ev.evaluation.answers.map((a) => h("div.eval-row", { class: a.verdict, dataset: { liveKey: `eval:${a.id}`, liveSig: JSON.stringify(a) } },
     h("div.eval-q", h("span.tag", { class: a.verdict }, a.verdict), " ", q[a.id] || a.id),
     a.evidence ? h("div.help", "Evidence: ", a.evidence) : null,
     a.problem ? h("div.help", "Problem: ", a.problem) : null,
     a.change ? h("div.help", h("b", "Change: "), a.change) : null)) : [];
   const s = ev.summary;
-  box.append(h("h2", "Editorial evaluation"),
+  box.append(...[h("h2", "Editorial evaluation"),
     h("p.help", "The owner's fifteen questions, answered with evidence from the written chapters. One editor's reading, labelled as such; the playtest is the test."),
     controls,
     s ? h("p", h("b", `${s.counts.yes} yes · ${s.counts.partly} partly · ${s.counts.no} no`), s.evaluator?.provider ? h("span.help", ` · evaluated by ${s.evaluator.provider}${s.evaluator.model ? " " + s.evaluator.model : ""}`) : null) : null,
     s?.strongest ? h("p", h("b", "Strongest: "), s.strongest) : null,
     s?.weakest ? h("p", h("b", "Weakest: "), s.weakest) : null,
-    rows.length ? section("All fifteen answers", h("div.eval-rows", ...rows), { open: true }) : null);
+    rows.length ? section("All fifteen answers", h("div.eval-rows", ...rows), { open: true }) : null].filter(Boolean));
 }

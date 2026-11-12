@@ -46,7 +46,15 @@ def find_dir(directory: Path | None) -> StoryProject:
 def _ctx(s: Any, directory: Path | None, provider: str | None, model: str | None, fresh: bool = False) -> steps.Ctx:
     project = find_dir(directory)
     register(s.lib.paths.home, project)  # the Mac app lists every story the library has worked on
-    return steps.Ctx(lib=s.lib, project=project, provider=provider, model=model, fresh=fresh)
+    return _tracked(lib=s.lib, project=project, provider=provider, model=model, fresh=fresh)
+
+
+def _tracked(**kwargs: Any) -> steps.Ctx:
+    """A step context that reports each model call to this command's task (and stops when it is cancelled)."""
+    from assetforge.core.tasks import CURRENT
+    from assetforge.story.tracked import make_ctx
+
+    return make_ctx(CURRENT.get(), **kwargs)
 
 
 def _calls(c: Console, ctx: steps.Ctx) -> None:
@@ -508,7 +516,7 @@ def make(
             steps.init(proj.root, title=name, premise=premise, genre=genre, audience=audience, tone=tone, scenes=scenes,
                        endings=endings, chapter_words=chapter_words, chapter_choices=chapter_choices, art_style=style, provider=provider, model=model)  # fmt: skip
         register(s.lib.paths.home, proj)
-        c = steps.Ctx(lib=s.lib, project=proj, provider=provider, model=model)
+        c = _tracked(lib=s.lib, project=proj, provider=provider, model=model)
         done: dict[str, Any] = {"dir": str(proj.root)}
         if not proj.has("world"):
             steps.world(c)
@@ -746,7 +754,7 @@ def art_check_(
     with session(ctx, json_) as s:
         proj = _story_ref(s, story, directory)
         register(s.lib.paths.home, proj)
-        c = steps.Ctx(lib=s.lib, project=proj, provider=provider, model=model)
+        c = _tracked(lib=s.lib, project=proj, provider=provider, model=model)
         chosen = tuple(groups or visual_check.DEFAULT_GROUPS)
         result = visual_check.review(c, groups=chosen, only_unchecked=not all_, limit=limit)
         fixes: list[dict[str, Any]] = []

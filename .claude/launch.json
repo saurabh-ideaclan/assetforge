@@ -144,6 +144,27 @@
       ],
       "port": 8790,
       "url": "http://localhost:8790"
+    },
+    {
+      "name": "app-dev",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": [
+        "-m",
+        "assetforge",
+        "--home",
+        ".dev/app-lib",
+        "ui",
+        "--port",
+        "8776",
+        "--token",
+        "dev"
+      ],
+      "port": 8776,
+      "url": "http://localhost:8776",
+      "env": {
+        "ASSETFORGE_ENABLE_FAKE_PROVIDER": "1",
+        "ASSETFORGE_PRICING_OFFLINE": "1"
+      }
     }
   ]
 }
