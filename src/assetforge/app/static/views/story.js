@@ -460,10 +460,15 @@ function chaptersTab(root, data, sid, run, { selected, select }) {
   }
   const current = chapters.find((c) => c.id === selected) || chapters.find((c) => c.state === "written") || chapters[0];
   const icon = { written: "✓", writing: "⟳", revising: "⟳", planned: "○" };
+  // chapters that share a number are alternative versions: the reader's choices decide which one they get (4A, 4B…)
+  const sameNumber = {};
+  for (const c of chapters) (sameNumber[c.number] ||= []).push(c.id);
+  const label = (c) => { const ids = sameNumber[c.number]; return ids.length > 1 ? `${c.number}${String.fromCharCode(65 + ids.indexOf(c.id))}` : String(c.number); };
+  const routeNote = (c) => { const ids = sameNumber[c.number]; return ids.length > 1 ? ` · version ${String.fromCharCode(65 + ids.indexOf(c.id))} of ${ids.length}, chosen by the reader` : ""; };
   const rail = h("div.rail", chapters.map((c) => h("button.rail-item", {
     type: "button", class: `${c.state}${c.id === current.id ? " on" : ""}`, onclick: () => select(c.id),
     dataset: { liveKey: `rail:${c.id}`, liveSig: `${c.state}|${c.title}|${JSON.stringify(data.written?.[c.id]?.nodes?.length || 0)}` } },
-    h("span.rail-num", c.number), h("span.rail-text", h("b", c.title), h("span.help", `${c.location.replace(/_/g, " ")} · ${c.time}${c.ending ? " · ending" : ""}`)),
+    h("span.rail-num", { title: routeNote(c).replace(/^ · /, "") || null }, label(c)), h("span.rail-text", h("b", c.title), h("span.help", `${c.location.replace(/_/g, " ")} · ${c.time}${c.ending ? " · ending" : ""}${routeNote(c) ? " · alternative" : ""}`)),
     h("span.rail-icon", { title: c.state }, c.state === "writing" || c.state === "revising" ? h("span.spinner") : icon[c.state]))));
   root.append(h("div.chapters", rail, h("div.reader", reader(current, data, sid, run, select))));
   if (data.world) root.append(worldCard(data));
@@ -471,7 +476,9 @@ function chaptersTab(root, data, sid, run, { selected, select }) {
 
 function reader(c, data, sid, run, select) {
   const titles = Object.fromEntries(data.progress.chapters.map((x) => [x.id, x]));
-  const head = h("div.reader-head", h("div", h("div.help", `Chapter ${c.number}`), h("h2", c.title)),
+  const siblings = data.progress.chapters.filter((x) => x.number === c.number);
+  const which = siblings.length > 1 ? ` · version ${String.fromCharCode(65 + siblings.findIndex((x) => x.id === c.id))} of ${siblings.length} (the reader's earlier choice decides which one they read)` : "";
+  const head = h("div.reader-head", h("div", h("div.help", `Chapter ${c.number}${which}`), h("h2", c.title)),
     c.state === "written" || c.state === "revising"
       ? h("a.btn.primary", { href: storyLink(sid, "play", { chapter: c.id }) }, "▶ Play from here") : null);
   const scene = data.written?.[c.id];
