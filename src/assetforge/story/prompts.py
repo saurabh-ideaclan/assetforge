@@ -53,6 +53,15 @@ def bible(config: StoryConfig, world: World | None = None, cast: Cast | None = N
     return f"STORY BIBLE (v{PROMPT_VERSION}):\n{_json(data)}"
 
 
+def _frame(config: StoryConfig) -> str:
+    """How full-screen pictures are framed: stories read on a phone held upright get tall pictures."""
+    return "tall 9:16 (a phone held upright)" if config.screen_shape == "portrait" else "16:9"
+
+
+PORTRAIT_PLACES = ("The story is read on a phone held upright: every background is a tall 9:16 picture. Describe each "
+                   "place so it fills a tall frame (what is high above, what is at eye level, the floor or ground at the "
+                   "bottom); long places are seen along their length, not side-on.")
+
 def world_prompt(config: StoryConfig) -> str:
     blocks = [
         bible(config),
@@ -60,7 +69,7 @@ def world_prompt(config: StoryConfig) -> str:
         f"Genre: {config.genre}." + (f" Visual style wanted: {config.art_style}." if config.art_style else ""),
         "title: a short, evocative title (2-5 words) that fits the premise. "
         "art_direction must describe one consistent illustrated look that works for both character sprites on "
-        "transparent backgrounds and painted 16:9 backgrounds (medium, palette, lighting, line work).",
+        f"transparent backgrounds and painted {_frame(config)} backgrounds (medium, palette, lighting, line work).",
     ]  # fmt: skip
     if config.direction is not None:
         blocks.append(creative.world_block(config.direction))
@@ -94,6 +103,7 @@ def cast_prompt(config: StoryConfig, world: World, names: NamingGuide | None = N
         "surprised, worried, smirk, blush).",
         "Locations: `description` is a painted-background brief without people; `times` are the times of day "
         "scenes will happen there; `ambience` says what it sounds like.",
+        *([PORTRAIT_PLACES] if config.screen_shape == "portrait" else []),
     ]  # fmt: skip
     if names is not None:
         blocks.append("NAMING GUIDE (every name must follow it; use its examples or new names in the same patterns; "

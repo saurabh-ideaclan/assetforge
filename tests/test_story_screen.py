@@ -124,3 +124,14 @@ def test_cli_screen(lib: Library, tmp_path: Path, fake: None, capsys: pytest.Cap
     assert code == 0 and out["screen"] == "portrait" and StoryProject(project.root).config.screen == "portrait"
     code, out, _ = run_cli(capsys, "story", "screen", "square", "--dir", str(project.root), "--json")
     assert code == 4 and out["error"]["code"] == "INVALID_INPUT"
+
+
+def test_the_writer_is_told_the_frame(tmp_path: Path) -> None:
+    """The world's art direction and the location descriptions are written for the frame the pictures will have."""
+    from assetforge.story import prompts
+
+    tall = steps.init(tmp_path / "p", title="T", premise="A keeper finds a letter.").config
+    wide = tall.model_copy(update={"screen": None})
+    assert "tall 9:16" in prompts.world_prompt(tall) and "painted 16:9 backgrounds" not in prompts.world_prompt(tall)
+    assert "painted 16:9 backgrounds" in prompts.world_prompt(wide) and "9:16" not in prompts.world_prompt(wide)
+    assert prompts.PORTRAIT_PLACES in prompts.cast_prompt(tall, None) and prompts.PORTRAIT_PLACES not in prompts.cast_prompt(wide, None)
