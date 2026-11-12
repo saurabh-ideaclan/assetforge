@@ -121,6 +121,16 @@ def lint_scene(scene: Scene, config: StoryConfig, number: int, *, flags: set[str
         if not written & flags:
             add("warning", "no_decision_flag", "no decision flag is set in this chapter; one choice should set a declared flag "
                 "that a later chapter reads")  # fmt: skip
+    for i, node in enumerate(scene.nodes):  # an illustration the player clears before any line is read
+        if node.kind != "cg":
+            continue
+        for later in scene.nodes[i + 1:]:
+            if later.kind in ("say", "narrate", "choice"):
+                break
+            if later.kind in ("show", "hide", "place", "cg"):
+                add("error", "hidden_cg", f"the illustration '{node.cg}' is followed by `{later.kind}` before any line: the player "
+                    "clears it at once and it is never seen; put it after the staging, right before the line it belongs to")
+                break
     wall = m["max_stretch"]
     if wall["words"] >= WALL:
         add("error", "wall_of_text", f"{wall['words']} words without a choice (boxes {wall['from_box']}-{wall['to_box']}); "
@@ -156,12 +166,13 @@ def lint_story(script: Script, config: StoryConfig) -> dict[str, Any]:
     flags = {v.name for v in script.variables if v.kind == "flag"}
     chapters = [lint_scene(s, config, numbers[s.id], flags=flags) for s in sorted(script.scenes, key=lambda s: numbers[s.id])]
     body = [c for c in chapters if not c["ending"]] or chapters
-    from assetforge.story.stakes import choice_report, continuity_report
+    from assetforge.story.stakes import choice_report, continuity_report, play_report
 
     return {
         "chapters": chapters,
         "choices": choice_report(script),
         "continuity": continuity_report(script),
+        "play": play_report(script),
         "summary": {
             "chapters": len(chapters), "passing": sum(c["ok"] for c in chapters),
             "avg_words": round(sum(c["words"] for c in body) / len(body)),

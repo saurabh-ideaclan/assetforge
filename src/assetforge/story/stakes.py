@@ -180,6 +180,110 @@ def continuity_report(script: Script) -> dict[str, Any]:
     return {"ok": not findings, "findings": findings, "mentioned": {f: g for f, g in mentioned.items()}}
 
 
+# ---------------------------------------------------------------------- 1c. playing it
+
+_OPS = {"==": lambda a, b: a == b, "!=": lambda a, b: a != b, ">=": lambda a, b: a >= b, "<=": lambda a, b: a <= b,
+        ">": lambda a, b: a > b, "<": lambda a, b: a < b}  # fmt: skip
+PLAYS = 3000
+SATURATED = 0.95
+
+
+def play_report(script: Script, plays: int = PLAYS, seed: int = 1) -> dict[str, Any]:
+    """Play the script `plays` times with random choices (state, conditions, clamps and gates as the player applies
+    them). The graph check in `validate` proves a path exists when state is ignored; only playing shows that a gated
+    ending can actually be earned. The owner's second story shipped a true ending nobody could reach: it needed two
+    kits in reserve plus two pieces of evidence that each cost one, from a stock of four with one unavoidable spend.
+    Findings: `unreachable_ending` and `dead_end` / `loop` (errors), `unvisited_scene`, `rare_ending` (< 1 %) and
+    `saturated_stat` (≥ 95 % of plays end at the stat's cap, so it tells no two players apart)."""
+    import random
+
+    scenes = {s.id: s for s in script.scenes}
+    variables = {v.name: v for v in script.variables}
+    rng = random.Random(seed)
+
+    def holds(conds: Any, st: dict[str, int]) -> bool:
+        return all(_OPS[c.op](st.get(c.var, 0), c.value) for c in conds or [])
+
+    def assign(sets: Any, st: dict[str, int]) -> None:
+        for a in sets or []:
+            v = variables.get(a.var)
+            new = a.value if a.op == "set" else st.get(a.var, 0) + a.value
+            if v is not None and v.min is not None:
+                new = max(v.min, new)
+            if v is not None and v.max is not None:
+                new = min(v.max, new)
+            st[a.var] = new
+
+    def play() -> tuple[str, list[str], dict[str, int]]:
+        st = {k: v.initial for k, v in variables.items()}
+        sid, path, steps = script.start, [], 0
+        while True:
+            scene = scenes.get(sid)
+            if scene is None:
+                return f"dead_end:{sid}", path, st
+            path.append(sid)
+            nxt = None
+            for n in scene.nodes:
+                steps += 1
+                if steps > 20000:
+                    return "loop", path, st
+                if not holds(n.when, st):
+                    continue
+                if n.kind == "set":
+                    assign(n.assign, st)
+                elif n.kind == "choice" and n.choices:
+                    open_ = [c for c in n.choices if not c.require or holds([c.require], st)] or n.choices
+                    c = rng.choice(open_)
+                    assign(c.set, st)
+                    if c.goto:
+                        nxt = c.goto
+                        break
+                elif n.kind == "branch":
+                    nxt = next((b.goto for b in n.branches if holds(b.when, st)), n.goto)
+                    break
+                elif n.kind == "jump":
+                    nxt = n.goto
+                    break
+                elif n.kind == "ending":
+                    return n.ending or sid, path, st
+            if nxt is None:
+                return f"dead_end:{sid}", path, st
+            sid = nxt
+
+    endings: dict[str, int] = {}
+    visited: set[str] = set()
+    finals: list[dict[str, int]] = []
+    for _ in range(plays):
+        end, path, st = play()
+        endings[end] = endings.get(end, 0) + 1
+        visited.update(path)
+        finals.append(st)
+    findings: list[dict[str, Any]] = []
+    for e in script.endings:
+        share = endings.get(e.id, 0) / plays
+        if share == 0:
+            findings.append({"code": "unreachable_ending", "level": "error", "ending": e.id,
+                             "message": f"No random play in {plays} reached the ending '{e.id}': its conditions cannot all hold at once, or nearly never do"})
+        elif share < 0.01:
+            findings.append({"code": "rare_ending", "level": "warning", "ending": e.id,
+                             "message": f"'{e.id}' was reached in {share:.1%} of random plays; check that a player who aims for it can get there"})
+    for end, count in endings.items():
+        if end.startswith("dead_end:") or end == "loop":
+            findings.append({"code": "dead_end" if end != "loop" else "loop", "level": "error", "where": end.split(":")[-1],
+                             "message": f"{count} of {plays} plays stopped without an ending ({end})"})
+    for sid in sorted(set(scenes) - visited):
+        findings.append({"code": "unvisited_scene", "level": "warning", "scene": sid, "message": f"No play ever entered '{sid}'"})
+    for name, v in variables.items():
+        if v.kind == "flag" or (v.min is None and v.max is None):
+            continue
+        for bound, label in ((v.max, "maximum"), (v.min, "minimum")):
+            if bound is not None and sum(st[name] == bound for st in finals) / plays >= SATURATED:
+                findings.append({"code": "saturated_stat", "level": "warning", "var": name,
+                                 "message": f"{name} ends at its {label} ({bound}) in almost every play: it no longer tells players apart; widen its range or give fewer points"})
+    return {"ok": not any(f["level"] == "error" for f in findings), "plays": plays,
+            "endings": {k: round(v / plays, 4) for k, v in sorted(endings.items())}, "findings": findings}
+
+
 # ---------------------------------------------------------------------- 2. payoffs
 
 

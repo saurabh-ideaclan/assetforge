@@ -43,6 +43,11 @@ class Strict(BaseModel):
 class Violation(Strict):
     rule: str = Field(description="The brief sentence or canon rule that is broken, quoted or named")
     what: str = Field(description="What the image actually shows instead")
+    severity: Literal["hard", "soft"] = Field("hard", description=(
+        "hard: the image contradicts the story world or its never-list, shows the wrong place, the wrong people or the "
+        "wrong number of people or vehicles, the wrong time of day, or a layout the brief rules out. "
+        "soft: the right place, people and moment are shown, and one detail of the brief is missing or different "
+        "(a prop, a gesture, the exact pose, a texture, a hairstyle, an object's position)."))
 
 
 class Survey(Strict):
@@ -93,7 +98,7 @@ class Verdict(BaseModel):
 
     def first_fault(self) -> str:
         if self.violations:
-            v = self.violations[0]
+            v = next((x for x in self.violations if x.severity == "hard"), self.violations[0])
             return f"{v.rule}: {v.what}"
         if self.logic:
             return self.logic[0]
@@ -101,7 +106,11 @@ class Verdict(BaseModel):
 
 
 def is_ok(j: Judgement) -> bool:
-    return j.matches_brief == "yes" and not j.violations and not j.logic and not j.text_in_image
+    """An image passes when it shows the right thing in the right world: no hard violation, no logic fault, no readable
+    text, and not a different picture altogether. Soft violations (a missing prop, a pose a little different) are
+    recorded and shown, and do not fail it: with every detail counted, a first run failed 26 images out of 26 and the
+    real faults (water on a dead continent, a castle in the sky) drowned among cord knots and hairstyles."""
+    return j.matches_brief != "no" and not any(v.severity == "hard" for v in j.violations) and not j.logic and not j.text_in_image
 
 
 # ---------------------------------------------------------------------- storage
@@ -183,13 +192,13 @@ STEPS = """Work in this order, and fill the fields in this order:
 1. `seen`: describe what Image 1 actually shows BEFORE you judge anything: the main structures and how they are arranged in space (left/right/centre, near/far, what is joined to what, which way the view looks), what is in the foreground, middle and background, everything visible through windows, gaps and openings and on the horizon (land, vegetation, water, buildings, mountains, sky), the light, and any people, creatures or writing.
 2. `counts`: count every thing whose number the brief or the canon fixes or implies, and say where each one is: vehicles, trains, carriages, tracks or rails, engines, doors, people, figures, heads, arms, legs, hands, fingers, suns, moons. Example: "trains: 2 (one left, one right, on separate parallel tracks)". If the canon says "one", a count of two is a violation.
 3. Compare Image 1 with EVERY sentence of the brief and EVERY canon rule below, one by one. Layout and geometry statements ("one train on one track", "joined end to end", "the view looks forward along the train") are rules: if the arrangement differs, that is a violation even when every object is present. Anything the canon says lies outside (and anything it forbids) must be checked against what is visible beyond the place.
-4. `violations`: one entry per broken rule. `rule` quotes or names the brief sentence or canon rule; `what` says what the image shows instead. Do not merge different faults.
-5. `logic`: a PHYSICAL PLAUSIBILITY pass, independent of the brief and the canon. Do each check and report every failure:
+4. `violations`: one entry per broken rule. `rule` quotes or names the brief sentence or canon rule; `what` says what the image shows instead. Do not merge different faults. Give each a `severity`: `hard` when the image contradicts the story world or anything the canon forbids, shows the wrong place, the wrong people, the wrong number of people or vehicles, the wrong time of day or a layout the brief rules out; `soft` when the right place, people and moment are shown and only a detail differs (a prop, a gesture, the exact pose, a texture, a hairstyle, where an object lies). The canon's "fixed looks" apply only to things the picture contains: a thing that is simply absent is not a violation.
+5. `logic`: a PHYSICAL PLAUSIBILITY pass, independent of the brief and the canon. Do each check and list ONLY actual failures (an empty list when everything holds; never write that a check passed):
    a. Axes: for every long or linear thing (a vehicle, a row of them, a street, a corridor, a bridge, a pipe, a table, a body) say which way it runs in the frame: across it (left-right), along the view (receding toward a vanishing point) or vertical. A part that connects two things lying one after another on an axis must run along that same axis: in a view looking along a line of things, the joints between them recede with it and can never be drawn left to right across the frame. Two things joined side by side are not one after another.
    b. Closure: vehicles, rooms, containers and buildings are closed where a real one is closed. The end, wall or roof of a coach, carriage, cabin or box is solid; seeing open track, sky or landscape straight through something that should be closed (a hollow end, a missing wall with no reason) is a fault.
    c. One camera, one moment: motion blur only on things moving relative to the camera, strongest close by and fading with distance (a landscape seen from a moving vehicle streaks near the tracks, the horizon stays sharp; blur all the way to the horizon is wrong); scale falls off consistently with distance; shadows and light all come from the same sources; one horizon line.
    d. Integrity: nothing that could not stand, hang, connect or move; no duplicated, merged or floating objects; no extra or missing limbs, heads or fingers.
-6. `text_in_image`: true if any letters, numbers, readable signs, plaques with writing or watermarks appear.
+6. `text_in_image`: true if any READABLE letters, numbers, words, signs or a watermark appear. Illegible marks on a page, a ledger or a book spine do not count.
 7. `matches_brief`: "yes" only if the image shows the place or subject the brief asks for, in the layout it asks for, with nothing the canon forbids; "partly" if the subject is right but a required element or arrangement is wrong or missing; "no" if it shows another layout, place or subject.
 Do not excuse a fault because the image is beautiful, because it is "artistic licence", or because the brief's words appear somewhere in it. When unsure whether something is there, look again and describe it; do not assume the brief was followed."""
 
@@ -398,6 +407,8 @@ def feedback(verdicts: list[Verdict]) -> str:
     rules: list[str] = []
     for v in verdicts:
         for x in v.violations:
+            if x.severity != "hard":
+                continue  # a remake is told what made the picture wrong, not every detail a judge could list
             faults.append(f"it broke \"{x.rule.rstrip('.')}\": {x.what.rstrip('.')}")
             rules.append(x.rule.rstrip("."))
         faults += [f"impossible: {x.rstrip('.')}" for x in v.logic]

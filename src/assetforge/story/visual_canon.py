@@ -198,5 +198,6 @@ def world_block(canon: VisualCanon | None) -> str:
              f"Beyond this place (windows, open doors, horizon): {canon.outside.rstrip('.')}." if canon.outside else "",
              ("Always: " + "; ".join(a.rstrip(".") for a in canon.always) + ".") if canon.always else "",
              ("Never paint: " + "; ".join(n.rstrip(".") for n in canon.never) + ".") if canon.never else "",
-             ("Fixed looks: " + "; ".join(f"{p.name}: {p.look.rstrip('.')}" for p in canon.props) + ".") if canon.props else ""]  # fmt: skip
+             ("Fixed looks, ONLY for things the description itself puts in the picture (do not add them): "
+              + "; ".join(f"{p.name}: {p.look.rstrip('.')}" for p in canon.props) + ".") if canon.props else ""]  # fmt: skip
     return " ".join(p for p in parts if p)

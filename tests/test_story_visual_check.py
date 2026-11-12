@@ -232,7 +232,14 @@ def test_verdict_rules() -> None:
     assert visual_check.is_ok(clean)
     assert not visual_check.is_ok(clean.model_copy(update={"text_in_image": True}))
     assert not visual_check.is_ok(clean.model_copy(update={"logic": ["a bridge into nothing"]}))
-    assert not visual_check.is_ok(clean.model_copy(update={"matches_brief": "partly"}))
+    assert visual_check.is_ok(clean.model_copy(update={"matches_brief": "partly"}))  # details differ, the picture is right
+    assert not visual_check.is_ok(clean.model_copy(update={"matches_brief": "no"}))
+    soft = visual_check.Violation(rule="a hook with three cord knots", what="a plain hook", severity="soft")
+    hard = visual_check.Violation(rule="never water", what="a sea beyond the door", severity="hard")
+    assert visual_check.is_ok(clean.model_copy(update={"matches_brief": "partly", "violations": [soft]}))
+    assert not visual_check.is_ok(clean.model_copy(update={"violations": [soft, hard]}))
+    told = visual_check.feedback([visual_check.Verdict(key="k", asset_id="a", matches_brief="partly", violations=[soft, hard])])
+    assert "never water" in told and "cord knots" not in told  # a remake hears the faults, not the nitpicks
     v = visual_check.Verdict(key="k", asset_id="a", matches_brief="partly", violations=j.violations)
     assert v.first_fault() == "one single train on one track: two trains on parallel tracks"
     text = visual_check.feedback([v])

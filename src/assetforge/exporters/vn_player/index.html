@@ -199,7 +199,7 @@
   const gain = (key, level) => (muted ? 0 : vol.master * vol[key] * (level == null ? 1 : level));
   function fade(el, to, ms, done) {
     const from = el.volume, start = performance.now();
-    const tick = (now) => { const k = Math.min(1, (now - start) / ms); el.volume = from + (to - from) * k;
+    const tick = (now) => { const k = Math.min(1, (now - start) / ms); el.volume = Math.max(0, Math.min(1, from + (to - from) * k));  // a fade's last step can land a hair below 0
       if (k < 1) requestAnimationFrame(tick); else if (done) done(); };
     requestAnimationFrame(tick);
   }

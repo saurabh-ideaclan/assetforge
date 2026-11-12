@@ -243,9 +243,10 @@ def armor(ctx: RenderContext, p: dict) -> np.ndarray:
         num("distance", 0.4, 0, 1, "Farther away: duller, slower onset"),
     ),
     tags=("whistle", "steam", "train", "locomotive", "blast", "blasts", "signal", "departure", "railway", "engine", "halt"),
-    presets={"one": {"blasts": 1}, "single": {"blasts": 1}, "two": {"blasts": 2, "duration": 3.2},
-             "double": {"blasts": 2, "duration": 3.2}, "three": {"blasts": 3, "duration": 4.0},
-             "triple": {"blasts": 3, "duration": 4.0}},  # fmt: skip
+    version=2,
+    presets={"one": {"params": {"blasts": 1}}, "single": {"params": {"blasts": 1}},
+             "two": {"params": {"blasts": 2, "duration": 3.2}}, "double": {"params": {"blasts": 2, "duration": 3.2}},
+             "three": {"params": {"blasts": 3, "duration": 4.0}}, "triple": {"params": {"blasts": 3, "duration": 4.0}}},  # fmt: skip
 )
 def steam_whistle(ctx: RenderContext, p: dict) -> np.ndarray:
     n, sr = ctx.n, ctx.sr

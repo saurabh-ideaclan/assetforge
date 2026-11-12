@@ -658,6 +658,26 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   must_understand_by / concealed_until; `knowledge_state()` gives each term's reader state per chapter (unknown → revealed)
   and `violations` when a chapter depends on a term its cold read found no context for. Route `GET /api/stories/{id}/stakes`;
   run actions `payoffs_draft`, `rules_draft`. Tests `tests/test_story_stakes.py`.
+- **Whole-story checks** (2026-11-12, doc 29; each chapter is written and cold-read alone, so these see what no chapter gate can):
+  `stakes.play_report(script)` plays the script 3,000 times with random choices (state, clamps, gates as the player applies
+  them): `unreachable_ending`, `dead_end`, `loop` (errors), `unvisited_scene`, `rare_ending`, `saturated_stat`;
+  `stakes.continuity_report` finds an off-cast person given different names per chapter (`name_drift`); `choice_report`
+  adds `absolute_set` (a stat overwritten instead of adjusted) and exempts ending chapters from `all_expression`; lint
+  `hidden_cg` (an illustration followed by `show`/`hide`/`place` before any line is cleared unseen). All ride in
+  `lint_story()` (`play`, `continuity`, `choices`).
+- **Art follows the story world** (doc 28): `story/visual_canon.py` (`visual_canon.json`, drafted from the written script:
+  `world`, `outside`, `always`/`never`, per-location description + `geometry` + `never`, `props`; task `visual.canon`)
+  feeds `assets.manifest(canon=)`: backgrounds take the place with its camera and layout, illustrations take it as
+  materials only (`location_text(illustration=True)`) and name only the people their own text names (`assets._cg_cast`),
+  the title shows the protagonist alone. `story/visual_check.py`: per image a blind survey then a judgement against brief
+  and canon (codex-cli or claude-cli with images); violations are `hard` (world, people, layout, time) or `soft` (a
+  detail); `ok` = no hard violation, no logic fault, no readable text; `fix` remakes with the hard faults as feedback.
+  CLI `story art-check`, run actions `visual_canon`, `art_check`, `art_fix`. `acting.directions`: a sprite reused across
+  scenes is a general one (the master's stance, face only, no props); only approved poses are moment-specific.
+- **Story sound**: `audio_direction.apply` lets a planned one-shot cue adopt the writer's own sound line beside it (one
+  each, within two nodes) so a sound never plays twice; recipe `steam_whistle` (presets one|two|three = blasts);
+  `request.infer_preset` reads a recipe's own presets from the description first; `request.fingerprint` includes the
+  resolved recipe, its version and preset for sounds, so a better recipe for the same words is rendered.
 - **Editorial evaluation** (`story/evaluate.py`, `evaluation.json`): the owner's fifteen questions (`QUESTIONS`) answered
   yes|partly|no with scene evidence and a targeted change per miss; task `evaluation` (kind in `HEAVY_KINDS`); run it on a
   different model from the writer (the Improve tab's card defaults to claude-cli opus). `summary()` counts and lists the
@@ -683,10 +703,10 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   (guided mode). Cast and outline approved 2026-11-11; chapters 1-6 written (ChatGPT) through the clarity gate; chapters 3 (shared route) and 5 were re-planned as three movements introducing one new thing each (doc 23 §5-6) and pass. Chapter 1's art is made; Eli's first performances exist (doc 24 addendum). Next: chapters 7+ only after the owner's read; the second awakening is chapter 7.
 - Second story *Nobody Rides the Tail* (2026-11-12; preset `story/direction_presets/line-power-fantasy.yaml`, story
   `~/.assetforge/stories/nobody-rides-the-tail`, ChatGPT): a two-mile train that never stops, tail cars cut loose on the grades; coupler Rafe
-  Oduya, 23, keeps whatever he carries aboard before the whistle. The owner rejected the first idea (a tide city, 19-year-old porter) for weak
-  emotion and setting and asked to confirm the setting before generation: preset `custom.canon` carries the emotional spine and the
-  environment. Title, premise, world, naming guide and a six-character cast exist and wait for the owner's approval; no outline, chapters or
-  assets yet. First story meant for the v2 content contract; R2 publishing only on the owner's word or when a story is complete.
+  Oduya, 23, keeps whatever he carries aboard before the whistle. Complete: 13 scenes, 3 endings, 26 backgrounds/illustrations/UI, 40 sprites,
+  audio; reviewed adversarially (doc 29). The owner rejected the first idea (a tide city, a 19-year-old porter) for weak emotion and
+  setting and reviews generated art closely against story logic. R2 publishing only on the owner's word or when a story is complete;
+  development uses the shared stage bucket under the `vn` prefix.
 
 ### Audio Analysis Engine, diagnosis, corrections, Workbench (Computational Audio Intelligence)
 

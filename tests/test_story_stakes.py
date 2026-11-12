@@ -105,3 +105,27 @@ def test_absolute_set_and_name_drift() -> None:
     again = Script(title="T", slug="t", start="s1", variables=variables, characters=chars, locations=[],
                    endings=[{"id": "end", "title": "End", "summary": "done"}], scenes=[s1, s2])
     assert stakes.continuity_report(again)["ok"] and stakes.continuity_report(again)["mentioned"] == {"Oduya": {"Evara": ["s1", "s2"]}}
+
+
+def test_play_report_finds_an_unreachable_ending_and_a_saturated_stat() -> None:
+    variables = [{"name": "kits", "initial": 1, "meaning": "k", "kind": "resource", "min": 0, "max": 3},
+                 {"name": "proof", "initial": 0, "meaning": "p", "kind": "flag"},
+                 {"name": "nerve", "initial": 0, "meaning": "n", "kind": "personality", "min": 0, "max": 2}]
+    spend = [{"var": "kits", "op": "add", "value": -1}, {"var": "proof", "op": "set", "value": 1}]
+    up = [{"var": "nerve", "op": "add", "value": 1}]
+    s1 = {"id": "s1", "title": "One", "location": "yard", "nodes": [
+        {"kind": "choice", "choices": [{"text": "a", "set": up, "reaction": [{"text": "x"}]}, {"text": "b", "set": up, "reaction": [{"text": "y"}]}]},
+        {"kind": "choice", "choices": [{"text": "c", "set": up, "reaction": [{"text": "x"}]}, {"text": "d", "set": up, "reaction": [{"text": "y"}]}]},
+        {"kind": "choice", "choices": [{"text": "buy the proof", "set": spend, "reaction": [{"text": "x"}]}, {"text": "keep the kit", "reaction": [{"text": "y"}]}]},
+        # the best ending wants the proof AND a kit left: the proof costs the only kit
+        {"kind": "branch", "goto": "plain", "branches": [{"goto": "best", "when": [{"var": "proof", "op": "==", "value": 1}, {"var": "kits", "op": ">=", "value": 1}]}]}]}
+    best = {"id": "best", "title": "Best", "location": "yard", "nodes": [{"kind": "narrate", "text": "Best."}, {"kind": "ending", "ending": "best"}]}
+    plain = {"id": "plain", "title": "Plain", "location": "yard", "nodes": [{"kind": "narrate", "text": "Plain."}, {"kind": "ending", "ending": "plain"}]}
+    endings = [{"id": "best", "title": "Best", "summary": "b"}, {"id": "plain", "title": "Plain", "summary": "p"}]
+    r = stakes.play_report(_script([s1, best, plain], variables, endings), plays=400)
+    codes = {(f["code"], f.get("ending") or f.get("var") or f.get("scene")) for f in r["findings"]}
+    assert ("unreachable_ending", "best") in codes and ("unvisited_scene", "best") in codes and ("saturated_stat", "nerve") in codes
+    assert not r["ok"] and r["endings"] == {"plain": 1.0}
+    variables[0]["initial"] = 2  # one more kit: the best ending can be earned
+    r2 = stakes.play_report(_script([s1, best, plain], variables, endings), plays=400)
+    assert r2["ok"] and 0.3 < r2["endings"]["best"] < 0.7
