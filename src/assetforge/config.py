@@ -91,11 +91,19 @@ SETTING_KEYS = (
     "ASSETFORGE_GEMINI_TEXT_MODEL",
     "ASSETFORGE_OPENAI_TEXT_MODEL",
     "ASSETFORGE_TEXT_TIMEOUT",
+    # visual-novel release publishing (Cloudflare R2; only `story publish --yes` writes)
+    "ASSETFORGE_R2_ENV_FILE",
+    "ASSETFORGE_R2_BUCKET",
+    "ASSETFORGE_R2_ACCOUNT_ID",
+    "ASSETFORGE_R2_ACCESS_KEY",
+    "ASSETFORGE_R2_SECRET_KEY",
+    "ASSETFORGE_R2_PUBLIC_BASE",
 )
 
 
-def read_env_file(path: Path) -> dict[str, str]:
-    """Minimal .env parser (KEY=value, optional `export`, quotes, # comments). Only SETTING_KEYS are kept."""
+def read_env_file(path: Path, keys: tuple[str, ...] = SETTING_KEYS) -> dict[str, str]:
+    """Minimal .env parser (KEY=value, optional `export`, quotes, # comments). Only `keys` (default SETTING_KEYS)
+    are kept."""
     values: dict[str, str] = {}
     try:
         lines = path.read_text().splitlines()
@@ -109,7 +117,7 @@ def read_env_file(path: Path) -> dict[str, str]:
         key, value = key.strip(), value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
             value = value[1:-1]
-        if key in SETTING_KEYS:
+        if key in keys:
             values[key] = value
     return values
 

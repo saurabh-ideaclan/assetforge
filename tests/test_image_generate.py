@@ -120,7 +120,7 @@ def test_style_profile_adds_palette_instructions_and_references(lib, openai_fake
     user_ref = make_png(tmp_path / "beetle_sketch.png", (32, 32), (1, 2, 3, 255))
     result = gen(lib, prompt="beetle enemy", type="character", style="cute-jungle", references=[str(user_ref)])
     call = openai_fake.calls[0]
-    assert "chunky cartoon, thick dark outlines" in call.prompt and "#4CAF50, #FFEB3B" in call.prompt
+    assert "chunky cartoon, thick dark outlines" in call.prompt and "rich green, rich yellow" in call.prompt
     assert [p.name for p in call.images] == ["beetle_sketch.png", Path(lib.get_asset(ref).path).name]
     asset = lib.get_asset(result.assets[0].asset_id)
     assert [(link.relation, link.asset_id) for link in asset.lineage] == [("derived_from", ref)]

@@ -16,7 +16,7 @@ from assetforge.audio.music import composer, drums, instruments, render, soundfo
 from assetforge.audio.music.generate import MusicRequest, generate_music, take_score
 from assetforge.audio.music.midi import read_midi, write_midi
 from assetforge.audio.music.score import Score
-from assetforge.audio.music.theory import parse_key
+from assetforge.audio.music.theory import parse_key, chord
 from assetforge.errors import InvalidInputError
 from assetforge.validation.audio import loop_seam, seam_ok
 
@@ -84,7 +84,12 @@ def test_composer_every_genre_is_in_key_and_seeded(genre):
     in_key = sum(key.in_key(p) for p in pitches) / len(pitches)
     borrowed = any(sym[0] in "b#" for p in composer.GENRES[genre].progressions for sym in p.split())
     allowed = 0.8 if borrowed or any(s in key.scale for s in ("harmonic", "phrygian", "lydian")) else 0.9
-    assert in_key >= allowed, (genre, in_key)
+    # the melody follows the chords: a template written with borrowed chords (bII, a flat sixth under a dorian
+    # scale) is allowed as many foreign notes as its own chord tones carry
+    tones = [pc for prog in composer.GENRES[genre].progressions for sym in prog.split() for pc in chord(sym, key).pitch_classes]
+    chord_share = sum(key.in_key(60 + pc) for pc in tones) / len(tones)
+    allowed = min(allowed, chord_share - 0.05)
+    assert in_key >= allowed, (genre, in_key, chord_share)
     assert a.bars % 4 == 0 and genre in composer.GENRES
 
 

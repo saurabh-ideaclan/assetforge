@@ -69,7 +69,7 @@ GENRES: dict[str, Genre] = {g.name: g for g in (
           {"melody": "piano", "harmony": "strings", "bass": "strings"}, "none", "pedal", "pad", (60, 79), 0.25, 0.15,
           space="hall", chord_bars=2, tags=("sad", "loss", "betrayal", "emotional", "piano", "resolution")),
     Genre("court_intrigue", "Political suspense: muted low strings, a slow pizzicato pulse, unresolved harmony", (64, 84),
-          ("dorian", "harmonic_minor", "minor"), ("i i VI VII", "i iv i bII", "i VI i V", "i VII i iv"),
+          ("minor", "harmonic_minor", "dorian"), ("i i VI VII", "i iv i bII", "i VI i V", "i VII i iv"),
           {"melody": "clarinet", "harmony": "strings", "bass": "pizzicato"}, "sparse", "pedal", "pad", (62, 76), 0.2, 0.1,
           extra={"arp": "pizzicato"}, space="hall", chord_bars=2, tags=("suspense", "intrigue", "court", "political", "tense", "quiet")),
     Genre("rising_magic", "Magical tension: a low drone, shimmering high textures, slowly climbing harmony", (62, 80),

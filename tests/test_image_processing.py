@@ -75,7 +75,7 @@ def test_prompt_templates():
                           profile=profile, has_style_refs=True, negative="people, text")  # fmt: skip
     assert "Art direction: cute jungle. chunky cartoon with thick outlines." in styled.final
     assert "Soft shading only." in styled.final
-    assert "#4CAF50, #FFEB3B" in styled.final and "Image 1: art-style reference only" in styled.final
+    assert "rich green, rich yellow" in styled.final and "#4CAF50" not in styled.final and "Image 1: art-style reference only" in styled.final
     assert "Avoid: people, text." in styled.final and "Transparent" not in styled.final
 
     raw = build_prompt("exactly this", asset_type=AssetType.ICON, transparent=True, native_transparency=True, raw=True)

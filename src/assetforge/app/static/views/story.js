@@ -683,8 +683,73 @@ function settingsTab(root, data, sid, run) {
       h("p.help", "Writes a standalone folder (index.html, story.json, art and sound) you can ship or load into an engine."),
       h("div.actions", h("button.btn", { type: "button", onclick: () => run({ action: "export" }) }, data.exported ? "Export again" : "Export"),
         h("span.help.mono", `${data.dir}/build`))),
+    releaseCard(sid),
     h("div.card.sub-card", h("h3", "Files"), h("p.help.mono", data.dir),
       h("p.help", "story.json, world.json, cast.json, outline.json, scenes/*.json and notes.md (the whole story as readable text).")));
+}
+
+// Content contract v2: compile an immutable release, read its report, publish it to R2 only after a confirm step.
+function releaseCard(sid) {
+  const box = h("div.card.sub-card", h("h3", "Release (content contract v2)"), h("div.empty.small", h("span.spinner")));
+  let busy = false;
+  async function task(body) {  // runs as a story task; polled here so the card shows its own result
+    busy = true; draw.last && draw(draw.last);
+    try {
+      const { task_id } = await api(`/api/stories/${sid}/run`, { method: "POST", body });
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 1200));
+        const t = (await api(`/api/story-tasks/${task_id}`)).task;
+        if (t.state === "failed") throw new Error(t.error?.message || "failed");
+        if (t.state === "done") return t.result;
+      }
+    } finally { busy = false; }
+  }
+  const findingRow = (f) => h("div", { class: f.level === "error" ? "dir-warn" : "help" }, `${f.level} · ${f.code} · ${f.where}: ${f.message}`);
+  function planView(plan, release) {
+    const t = plan.totals;
+    const ok = plan.publishable;
+    return h("div.card", h("b", `Publish ${plan.release} (${plan.graph_id})`),
+      h("p.help", `Remote: ${plan.remote}. Upload ${t.upload.count} object(s), ${fmt.bytes(t.upload.bytes)}; already there ${t.skip.count}; conflicts ${t.conflict.count}.`),
+      plan.catalog ? h("p.help", `Catalog sequence ${plan.catalog.current_sequence ?? "none"} → ${plan.catalog.next_sequence}.`) : null,
+      ...(plan.errors || []).slice(0, 8).map(findingRow),
+      h("div.actions",
+        h("button.btn.primary", { type: "button", disabled: !ok || busy, onclick: async () => {
+          if (!window.confirm(`Upload ${plan.release} to ${plan.config?.bucket || "R2"} and publish the catalog? Published objects can't be replaced.`)) return;
+          try { const r = await task({ action: "publish", release, confirm: true }); toast(r.published ? `Published · catalog ${r.receipt.sequence}` : "Not published (see plan)"); load(); }
+          catch (err) { toast(err.message); } } }, "Confirm publish"),
+        h("button.btn", { type: "button", onclick: () => load() }, "Cancel")));
+  }
+  function draw(v, extra) {
+    draw.last = v;
+    const rep = v.last_report;
+    const latest = v.releases[v.releases.length - 1];
+    const allow = h("input", { type: "checkbox" });
+    const rows = v.releases.slice().reverse().map((r) => h("tr", h("td.mono", r.releaseId), h("td.mono", r.graphId),
+      h("td", h("span.tag", { class: r.valid ? "good" : "warn" }, r.valid ? "valid" : "invalid")),
+      h("td", r.published ? `catalog ${r.published.sequence}` : "—"), h("td.help", r.created)));
+    box.replaceChildren(...[h("h3", "Release (content contract v2)"),
+      h("p.help", "Compiles the finished story and its assets into an immutable, verifiable release under ", h("span.mono", "releases/"),
+        ". Nothing is uploaded until you publish and confirm."),
+      h("div.actions",
+        h("button.btn", { type: "button", disabled: busy, onclick: async () => {
+          try { const r = await task({ action: "contract", allow_missing: allow.checked }); toast(r.report.message); draw({ ...r.releases, r2: v.r2 }); }
+          catch (err) { toast(err.message); } } }, busy ? "Working…" : "Compile release"),
+        h("label.help", allow, " allow missing (draft)"),
+        latest ? h("button.btn", { type: "button", disabled: busy || !latest.valid, title: latest.valid ? "" : "Only a valid release can be published",
+          onclick: async () => { try { const r = await task({ action: "publish", release: latest.releaseId }); draw(v, planView(r.plan, latest.releaseId)); }
+                                 catch (err) { toast(err.message); } } }, `Publish ${latest.releaseId}…`) : null),
+      v.r2 && v.r2.configured === false ? h("p.help", `R2: ${v.r2.message}`) : v.r2 ? h("p.help", `R2 bucket: ${v.r2.bucket}`) : null,
+      extra || null,
+      rep ? h("div", h("p", h("b", rep.status), " · ", rep.message),
+        rep.missing_assets?.length ? h("p.help", `Missing assets (${rep.missing_assets.length}): ${rep.missing_assets.slice(0, 10).join(", ")}${rep.missing_assets.length > 10 ? " …" : ""}`) : null,
+        ...(rep.findings || []).filter((f) => f.code !== "missing_asset").slice(0, 10).map(findingRow)) : null,
+      rows.length ? h("table", h("thead", h("tr", h("th", "Release"), h("th", "Graph"), h("th", "State"), h("th", "Published"), h("th", "Created"))), h("tbody", rows))
+        : h("p.help", "No release yet."),
+      v.draft ? h("p.help", `A draft exists (${v.draft.errors} blocking finding(s)); drafts are never published.`) : null].filter(Boolean));
+  }
+  function load() { api(`/api/stories/${sid}/releases`).then((v) => draw(v)).catch((err) => box.replaceChildren(errorBox(err))); }
+  load();
+  return box;
 }
 
 

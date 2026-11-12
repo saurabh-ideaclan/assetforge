@@ -77,6 +77,28 @@ class RetryLimitError(PolicyError):
     code = "RETRY_LIMIT"
 
 
+class PublishError(AssetForgeError):
+    """Publishing a release to object storage failed (network, permissions, a partial upload)."""
+
+    code = "PUBLISH_FAILED"
+    exit_code = ExitCode.ERROR
+
+
+class PublishNotConfiguredError(PublishError):
+    code = "PUBLISH_NOT_CONFIGURED"
+    exit_code = ExitCode.INVALID_INPUT
+
+
+class PublishAccessDeniedError(PublishError):
+    code = "PUBLISH_ACCESS_DENIED"
+    exit_code = ExitCode.POLICY
+
+
+class PublishBucketMissingError(PublishError):
+    code = "PUBLISH_BUCKET_MISSING"
+    exit_code = ExitCode.NOT_FOUND
+
+
 class InternalError(AssetForgeError):
     """An unexpected bug. The traceback goes to stderr and to <library>/logs/errors.log."""
 
@@ -133,5 +155,10 @@ CATALOG: dict[str, tuple[int, str, str]] = {
     "PROVIDER_UNSUPPORTED": (9, "The provider/model lacks a needed capability", "Use another provider."),
     "PROVIDER_BAD_RESPONSE": (9, "The provider returned no usable image", "Retry, or rephrase the prompt."),
     "CONTENT_REJECTED": (9, "The provider refused the content (safety)", "Rephrase the prompt; not retried automatically."),
+    "PUBLISH_FAILED": (1, "Uploading a release to R2 failed part-way", "Re-run `story publish --yes`: finished objects are skipped."),
+    "PUBLISH_NOT_CONFIGURED": (4, "R2 publishing is not configured (bucket, keys or boto3 missing)",
+                               "Set ASSETFORGE_R2_BUCKET and ASSETFORGE_R2_ENV_FILE; `uv sync --extra publish`."),
+    "PUBLISH_ACCESS_DENIED": (7, "The R2 token cannot reach the bucket", "Scope the token to the bucket in Cloudflare."),
+    "PUBLISH_BUCKET_MISSING": (3, "The R2 bucket does not exist", "Create the bucket first (in Cloudflare)."),
     "INTERNAL_ERROR": (1, "Unexpected bug in AssetForge", "Report it with <library>/logs/errors.log."),
 }

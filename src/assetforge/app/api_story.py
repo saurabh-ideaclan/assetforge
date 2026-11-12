@@ -30,7 +30,7 @@ from assetforge.story.project import StoryProject, register, registered
 
 ACTIONS = ("write", "improve", "check", "assets_plan", "assets", "export", "refine", "character", "alternatives", "concepts",
            "audio_plan", "audio_make", "dynamics_plan", "dynamics_estimate", "evaluate", "acting_profile", "acting_analyze",
-           "acting_generate", "payoffs_draft", "rules_draft")  # fmt: skip
+           "acting_generate", "payoffs_draft", "rules_draft", "contract", "publish")  # fmt: skip
 _tasks: dict[str, dict[str, Any]] = {}
 _busy: dict[str, str] = {}  # story id → running task id
 _lock = threading.Lock()
@@ -261,6 +261,20 @@ def register_routes(router: Router) -> None:  # noqa: C901 - one place for all s
         data = evaluate.load(project)
         return {"evaluation": data.model_dump(mode="json") if data else None, "summary": evaluate.summary(data) if data else None,
                 "questions": [{"id": q, "text": t} for q, t in evaluate.QUESTIONS], "feedback": evaluate.as_feedback(data) if data else ""}  # fmt: skip
+
+    @router.route("GET", r"/api/stories/(?P<sid>[a-z0-9-]+)/releases")
+    def story_releases(req: Request, lib: Library) -> dict[str, Any]:
+        """Content-contract v2 releases: the index, the last compile report and publish receipts."""
+        from assetforge.publish import r2
+        from assetforge.story import contract
+
+        sid, project = _story(lib, req.match["sid"])
+        view = contract.releases_view(project)
+        try:
+            view["r2"] = r2.resolve_config(lib.paths.home).describe()
+        except AssetForgeError as exc:
+            view["r2"] = {"configured": False, "message": exc.message}
+        return view
 
     @router.route("GET", r"/api/stories/(?P<sid>[a-z0-9-]+)/dynamics")
     def story_dynamics(req: Request, lib: Library) -> dict[str, Any]:
@@ -645,6 +659,20 @@ def _run_action(lib: Library, project: StoryProject, ctx: steps.Ctx, body: dict[
         if result.get("assembled"):
             result["export"] = export_story(lib, project, project.root / "build")
         return result
+    if action == "contract":  # compile a content-contract v2 release (local only; never uploads)
+        from assetforge.story import contract
+
+        report = contract.compile_release(lib, project, allow_missing=bool(body.get("allow_missing")))
+        return {"report": report.model_dump(mode="json"), "releases": contract.releases_view(project)}
+    if action == "publish":  # the plan, unless the operator confirmed and the release can be published
+        from assetforge.publish import r2
+        from assetforge.story import contract
+
+        path = contract.release_dir(project, str(body.get("release") or "") or None)
+        plan = r2.plan(path, home=lib.paths.home)
+        if body.get("confirm") is True and plan["publishable"]:
+            return {"published": True, "plan": plan, "receipt": r2.publish(path, yes=True, home=lib.paths.home)}
+        return {"published": False, "plan": plan}
     if action in ("payoffs_draft", "rules_draft"):
         from assetforge.story import stakes
 

@@ -15,7 +15,7 @@ it to **search for an existing asset before generating a new one**, then receive
 
 ```bash
 uv sync                       # install deps (Python 3.12+, uses .venv)
-uv run pytest                 # full suite (~4 min, 2375 tests incl. every recipe × preset; multi-process concurrency tests; no network)
+uv run pytest                 # full suite (~4 min, 2694 tests incl. every recipe × preset; multi-process concurrency tests; no network)
 uv run assetforge --help      # CLI entry point (also: uv run python -m assetforge)
 ```
 
@@ -666,6 +666,10 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
 - Power Fantasy pilot *Everyone Owes Me* (earlier titles Null, The Weight He Carries; slug unchanged): concept `docs/narrative/22-power-fantasy-concept.md` (Opus review applied), research `20`,
   preset `story/direction_presets/weight-power-fantasy.yaml`, story `~/.assetforge/stories/the-weight-he-carries`
   (guided mode). Cast and outline approved 2026-11-11; chapters 1-6 written (ChatGPT) through the clarity gate; chapters 3 (shared route) and 5 were re-planned as three movements introducing one new thing each (doc 23 §5-6) and pass. Chapter 1's art is made; Eli's first performances exist (doc 24 addendum). Next: chapters 7+ only after the owner's read; the second awakening is chapter 7.
+- Second story *Nobody Checks the Porter* (2026-11-12; preset `story/direction_presets/porter-power-fantasy.yaml`, story
+  `~/.assetforge/stories/nobody-checks-the-porter`, ChatGPT): title, premise, world, naming guide and a seven-character cast exist and
+  wait for the owner's approval; no outline, chapters or assets yet. It is the first story meant for the v2 content contract; R2 publishing
+  happens only on the owner's word or when a story is complete, never per generation.
 
 ### Audio Analysis Engine, diagnosis, corrections, Workbench (Computational Audio Intelligence)
 
@@ -735,6 +739,39 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   `cancelled`. Story folders are copied into `<library>/stories/` and registered. The ledger is in `<library>/merges/`.
 - Secrets: `.env` is ignored; `scripts/check_secrets.sh` runs from `.githooks/pre-commit`
   (`git config core.hooksPath .githooks`) and `.github/workflows/secrets.yml`. Never commit `.env`.
+
+### Content contract v2 + R2 publishing
+
+- `story/contract.py` `compile_release(lib, project, out_dir=None, *, allow_missing, derive)`: script.json (else the
+  written chapters + plan stand-ins, which block) → `vn.release` / per chapter `vn.chapter.bundle`, `vn.chapter` graph,
+  `vn.presentation`, `vn.assets`, `vn.locale`, `vn.downloads` (+ release locale, `vn.migration`), canonical JSON,
+  descriptors `{key, mediaType, bytes, sha256}`, blobs = library files copied by digest. Written to
+  `<story>/releases/<rid>/` (bucket layout minus `stories/<id>/releases/`; `blobs/` shared) with `index.json`; staged and
+  moved whole; never modified. `--allow-missing` → `releases/draft/` (`"draft": true`, never publishable).
+  `derive=False` adds no library variants (web formats are otherwise derived as `export` does).
+- Mapping: declared chapter = one graph (else scene = chapter); say/narrate → dialogue/narration, set → action, branch →
+  condition, cross-chapter goto → chapterEnd, `when` → condition `<id>.w`, in-chapter choice → reaction chains merging
+  after it, all-conditional choice → `.gate` + `.open`; staging folded into presentation (`ChapterBuilder`, `Stage`
+  mirrors the player; gated staging splits paths `.p<k>`, ≤ 8). Ids/text keys are positional
+  (`<scene>.n<i>`, `<chapter>.<scene>.n<i>.o<j>.r<k>`), never from text. Multi-entry chapters get `route.<chapter>`.
+- `graphId` `<story>.graph.<n>` bumps only when `gameplay_hash` (ids, types, targets, conditions, effects, entries, state
+  schema) changes; same content hash as the latest → "identical, no new release". `migration()` aliases vanished node
+  ids (same text, else nearest earlier presenting node, else chapter entry) + default/rename state ops.
+- `validate_release(dir)`: models (`story/contract_models.py`, `check_key` refuses traversal/absolute/query/encoded/
+  unknown media), digests, every reference, typed state, condition depth 6, automatic cycles / 64 steps, no-way-out
+  nodes, locked choices without their gate, download closure over every reachable branch.
+- `story/catalog_sign.py`: Ed25519 envelope (`PROTOCOL_PREFIX` + exact payload bytes), key at
+  `$ASSETFORGE_HOME/keys/vn-catalog.ed25519` (0600, made on first use, `.pub` next to it), `next_catalog` bumps
+  `catalogSequence`; a rollback is a new sequence pointing at an older release.
+- `publish/r2.py`: `resolve_config` (`ASSETFORGE_R2_BUCKET`, `ASSETFORGE_R2_ENV_FILE` read in place for `R2_ACCESS_KEY/
+  R2_SECRET_KEY/R2_ACCOUNT_ID`, direct overrides, `ASSETFORGE_R2_PUBLIC_BASE`), boto3 lazily (extra `publish`),
+  `preflight` (missing vs denied), `plan` (reads only), `publish(yes=True)`: blobs + documents (skip same-size blobs;
+  differing documents refuse everything) → HEAD all → release.json → catalog history then `catalog/current.json` last;
+  receipts `releases/publish.json`. Errors `PUBLISH_*`. Nothing calls publish automatically; tests use a fake client.
+  The token today reaches only `creative-library-v2-stage`: create `creative-library-v2-stage-vn` and scope it first.
+- CLI `story contract|releases|publish [STORY] [--yes]` (STORY = registered id or folder); app `GET
+  /api/stories/{id}/releases`, run actions `contract` and `publish` (plan unless `confirm: true` and publishable), the
+  Settings tab's "Release (content contract v2)" card (`releaseCard`). Doc `docs/narrative/26-content-contract-v2.md`.
 
 Data model: **Asset** (logical item) → **Variant** (labelled rendering) → **File** (content by SHA-256).
 Identical bytes are stored once and resolve to the asset that first registered them. Generation jobs, lineage,

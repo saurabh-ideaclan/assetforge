@@ -111,7 +111,7 @@ def test_style_commands_feed_generation(capsys, home, tmp_path):
 
     code, out, _ = run_cli(capsys, "image", "generate", "-p", "beetle", "--style", "cute-jungle", "--provider",
                            "fake", "--dry-run", "--json")  # fmt: skip
-    assert "chunky cartoon" in out["prompt"] and "thick outlines" in out["prompt"] and "#4CAF50" in out["prompt"]
+    assert "chunky cartoon" in out["prompt"] and "thick outlines" in out["prompt"] and "rich green" in out["prompt"]
 
     code, out, _ = run_cli(capsys, "style", "create", "cute-jungle", "--json")
     assert code == ExitCode.CONFLICT

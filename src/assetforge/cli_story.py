@@ -630,3 +630,119 @@ def lint_(ctx: typer.Context, directory: Dir = None,
                     con.print(f"     [{'red' if i['level'] == 'error' else 'yellow'}]{i['code']}[/]: {escape(i['message'])}")
 
         s.out.emit({"lint": report}, human)
+
+
+# ---------------------------------------------------------------------- content contract v2 releases + R2 publishing
+
+StoryRef = Annotated[str | None, typer.Argument(help="Story id (as the app lists it) or folder; default: --dir or ./")]
+
+
+def _story_ref(s: Any, story: str | None, directory: Path | None) -> StoryProject:
+    if story:
+        from assetforge.story.project import registered
+
+        known = registered(s.lib.paths.home)
+        if story in known:
+            return StoryProject(known[story])
+        if (Path(story) / "story.json").exists():
+            return StoryProject(Path(story))
+        raise NotFoundError(f"No story {story!r}", hint="Pass a registered story id or a story folder", known=sorted(known))
+    return find_dir(directory)
+
+
+@story_app.command("contract")
+def contract_(
+    ctx: typer.Context, story: StoryRef = None, directory: Dir = None,
+    allow_missing: Annotated[bool, typer.Option("--allow-missing", help="Write a draft (never publishable) even when "
+                                                                        "assets are missing or chapters unwritten.")] = False,  # fmt: skip
+    out: Annotated[Path | None, typer.Option("--out", help="Releases folder (default <story>/releases).")] = None,
+    no_derive: Annotated[bool, typer.Option("--no-derive", help="Never add web-format variants to the library; ship "
+                                                                "the files that exist.")] = False,  # fmt: skip
+    json_: JsonOpt = False,
+) -> None:
+    """Compile the story into a content-contract v2.0 release (graph, presentation, assets, locales, download plan,
+    blobs), validate it and report. Unchanged content mints no new release. Never uploads anything."""
+    from assetforge.story import contract
+
+    with session(ctx, json_) as s:
+        proj = _story_ref(s, story, directory)
+        report = contract.compile_release(s.lib, proj, out, allow_missing=allow_missing, derive=not no_derive)
+        payload = report.model_dump(mode="json")
+        payload["release_status"] = payload.pop("status")  # `status` is the JSON contract's ok|partial|error
+        status = {"created": "ok", "identical": "ok", "draft": "partial", "blocked": "error"}[report.status]
+
+        def human(con: Console) -> None:
+            colour = {"ok": "green", "partial": "yellow", "error": "red"}[status]
+            con.print(f"[{colour}]{report.status}[/{colour}] {escape(report.message)}")
+            if report.graph_id:
+                con.print(f"Graph: {report.graph_id}  ·  valid: {report.valid}  ·  {report.path or ''}")
+            con.print(", ".join(f"{k}: {v}" for k, v in report.counts.items()))
+            if report.missing_assets:
+                con.print(f"[yellow]Missing assets ({len(report.missing_assets)}):[/yellow] " + ", ".join(report.missing_assets[:12])
+                          + (" …" if len(report.missing_assets) > 12 else ""))  # fmt: skip
+            _issues(con, [f.model_dump() for f in report.findings if f.code != "missing_asset"][:30])
+
+        s.out.emit(payload, human, status=status)
+        if status == "error":
+            raise typer.Exit(int(ExitCode.INVALID_INPUT))
+
+
+@story_app.command("releases")
+def releases_(ctx: typer.Context, story: StoryRef = None, directory: Dir = None,
+              out: Annotated[Path | None, typer.Option("--out", help="Releases folder (default <story>/releases).")] = None,
+              json_: JsonOpt = False) -> None:  # fmt: skip
+    """List the story's compiled releases: graph ids, validation and published state."""
+    from assetforge.story import contract
+
+    with session(ctx, json_) as s:
+        view = contract.releases_view(_story_ref(s, story, directory), out)
+
+        def human(con: Console) -> None:
+            table = Table(header_style="bold")
+            for col in ("Release", "Graph", "Valid", "Published", "Created"):
+                table.add_column(col)
+            for r in view["releases"]:
+                pub = f"seq {r['published']['sequence']} · {r['published']['at']}" if r.get("published") else "-"
+                table.add_row(r["releaseId"], r["graphId"], "yes" if r["valid"] else "[red]no[/red]", pub, r["created"])
+            con.print(table if view["releases"] else "No releases yet (`assetforge story contract`).")
+            if view["draft"]:
+                con.print(f"[yellow]Draft[/yellow] ({view['draft']['errors']} blocking finding(s)) at {view['root']}/draft")
+
+        s.out.emit(view, human)
+
+
+@story_app.command("publish")
+def publish_(ctx: typer.Context, story: StoryRef = None, directory: Dir = None,
+             release: Annotated[str | None, typer.Option("--release", help="Release id (default: the latest). An older "
+                                                                           "one publishes a rollback.")] = None,  # fmt: skip
+             out: Annotated[Path | None, typer.Option("--out", help="Releases folder (default <story>/releases).")] = None,
+             yes: Annotated[bool, typer.Option("--yes", help="Really upload. Without it only the plan is shown.")] = False,
+             json_: JsonOpt = False) -> None:  # fmt: skip
+    """Upload a validated release to Cloudflare R2 and publish the signed catalog last. Without --yes: the plan only
+    (what would be uploaded or skipped); nothing is written."""
+    from assetforge.publish import r2
+    from assetforge.story import contract
+
+    with session(ctx, json_) as s:
+        path = contract.release_dir(_story_ref(s, story, directory), release, out)
+        home = s.lib.paths.home
+        if not yes:
+            result = r2.plan(path, home=home)
+
+            def human(con: Console) -> None:
+                t = result["totals"]
+                con.print(f"Plan for {result['story']} {result['release']} ({result['graph_id']}) · remote: {escape(result['remote'])}")
+                con.print(f"upload {t['upload']['count']} ({t['upload']['bytes']:,} B) · skip {t['skip']['count']} · "
+                          f"unchecked {t['unknown']['count']} · conflicts {t['conflict']['count']}")  # fmt: skip
+                if result.get("catalog"):
+                    con.print(f"Catalog sequence {result['catalog']['current_sequence']} → {result['catalog']['next_sequence']}")
+                if not result["valid"] or result["draft"]:
+                    con.print("[red]Not publishable:[/red] " + ("draft" if result["draft"] else f"{len(result['errors'])} validation error(s)"))
+                con.print("[dim]Nothing was written. Pass --yes to publish.[/dim]")
+
+            s.out.emit({"plan": result, "published": False}, human)
+            return
+        receipt = r2.publish(path, yes=True, home=home)
+        s.out.emit({"receipt": receipt, "published": True},
+                   lambda c: c.print(f"[green]published[/green] {receipt['release']} · catalog sequence {receipt['sequence']} · "
+                                     f"{receipt['uploaded']} uploaded, {receipt['skipped']} already there"))  # fmt: skip
