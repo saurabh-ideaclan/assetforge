@@ -1,4 +1,4 @@
-"""The signed visual-novel catalog (`catalog/current.json`): an Ed25519 envelope around the exact JSON bytes.
+"""The signed visual-novel catalog (`catalog/<channel>/current.json`): an Ed25519 envelope around the exact JSON bytes.
 
     {"alg": "Ed25519", "keyId": "<16 hex>", "payload": "<base64 of the payload bytes>",
      "signature": "<base64 of sign(PROTOCOL_PREFIX + payload bytes)>"}
@@ -22,6 +22,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
+from assetforge.core.util import utcnow
 from assetforge.errors import InvalidInputError, PolicyError
 from assetforge.story import contract_models as cm
 
@@ -90,20 +91,45 @@ def verify(envelope: dict[str, Any], public: Ed25519PublicKey) -> dict[str, Any]
     return payload
 
 
-def entry_for(release: dict[str, Any], manifest: dict[str, Any], title: str, summary: str,
-              previous: dict[str, Any] | None) -> dict[str, Any]:  # fmt: skip
-    """This story's catalog entry pointing at `release` (kept releases of the story stay listed)."""
+def release_ref(release: dict[str, Any], manifest: dict[str, Any], *, published_at: str,
+                delta: dict[str, Any] | None = None) -> dict[str, Any]:  # fmt: skip
+    """One listed release of a story entry."""
     ref = {"releaseId": release["releaseId"], "graphId": release["graphId"],
-           "minEngineVersion": release["requires"]["minEngineVersion"], "manifest": manifest}  # fmt: skip
+           "minEngineVersion": release["requires"]["minEngineVersion"], "publishedAt": published_at, "manifest": manifest}  # fmt: skip
+    if delta is not None:
+        ref["delta"] = delta
+    return ref
+
+
+def entry_for(release: dict[str, Any], manifest: dict[str, Any], title: str, summary: str, previous: dict[str, Any] | None,
+              *, at: str | None = None, delta: dict[str, Any] | None = None, chapter_count: int | None = None,
+              download_bytes: dict[str, int] | None = None, ref: dict[str, Any] | None = None) -> dict[str, Any]:  # fmt: skip
+    """This story's catalog entry pointing at `release` (kept releases of the story stay listed, its status is kept).
+    Sequences and `updatedAt` are filled by `next_catalog`. `ref` reuses an existing listed-release record (promotion)."""
+    ref = ref or release_ref(release, manifest, published_at=at or utcnow(), delta=delta)
     kept = [r for r in (previous or {}).get("releases", []) if r["releaseId"] != release["releaseId"]]
-    return {"storyId": release["storyId"], "title": title, "summary": summary, "defaultLocale": release["defaultLocale"],
-            "thumbnail": release.get("cover"), "current": release["releaseId"],
+    cover = release.get("cover")
+    return {"storyId": release["storyId"], "status": (previous or {}).get("status", "live"), "title": title, "summary": summary,
+            "defaultLocale": release["defaultLocale"], "locales": sorted(release.get("locales") or [release["defaultLocale"]]),
+            "thumbnail": cover["file"] if cover else None, "current": release["releaseId"],
+            "chapterCount": len(release.get("chapters", [])) if chapter_count is None else chapter_count,
+            "downloadBytes": download_bytes or {"core": 0, "standard": 0},
             "releases": sorted([*kept, ref], key=lambda r: r["releaseId"])}  # fmt: skip
 
 
-def next_catalog(previous: dict[str, Any] | None, story: dict[str, Any]) -> dict[str, Any]:
-    """The next catalog payload: this story's entry added or replaced, sequence bumped (never reused)."""
+def next_catalog(previous: dict[str, Any] | None, story: dict[str, Any], *, channel: str = "staging",
+                 change: dict[str, Any] | None = None, at: str | None = None) -> dict[str, Any]:  # fmt: skip
+    """The next catalog payload: this story's entry added or replaced, sequence bumped (never reused), the entry's
+    `updatedSequence` moved to it, and the change prepended to the feed (newest first, at most 50)."""
+    at = at or utcnow()
+    sequence = int((previous or {}).get("catalogSequence", 0)) + 1
+    old = next((s for s in (previous or {}).get("stories", []) if s["storyId"] == story["storyId"]), None)
+    story = {**story, "addedSequence": old["addedSequence"] if old else sequence, "updatedSequence": sequence, "updatedAt": at}
+    if change is None:
+        change = {"type": "story_added" if old is None else "release_published", "storyId": story["storyId"],
+                  "releaseId": story["current"], "fromReleaseId": old["current"] if old else None}  # fmt: skip
+    change = {k: v for k, v in {"sequence": sequence, "at": at, **change}.items() if v is not None}
     stories = [s for s in (previous or {}).get("stories", []) if s["storyId"] != story["storyId"]]
-    return {"kind": "vn.catalog", "schemaVersion": cm.SCHEMA_VERSION,
-            "catalogSequence": int((previous or {}).get("catalogSequence", 0)) + 1,
-            "stories": sorted([*stories, story], key=lambda s: s["storyId"])}  # fmt: skip
+    return {"kind": "vn.catalog", "schemaVersion": cm.SCHEMA_VERSION, "channel": channel, "catalogSequence": sequence,
+            "generatedAt": at, "stories": sorted([*stories, story], key=lambda s: s["storyId"]),
+            "changes": [change, *(previous or {}).get("changes", [])][: cm.MAX_CHANGES]}  # fmt: skip

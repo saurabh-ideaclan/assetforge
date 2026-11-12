@@ -738,7 +738,8 @@ function releaseCard(sid) {
         latest ? h("button.btn", { type: "button", disabled: busy || !latest.valid, title: latest.valid ? "" : "Only a valid release can be published",
           onclick: async () => { try { const r = await task({ action: "publish", release: latest.releaseId }); draw(v, planView(r.plan, latest.releaseId)); }
                                  catch (err) { toast(err.message); } } }, `Publish ${latest.releaseId}…`) : null),
-      v.r2 && v.r2.configured === false ? h("p.help", `R2: ${v.r2.message}`) : v.r2 ? h("p.help", `R2 bucket: ${v.r2.bucket}`) : null,
+      v.r2 && v.r2.configured === false ? h("p.help", `R2: ${v.r2.message}`) : v.r2 ? h("p.help", `R2 bucket: ${v.r2.bucket}${v.r2.prefix ? " · prefix " + v.r2.prefix : ""} · publishing goes to staging`) : null,
+      h("p.help", h("a", { href: "#/backend" }, "Open Publishing"), " for staging and production, promotion, rollback, unlisting and verify."),
       extra || null,
       rep ? h("div", h("p", h("b", rep.status), " · ", rep.message),
         rep.missing_assets?.length ? h("p.help", `Missing assets (${rep.missing_assets.length}): ${rep.missing_assets.slice(0, 10).join(", ")}${rep.missing_assets.length > 10 ? " …" : ""}`) : null,

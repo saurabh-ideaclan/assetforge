@@ -658,3 +658,8 @@ _register_story_routes(router)
 from assetforge.app.api_audio import register_routes as _register_audio_routes  # noqa: E402
 
 _register_audio_routes(router)
+
+# Publishing (content backend in R2): see api_backend.py
+from assetforge.app.api_backend import register_routes as _register_backend_routes  # noqa: E402
+
+_register_backend_routes(router)

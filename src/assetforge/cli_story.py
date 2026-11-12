@@ -718,31 +718,9 @@ def publish_(ctx: typer.Context, story: StoryRef = None, directory: Dir = None,
              out: Annotated[Path | None, typer.Option("--out", help="Releases folder (default <story>/releases).")] = None,
              yes: Annotated[bool, typer.Option("--yes", help="Really upload. Without it only the plan is shown.")] = False,
              json_: JsonOpt = False) -> None:  # fmt: skip
-    """Upload a validated release to Cloudflare R2 and publish the signed catalog last. Without --yes: the plan only
-    (what would be uploaded or skipped); nothing is written."""
-    from assetforge.publish import r2
-    from assetforge.story import contract
+    """Alias of `backend publish`: upload a validated release (and its delta) to R2 and publish the signed staging
+    index last. Without --yes: the plan only (what would be uploaded or skipped); nothing is written."""
+    from assetforge.cli_backend import publish_command
 
     with session(ctx, json_) as s:
-        path = contract.release_dir(_story_ref(s, story, directory), release, out)
-        home = s.lib.paths.home
-        if not yes:
-            result = r2.plan(path, home=home)
-
-            def human(con: Console) -> None:
-                t = result["totals"]
-                con.print(f"Plan for {result['story']} {result['release']} ({result['graph_id']}) · remote: {escape(result['remote'])}")
-                con.print(f"upload {t['upload']['count']} ({t['upload']['bytes']:,} B) · skip {t['skip']['count']} · "
-                          f"unchecked {t['unknown']['count']} · conflicts {t['conflict']['count']}")  # fmt: skip
-                if result.get("catalog"):
-                    con.print(f"Catalog sequence {result['catalog']['current_sequence']} → {result['catalog']['next_sequence']}")
-                if not result["valid"] or result["draft"]:
-                    con.print("[red]Not publishable:[/red] " + ("draft" if result["draft"] else f"{len(result['errors'])} validation error(s)"))
-                con.print("[dim]Nothing was written. Pass --yes to publish.[/dim]")
-
-            s.out.emit({"plan": result, "published": False}, human)
-            return
-        receipt = r2.publish(path, yes=True, home=home)
-        s.out.emit({"receipt": receipt, "published": True},
-                   lambda c: c.print(f"[green]published[/green] {receipt['release']} · catalog sequence {receipt['sequence']} · "
-                                     f"{receipt['uploaded']} uploaded, {receipt['skipped']} already there"))  # fmt: skip
+        publish_command(s, story, directory, release, out, yes)

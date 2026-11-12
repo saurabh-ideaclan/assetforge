@@ -1,37 +1,29 @@
-"""Publish a compiled visual-novel release to Cloudflare R2 (S3 API). Only `publish(..., yes=True)` writes, and
-nothing in AssetForge calls it automatically.
+"""Cloudflare R2 (S3 API): configuration, the lazily built boto3 client, and `Store`, the only way any AssetForge
+code touches the bucket. Every key goes through `Store.full`, which applies `ASSETFORGE_R2_PREFIX`; keys inside
+documents stay relative. The operations (plan, publish, promote, verify, gc…) live in `publish/backend.py`;
+`plan`/`publish` here are kept as aliases of the backend's.
 
-Sequence: validate → HEAD every object (plan) → refuse on any conflict → upload blobs and chapter documents
-(a blob already there with the same size is skipped; a document already there must be byte-identical) → HEAD
-every uploaded object again → upload `release.json` → sign and publish the catalog last (`catalog/history/<seq>`
-first, then `catalog/current.json`). Published objects are never overwritten and nothing expires.
-
-Configuration (settings: env, ./.env, $ASSETFORGE_HOME/.env): `ASSETFORGE_R2_BUCKET`, `ASSETFORGE_R2_ENV_FILE`
-(a foreign .env holding `R2_ACCESS_KEY`, `R2_SECRET_KEY`, `R2_ACCOUNT_ID`; read in place, never copied), optional
-direct `ASSETFORGE_R2_ACCOUNT_ID` / `ASSETFORGE_R2_ACCESS_KEY` / `ASSETFORGE_R2_SECRET_KEY` overrides, and
-`ASSETFORGE_R2_PUBLIC_BASE` (the public domain, for documentation only). boto3 is the optional `publish` extra.
+Configuration (settings: env, ./.env, $ASSETFORGE_HOME/.env): `ASSETFORGE_R2_BUCKET`, `ASSETFORGE_R2_PREFIX`
+(a key prefix such as `vn`, so the content can share a bucket), `ASSETFORGE_R2_ENV_FILE` (a foreign .env holding
+`R2_ACCESS_KEY`, `R2_SECRET_KEY`, `R2_ACCOUNT_ID`; read in place, never copied), optional direct
+`ASSETFORGE_R2_ACCOUNT_ID` / `ASSETFORGE_R2_ACCESS_KEY` / `ASSETFORGE_R2_SECRET_KEY` overrides, and
+`ASSETFORGE_R2_PUBLIC_BASE` (the public origin: the app's index URL and `verify --public`). boto3 is the optional
+`publish` extra.
 """
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from assetforge.config import load_settings, read_env_file
-from assetforge.core.util import utcnow
-from assetforge.errors import (ConflictError, PolicyError, PublishAccessDeniedError, PublishBucketMissingError, PublishError,
-                               PublishNotConfiguredError)  # fmt: skip
-from assetforge.story import catalog_sign, contract
+from assetforge.errors import PublishAccessDeniedError, PublishBucketMissingError, PublishError, PublishNotConfiguredError
 from assetforge.story import contract_models as cm
-from assetforge.story.project import write_atomic
 
 ENV_FILE_KEYS = ("R2_ACCESS_KEY", "R2_SECRET_KEY", "R2_ACCOUNT_ID")
-CATALOG_KEY = "catalog/current.json"
 IMMUTABLE = "public, max-age=31536000, immutable"
 MUTABLE = "no-cache"
-RECEIPTS = "publish.json"
 
 
 @dataclass(frozen=True)
@@ -42,6 +34,7 @@ class R2Config:
     secret_key: str = field(repr=False)
     public_base: str | None = None
     source: str = "settings"
+    prefix: str = ""
 
     @property
     def endpoint(self) -> str:
@@ -49,8 +42,26 @@ class R2Config:
 
     def describe(self) -> dict[str, Any]:
         """Safe to print: no keys, the account id shortened."""
-        return {"bucket": self.bucket, "endpoint": f"https://…{self.account_id[-4:]}.r2.cloudflarestorage.com",
-                "public_base": self.public_base, "credentials_from": self.source}  # fmt: skip
+        return {"bucket": self.bucket, "prefix": self.prefix, "endpoint": f"https://…{self.account_id[-4:]}.r2.cloudflarestorage.com",
+                "public_base": self.public_base, "credentials_from": self.source, "configured": True}  # fmt: skip
+
+    def public_url(self, key: str) -> str | None:
+        """The anonymous HTTPS URL of a key (prefix applied), when a public origin is configured."""
+        if not self.public_base:
+            return None
+        return self.public_base.rstrip("/") + "/" + (f"{self.prefix}/{key}" if self.prefix else key)
+
+
+def clean_prefix(value: str | None) -> str:
+    """`vn`, `/vn/` → `vn`; segments like object keys (no traversal, no spaces, no encodings)."""
+    text = (value or "").strip().strip("/")
+    if not text:
+        return ""
+    for segment in text.split("/"):
+        if segment in (".", "..") or not cm._KEY_SEGMENT.match(segment):
+            raise PublishNotConfiguredError(f"ASSETFORGE_R2_PREFIX {value!r} is not a valid key prefix",
+                                            hint="Use letters, digits, '-', '_' and '/' only, e.g. vn")  # fmt: skip
+    return text
 
 
 def resolve_config(home: Path | None = None) -> R2Config:
@@ -75,7 +86,8 @@ def resolve_config(home: Path | None = None) -> R2Config:
         raise PublishNotConfiguredError(f"R2 publishing is not configured: missing {', '.join(missing)}",
                                         hint="Set ASSETFORGE_R2_BUCKET and ASSETFORGE_R2_ENV_FILE (or the direct key settings)")  # fmt: skip
     return R2Config(bucket=str(bucket), account_id=str(values["account"]), access_key=str(values["access"]),
-                    secret_key=str(values["secret"]), public_base=settings.get("ASSETFORGE_R2_PUBLIC_BASE"), source=source)  # fmt: skip
+                    secret_key=str(values["secret"]), public_base=settings.get("ASSETFORGE_R2_PUBLIC_BASE"), source=source,
+                    prefix=clean_prefix(settings.get("ASSETFORGE_R2_PREFIX")))  # fmt: skip
 
 
 def make_client(cfg: R2Config) -> Any:
@@ -167,147 +179,123 @@ def preflight(client: Any, cfg: R2Config) -> dict[str, Any]:
     return {"bucket": cfg.bucket, "reachable": True}
 
 
-def _remote_catalog(client: Any, bucket: str, home: Path) -> tuple[bytes | None, dict[str, Any] | None]:
-    data = _get(client, bucket, CATALOG_KEY)
-    if data is None:
-        return None, None
-    public = catalog_sign.load_public(home)
-    if public is None:
-        raise PolicyError("The bucket has a catalog but this library has no catalog key to verify it",
-                          hint="Restore $ASSETFORGE_HOME/keys/vn-catalog.ed25519 from where it was made")  # fmt: skip
-    return data, catalog_sign.verify(json.loads(data), public)
+# ---------------------------------------------------------------------- the bucket, inside the prefix
 
 
-# ---------------------------------------------------------------------- plan and publish
+class Store:
+    """The bucket as AssetForge sees it: every key relative to the prefix, every call counted by kind."""
+
+    def __init__(self, client: Any, cfg: R2Config) -> None:
+        self.client, self.cfg, self.bucket = client, cfg, cfg.bucket
+        self.prefix = cfg.prefix
+        self.writes: list[str] = []
+        self.deletes: list[str] = []
+
+    def full(self, key: str) -> str:
+        return f"{self.prefix}/{key}" if self.prefix else key
+
+    def relative(self, full_key: str) -> str | None:
+        """The relative key of a bucket key, or None when it lies outside the prefix."""
+        if not self.prefix:
+            return full_key
+        return full_key[len(self.prefix) + 1:] if full_key.startswith(self.prefix + "/") else None
+
+    def preflight(self) -> dict[str, Any]:
+        return {**preflight(self.client, self.cfg), "prefix": self.prefix}
+
+    def head(self, key: str) -> dict[str, Any] | None:
+        return _head(self.client, self.bucket, self.full(key))
+
+    def get(self, key: str) -> bytes | None:
+        return _get(self.client, self.bucket, self.full(key))
+
+    def put(self, key: str, data: bytes, media_type: str, cache: str) -> None:
+        _put(self.client, self.bucket, self.full(key), data, media_type, cache)
+        self.writes.append(key)
+
+    def create(self, key: str, data: bytes, media_type: str, cache: str) -> bool:
+        """Write `key` only if it does not exist. Uses `IfNoneMatch="*"` when the client and endpoint accept it,
+        otherwise HEAD then PUT. False when the key already exists (someone else took it)."""
+        full = self.full(key)
+        try:
+            self.client.put_object(Bucket=self.bucket, Key=full, Body=data, ContentType=media_type, CacheControl=cache,
+                                   Metadata={"sha256": cm.sha256(data)}, IfNoneMatch="*")  # fmt: skip
+        except TypeError:  # a client without the parameter
+            return self._create_fallback(key, data, media_type, cache)
+        except Exception as exc:  # noqa: BLE001
+            code = _code(exc)
+            if type(exc).__name__ == "ParamValidationError" or code in ("NotImplemented", "501"):
+                return self._create_fallback(key, data, media_type, cache)
+            if code in ("PreconditionFailed", "412", "ConditionalRequestConflict", "409"):
+                return False
+            if code is None:
+                raise
+            if _denied(code):
+                raise PublishAccessDeniedError(f"Access denied writing {key}", hint="The token needs write access to the bucket") from exc
+            raise PublishError(f"PUT {key} failed: {code}") from exc
+        self.writes.append(key)
+        return True
+
+    def _create_fallback(self, key: str, data: bytes, media_type: str, cache: str) -> bool:
+        if self.head(key) is not None:
+            return False
+        self.put(key, data, media_type, cache)
+        return True
+
+    def delete(self, key: str) -> None:
+        try:
+            self.client.delete_object(Bucket=self.bucket, Key=self.full(key))
+        except Exception as exc:  # noqa: BLE001
+            code = _code(exc)
+            if code is None:
+                raise
+            if _denied(code):
+                raise PublishAccessDeniedError(f"Access denied deleting {key}") from exc
+            raise PublishError(f"DELETE {key} failed: {code}") from exc
+        self.deletes.append(key)
+
+    def list(self) -> list[dict[str, Any]]:
+        """Every object under the prefix (`<prefix>/…` only, never the rest of a shared bucket), relative keys."""
+        out: list[dict[str, Any]] = []
+        token: str | None = None
+        start = f"{self.prefix}/" if self.prefix else ""
+        while True:
+            args: dict[str, Any] = {"Bucket": self.bucket, "Prefix": start}
+            if token:
+                args["ContinuationToken"] = token
+            try:
+                page = self.client.list_objects_v2(**args)
+            except Exception as exc:  # noqa: BLE001
+                code = _code(exc)
+                if code is None:
+                    raise
+                if _denied(code):
+                    raise PublishAccessDeniedError("Access denied listing the bucket", hint="The token needs list access") from exc
+                raise PublishError(f"LIST failed: {code}") from exc
+            for item in page.get("Contents", []) or []:
+                rel = self.relative(str(item["Key"]))
+                if rel is not None:  # belt and braces: never report anything outside the prefix
+                    out.append({"key": rel, "bytes": int(item.get("Size", 0))})
+            if not page.get("IsTruncated"):
+                return out
+            token = page.get("NextContinuationToken")
 
 
-def _classify(client: Any, bucket: str, objs: list[contract.Obj]) -> list[dict[str, Any]]:
-    rows = []
-    for o in objs:
-        head = _head(client, bucket, o.key)
-        if head is None:
-            action = "upload"
-        elif o.role == "blob":  # content-addressed: the same size under the same digest is the same file
-            action = "skip" if int(head.get("ContentLength", -1)) == o.bytes else "conflict"
-        else:
-            remote = _get(client, bucket, o.key)
-            action = "skip" if remote is not None and cm.sha256(remote) == o.sha256 else "conflict"
-        rows.append({"key": o.key, "role": o.role, "bytes": o.bytes, "action": action})
-    return rows
+def open_store(home: Path, client: Any = None, cfg: R2Config | None = None) -> Store:
+    cfg = cfg or resolve_config(home)
+    return Store(client or make_client(cfg), cfg)
 
 
-def _totals(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    out: dict[str, Any] = {}
-    for action in ("upload", "skip", "conflict", "unknown"):
-        chosen = [r for r in rows if r["action"] == action]
-        out[action] = {"count": len(chosen), "bytes": sum(r["bytes"] for r in chosen)}
-    return out
+# ---------------------------------------------------------------------- aliases (the operations live in backend.py)
 
 
 def plan(release: Path, *, home: Path, client: Any = None, cfg: R2Config | None = None) -> dict[str, Any]:
-    """What `publish` would upload and skip, with byte totals (reads only; never writes)."""
-    doc, objs = contract.release_objects(release)
-    issues = contract.validate_release(release)
-    errors = [i.model_dump() for i in issues if i.level == "error"]
-    result: dict[str, Any] = {"story": doc["storyId"], "release": doc["releaseId"], "graph_id": doc["graphId"],
-                              "draft": bool(doc.get("draft")), "valid": not errors, "errors": errors[:20], "remote": "checked"}  # fmt: skip
-    try:
-        cfg = cfg or resolve_config(home)
-        client = client or make_client(cfg)
-        preflight(client, cfg)
-        rows = _classify(client, cfg.bucket, objs)
-        _, current = _remote_catalog(client, cfg.bucket, home)
-        result["config"] = cfg.describe()
-        result["catalog"] = {"key": CATALOG_KEY, "current_sequence": current["catalogSequence"] if current else None,
-                             "next_sequence": (current["catalogSequence"] if current else 0) + 1}  # fmt: skip
-    except (PublishNotConfiguredError, PublishAccessDeniedError, PublishBucketMissingError) as exc:
-        rows = [{"key": o.key, "role": o.role, "bytes": o.bytes, "action": "unknown"} for o in objs]
-        result["remote"] = f"not checked: {exc.message}"
-        result["remote_error"] = exc.to_dict()
-    result["objects"] = rows
-    result["totals"] = _totals(rows)
-    result["conflicts"] = [r["key"] for r in rows if r["action"] == "conflict"]
-    result["publishable"] = result["valid"] and not result["draft"] and not result["conflicts"] and result["remote"] == "checked"
-    return result
+    from assetforge.publish import backend
+
+    return backend.plan(release, home=home, client=client, cfg=cfg)
 
 
 def publish(release: Path, *, yes: bool, home: Path, client: Any = None, cfg: R2Config | None = None) -> dict[str, Any]:
-    """Upload the release and publish the signed catalog. Refuses without `yes`, for drafts, for releases that do
-    not validate, and when any object already published differs (never overwrites)."""
-    if not yes:
-        raise PolicyError("Publishing needs an explicit yes", hint="Look at the plan (`story publish` without --yes), then pass --yes")
-    doc, objs = contract.release_objects(release)
-    if doc.get("draft"):
-        raise PolicyError("A draft release can never be published", hint="Make the missing assets, then compile again")
-    errors = [i for i in contract.validate_release(release) if i.level == "error"]
-    if errors:
-        raise PolicyError("The release does not validate", errors=[e.model_dump() for e in errors[:20]])
-    cfg = cfg or resolve_config(home)
-    client = client or make_client(cfg)
-    preflight(client, cfg)
-    key = catalog_sign.load_or_create_key(home)
-    previous_bytes, previous = _remote_catalog(client, cfg.bucket, home)
-    rows = _classify(client, cfg.bucket, objs)
-    conflicts = [r["key"] for r in rows if r["action"] == "conflict"]
-    if conflicts:
-        raise ConflictError("Objects already published under these keys differ; published objects are never overwritten",
-                            conflicts=conflicts[:20], hint="Compile a new release instead")  # fmt: skip
-    action = {r["key"]: r["action"] for r in rows}
-    uploaded = []
-    for o in objs[:-1]:  # everything but release.json
-        if action[o.key] == "upload":
-            _put(client, cfg.bucket, o.key, o.path.read_bytes(), o.media_type, IMMUTABLE)
-            uploaded.append(o)
-    for o in objs[:-1]:  # the release is complete before its manifest appears
-        head = _head(client, cfg.bucket, o.key)
-        if head is None or int(head.get("ContentLength", -1)) != o.bytes:
-            raise PublishError(f"{o.key} is missing or incomplete after upload", hint="Re-run `story publish --yes`")
-    top = objs[-1]
-    if action[top.key] == "upload":
-        _put(client, cfg.bucket, top.key, top.path.read_bytes(), top.media_type, IMMUTABLE)
-        uploaded.append(top)
-    if _head(client, cfg.bucket, top.key) is None:
-        raise PublishError(f"{top.key} did not arrive")
-    sequence = _publish_catalog(client, cfg.bucket, release, doc, top, key, previous_bytes, previous)
-    receipt = {"release": doc["releaseId"], "story": doc["storyId"], "graph_id": doc["graphId"], "sequence": sequence,
-               "bucket": cfg.bucket, "uploaded": len(uploaded), "uploaded_bytes": sum(o.bytes for o in uploaded),
-               "skipped": len(objs) - len(uploaded), "objects": [o.key for o in uploaded], "at": utcnow()}  # fmt: skip
-    _record(release.parent, receipt)
-    return receipt
+    from assetforge.publish import backend
 
-
-def _publish_catalog(client: Any, bucket: str, release: Path, doc: dict[str, Any], top: contract.Obj, key: Any,
-                     previous_bytes: bytes | None, previous: dict[str, Any] | None) -> int:  # fmt: skip
-    lang = doc["defaultLocale"]
-    strings = json.loads(contract.local_path(release.parent, doc["storyId"], doc["locales"][lang]["key"]).read_bytes())["strings"]
-    manifest = {"key": top.key, "mediaType": top.media_type, "bytes": top.bytes, "sha256": top.sha256}
-    old_entry = next((s for s in (previous or {}).get("stories", []) if s["storyId"] == doc["storyId"]), None)
-    entry = catalog_sign.entry_for(doc, manifest, strings.get(doc["titleKey"], doc["storyId"]), strings.get(doc["summaryKey"], ""), old_entry)
-    payload = catalog_sign.next_catalog(previous, entry)
-    body = cm.canonical(catalog_sign.sign(payload, key))
-    if previous is not None and previous_bytes is not None:
-        history = f"catalog/history/{previous['catalogSequence']}.json"
-        if _head(client, bucket, history) is None:  # keep the catalog we are replacing
-            _put(client, bucket, history, previous_bytes, "application/json", IMMUTABLE)
-    history = f"catalog/history/{payload['catalogSequence']}.json"
-    if _head(client, bucket, history) is not None:
-        raise ConflictError(f"Catalog sequence {payload['catalogSequence']} already exists; someone published at the same time",
-                            hint="Re-run to publish on top of the newer catalog")  # fmt: skip
-    _put(client, bucket, history, body, "application/json", IMMUTABLE)
-    _put(client, bucket, CATALOG_KEY, body, "application/json", MUTABLE)
-    return int(payload["catalogSequence"])
-
-
-def _record(root: Path, receipt: dict[str, Any]) -> None:
-    path = root / RECEIPTS
-    try:
-        data = json.loads(path.read_text())
-    except (OSError, ValueError):
-        data = {"receipts": []}
-    data["receipts"].append(receipt)
-    write_atomic(path, json.dumps(data, indent=2) + "\n", backup=False)
-    index = contract.load_index(root)
-    for entry in index.get("releases", []):
-        if entry["releaseId"] == receipt["release"]:
-            entry["published"] = {"sequence": receipt["sequence"], "at": receipt["at"], "bucket": receipt["bucket"]}
-    contract.save_index(root, index)
+    return backend.publish(release, yes=yes, home=home, client=client, cfg=cfg)

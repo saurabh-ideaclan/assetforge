@@ -477,23 +477,107 @@ class CatalogRelease(Strict):
     releaseId: str
     graphId: str
     minEngineVersion: str
+    publishedAt: str
     manifest: FileDescriptor
+    delta: FileDescriptor | None = None  # what changed since the previous release (absent for the first)
+
+
+class DownloadBytes(Strict):
+    core: int = Field(ge=0)
+    standard: int = Field(ge=0)
+
+
+CHANNELS = ("staging", "production")
+STORY_STATUSES = ("live", "unlisted")
+CHANGE_TYPES = ("story_added", "release_published", "rollback", "story_unlisted", "story_relisted", "promoted")
+MAX_CHANGES = 50
 
 
 class CatalogStory(Strict):
     storyId: str
+    status: Literal["live", "unlisted"]
     title: str
     summary: str
     defaultLocale: str
-    thumbnail: Cover | None = None
+    locales: list[str]
+    thumbnail: FileDescriptor | None = None
     current: str
+    addedSequence: int = Field(ge=1)
+    updatedSequence: int = Field(ge=1)
+    updatedAt: str
+    chapterCount: int = Field(ge=0)
+    downloadBytes: DownloadBytes
     releases: list[CatalogRelease] = Field(min_length=1)
+
+
+class ChangeSummary(Strict):
+    chaptersAdded: int = Field(ge=0)
+    chaptersChanged: int = Field(ge=0)
+    chaptersRemoved: int = Field(ge=0)
+    textOnly: bool
+    graphChanged: bool
+    downloadBytes: int = Field(ge=0)
+
+
+class CatalogChange(Strict):
+    sequence: int = Field(ge=1)
+    at: str
+    type: Literal["story_added", "release_published", "rollback", "story_unlisted", "story_relisted", "promoted"]
+    storyId: str
+    releaseId: str | None = None
+    fromReleaseId: str | None = None
+    summary: ChangeSummary | None = None
 
 
 class Catalog(Doc):
     kind: Literal["vn.catalog"]
+    channel: Literal["staging", "production"]
     catalogSequence: int = Field(ge=1)
+    generatedAt: str
     stories: list[CatalogStory]
+    changes: list[CatalogChange] = Field(default_factory=list, max_length=MAX_CHANGES)
+
+
+# ---------------------------------------------------------------------- delta between two releases
+
+
+class DeltaChapter(Strict):
+    id: str
+    documents: list[str]  # graph | presentation | assets | locales/<lang>
+    textOnly: bool
+    bytes: int = Field(ge=0)
+
+
+class DeltaChapters(Strict):
+    added: list[str]
+    removed: list[str]
+    unchanged: list[str]
+    changed: list[DeltaChapter]
+
+
+class DeltaBlob(Strict):
+    key: str
+    bytes: int = Field(ge=0)
+
+
+class DeltaBlobs(Strict):
+    added: list[DeltaBlob]
+    dropped: list[str]
+
+
+class Delta(Doc):
+    kind: Literal["vn.delta"]
+    storyId: str
+    fromRelease: str
+    toRelease: str
+    fromGraphId: str
+    toGraphId: str
+    graphChanged: bool
+    migration: FileDescriptor | None
+    chapters: DeltaChapters
+    releaseDocuments: list[str]  # release-level documents whose digest changed (locales/<lang>)
+    blobs: DeltaBlobs
+    downloadBytes: DownloadBytes
 
 
 class Envelope(Strict):

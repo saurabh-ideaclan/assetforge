@@ -5,7 +5,7 @@ const PAGES = [
   ["Overview", "#/overview", "◎"], ["Review candidates", "#/assets?status=candidate", "✓"], ["Assets", "#/assets", "▦"],
   ["Images", "#/assets?kind=image", "◧"], ["Sound", "#/assets?kind=audio", "♪"], ["Stories", "#/story", "✎"],
   ["Create an image", "#/generate?tab=image", "✦"], ["Create a sound", "#/generate?tab=sound", "♫"],
-  ["Art direction", "#/art", "◐"], ["Jobs", "#/jobs", "≡"], ["Usage & cost", "#/usage", "$"],
+  ["Art direction", "#/art", "◐"], ["Jobs", "#/jobs", "≡"], ["Usage & cost", "#/usage", "$"], ["Publishing", "#/backend", "⇪"],
 ];
 
 let open = false;

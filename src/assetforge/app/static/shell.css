@@ -82,3 +82,8 @@ nav a:focus-visible, .search-trigger:focus-visible { outline: 2px solid var(--ac
   .shell main { padding: 18px 16px 50px; height: auto; overflow-y: auto; }
   .topbar { padding: 0 12px; gap: 8px; }
 }
+
+/* Publishing page (views/backend.js): feed beside verify + app info, stacked on narrow windows */
+.pub-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; }
+@media (max-width: 1100px) { .pub-cols { grid-template-columns: 1fr; } }
+.pub-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }

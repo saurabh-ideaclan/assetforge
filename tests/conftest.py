@@ -60,6 +60,12 @@ def no_real_providers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(openai, "OpenAI", forbidden)
     monkeypatch.setattr(google.genai, "Client", forbidden)
     monkeypatch.setattr(anthropic, "Anthropic", forbidden)
+    try:  # R2 publishing: the optional boto3 must never build a real S3 client in a test (tests pass a fake)
+        import boto3
+
+        monkeypatch.setattr(boto3, "client", forbidden)
+    except ImportError:
+        pass
     monkeypatch.setattr(providers, "OVERRIDES", {})
 
     # Text providers: no signed-in CLI (claude/codex/gemini) may ever be spawned, and none counts as installed.

@@ -231,7 +231,7 @@ def test_descriptor_keys_reject_unsafe_values(key: str) -> None:
 
 
 def test_descriptor_keys_accept_the_layout() -> None:
-    for key in ("stories/kite-season/releases/r0001/ch1/graph.json", "blobs/sha256/" + "a" * 64 + ".webp", "catalog/history/3.json"):
+    for key in ("stories/kite-season/releases/r0001/ch1/graph.json", "blobs/sha256/" + "a" * 64 + ".webp", "catalog/staging/history/3.json"):
         assert cm.check_key(key) == key
     assert cm.descriptor("a/b.ogg", b"xyz")["mediaType"] == "audio/ogg"
 
@@ -335,8 +335,11 @@ def test_catalog_signing_sequence_and_rollback(home: Path) -> None:
     back = catalog_sign.next_catalog(two, catalog_sign.entry_for(_release("r0001", "k.graph.1"), _manifest("r0001"), "Kite", "s",
                                                                   two["stories"][0]))  # fmt: skip
     assert back["catalogSequence"] == 3 and back["stories"][0]["current"] == "r0001"  # a rollback is a new sequence
+    assert [c["type"] for c in back["changes"]] == ["release_published", "release_published", "story_added"]
+    assert back["stories"][0]["addedSequence"] == 1 and back["stories"][0]["updatedSequence"] == 3 and back["channel"] == "staging"
     other = catalog_sign.next_catalog(back, {**back["stories"][0], "storyId": "another"})
     assert [s["storyId"] for s in other["stories"]] == ["another", "kite-season"] and other["catalogSequence"] == 4
+    assert other["stories"][1]["updatedSequence"] == 3 and other["stories"][0]["addedSequence"] == 4  # only the touched entry moves
     tampered = dict(env, payload=base64.b64encode(cm.canonical({**one, "catalogSequence": 9})).decode())
     with pytest.raises(PolicyError):
         catalog_sign.verify(tampered, pub)

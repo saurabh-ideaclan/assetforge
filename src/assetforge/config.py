@@ -94,6 +94,7 @@ SETTING_KEYS = (
     # visual-novel release publishing (Cloudflare R2; only `story publish --yes` writes)
     "ASSETFORGE_R2_ENV_FILE",
     "ASSETFORGE_R2_BUCKET",
+    "ASSETFORGE_R2_PREFIX",
     "ASSETFORGE_R2_ACCOUNT_ID",
     "ASSETFORGE_R2_ACCESS_KEY",
     "ASSETFORGE_R2_SECRET_KEY",

@@ -765,15 +765,44 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
 - `story/catalog_sign.py`: Ed25519 envelope (`PROTOCOL_PREFIX` + exact payload bytes), key at
   `$ASSETFORGE_HOME/keys/vn-catalog.ed25519` (0600, made on first use, `.pub` next to it), `next_catalog` bumps
   `catalogSequence`; a rollback is a new sequence pointing at an older release.
-- `publish/r2.py`: `resolve_config` (`ASSETFORGE_R2_BUCKET`, `ASSETFORGE_R2_ENV_FILE` read in place for `R2_ACCESS_KEY/
-  R2_SECRET_KEY/R2_ACCOUNT_ID`, direct overrides, `ASSETFORGE_R2_PUBLIC_BASE`), boto3 lazily (extra `publish`),
-  `preflight` (missing vs denied), `plan` (reads only), `publish(yes=True)`: blobs + documents (skip same-size blobs;
-  differing documents refuse everything) → HEAD all → release.json → catalog history then `catalog/current.json` last;
+- `publish/r2.py`: `resolve_config` (`ASSETFORGE_R2_BUCKET`, `ASSETFORGE_R2_PREFIX`, `ASSETFORGE_R2_ENV_FILE` read in
+  place for `R2_ACCESS_KEY/R2_SECRET_KEY/R2_ACCOUNT_ID`, direct overrides, `ASSETFORGE_R2_PUBLIC_BASE`), boto3 lazily
+  (extra `publish`, built only in `make_client`), `preflight` (missing vs denied), `Store` (see below); `plan`/`publish`
+  are aliases of `publish/backend.py`'s: blobs + documents (skip same-size blobs; differing documents refuse
+  everything) → HEAD all → release.json → index history (create-only) then `catalog/staging/current.json` last;
   receipts `releases/publish.json`. Errors `PUBLISH_*`. Nothing calls publish automatically; tests use a fake client.
-  The token today reaches only `creative-library-v2-stage`: create `creative-library-v2-stage-vn` and scope it first.
 - CLI `story contract|releases|publish [STORY] [--yes]` (STORY = registered id or folder); app `GET
   /api/stories/{id}/releases`, run actions `contract` and `publish` (plan unless `confirm: true` and publishable), the
   Settings tab's "Release (content contract v2)" card (`releaseCard`). Doc `docs/narrative/26-content-contract-v2.md`.
+
+### Content backend (channels, index, deltas, reference client)
+
+- The bucket is the database, AssetForge its only writer, the app a read-only client (doc 27, "As built" lists the
+  deviations). **Buckets:** development = the shared `creative-library-v2-stage` + `ASSETFORGE_R2_PREFIX=vn`;
+  production = a dedicated bucket and credentials later (configuration only). `r2.Store` applies the prefix to every
+  call (`full`/`relative`), lists only `<prefix>/`, and has `create` (`IfNoneMatch="*"`, else HEAD then PUT).
+- Layout: `catalog/<channel>/current.json` (signed `vn.catalog`, no-cache) + `catalog/<channel>/history/<seq>.json`
+  (create-only); channels `staging` (publish) and `production` (only `promote`). Index payload: `channel`,
+  `generatedAt`, per story `status` live|unlisted, `locales`, `addedSequence`/`updatedSequence`/`updatedAt`,
+  `chapterCount`, `downloadBytes` {core, standard}, releases with `publishedAt` and `delta`; `changes` (≤ 50, newest
+  first). `catalog_sign.next_catalog(previous, entry, channel=, change=)` moves only the touched entry's sequence.
+- `story/delta.py`: `read_tree(get, story, rid)` (any getter: local folder, documents about to be written, bucket),
+  `delta(old, new)` → `vn.delta` (content = graph/presentation/assets/locales; bundle/downloads are per-release
+  structure; a new graph id changes every graph), `download_bytes`, `summary`. `compile_release` writes
+  `delta-from-<previous>.json` into each release after the first; `release_objects` lists it; `validate_release`
+  recomputes it when the older release is present.
+- `publish/backend.py`: `read_index` (verifies, follows history past a stale `current.json`), `commit_index` (history
+  create-only then current; the loser gets `ConflictError`), `plan`, `publish`, `promote`, `rollback`, `set_listed`,
+  `verify(deep, public)`, `repair`, `inventory`/`ls`, `gc` (orphans under `blobs/`/`stories/` only; refuses an empty
+  prefix without `whole_bucket` and any unreadable index), `status(live=, save=)`, `pull`, `client_kit`. Writes need
+  `yes` (else the plan with `written: false`). `$ASSETFORGE_HOME/backend/log.jsonl` + `state.json`.
+- `publish/client.py`: reference client (stdlib + `cryptography`; `fetch(key, etag)`; digest-keyed cache;
+  `plan_from_delta` == `plan_from_manifests`, tested). Shipped by `backend client-kit` with schemas, samples, the key
+  and `INTEGRATION.md`.
+- CLI `backend status|plan|publish|promote|rollback|unlist|relist|verify|repair|ls|gc|pull|client-kit`
+  (`cli_backend.py`; `story publish` is an alias). App `/api/backend/status[?cached=1]|plan|publish|promote|rollback|
+  unlist|relist|verify|repair` (`app/api_backend.py`; writes only with `confirm: true`), `views/backend.js` at
+  `#/backend` (sidebar "Publishing"). Tests `tests/test_backend.py` with the shared fake `tests/s3fake.py`.
 
 Data model: **Asset** (logical item) → **Variant** (labelled rendering) → **File** (content by SHA-256).
 Identical bytes are stored once and resolve to the asset that first registered them. Generation jobs, lineage,

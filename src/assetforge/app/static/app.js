@@ -10,9 +10,10 @@ import { story } from "/static/views/story.js";
 import { ai } from "/static/views/ai.js";
 import { audioStudio } from "/static/views/audio_studio.js";
 import { audioLab } from "/static/views/audio_lab.js";
+import { backendView } from "/static/views/backend.js";
 import { initPalette } from "/static/palette.js";
 
-const views = { overview, assets, generate, art, story, usage, jobs: jobsView, ai, audio: audioStudio, lab: audioLab };
+const views = { overview, assets, generate, art, story, usage, jobs: jobsView, ai, audio: audioStudio, lab: audioLab, backend: backendView };
 const main = document.getElementById("view");
 let current = { name: null, cleanup: null };
 
@@ -101,7 +102,7 @@ setInterval(() => document.visibilityState === "visible" && pollActivity(), 4000
 
 // ---------------------------------------------------------------------- shell: nav, breadcrumbs, theme, badges
 
-const SECTION = { overview: "Overview", assets: "Assets", generate: "Create", art: "Art direction", story: "Stories", usage: "Usage & cost", jobs: "Jobs", audio: "Music & Ambience", lab: "Audio Workbench" };
+const SECTION = { overview: "Overview", assets: "Assets", generate: "Create", art: "Art direction", story: "Stories", usage: "Usage & cost", jobs: "Jobs", audio: "Music & Ambience", lab: "Audio Workbench", backend: "Publishing" };
 
 function highlightNav(name, params) {
   const sub = name === "assets" ? (params.get("status") === "candidate" ? "review" : params.get("kind") === "image" ? "assets-images"

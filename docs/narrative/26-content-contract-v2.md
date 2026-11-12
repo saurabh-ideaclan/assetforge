@@ -10,11 +10,12 @@ Every document is `{"kind": "vn.<x>", "schemaVersion": "2.0", …}`, canonical J
 
 | Object key | Kind | Holds |
 |---|---|---|
-| `catalog/current.json` | signed envelope of `vn.catalog` | stories, current release, all listed releases, thumbnail; `catalogSequence` |
-| `catalog/history/<seq>.json` | same | every catalog ever published (the previous one is always kept) |
+| `catalog/<channel>/current.json` | signed envelope of `vn.catalog` | channel, stories (status, current release, all listed releases, thumbnail, sequences, sizes), change feed; `catalogSequence` (doc 27) |
+| `catalog/<channel>/history/<seq>.json` | same | every index ever published on that channel (create-only) |
 | `stories/<story>/releases/<rid>/release.json` | `vn.release` | graphId, requires, state schema, chapters → bundle descriptors, endings, release locale, migrations, cover |
 | `…/<rid>/locales/<lang>.json` | `vn.locale` | story title/summary, chapter titles, ending titles/summaries, cover alt text |
 | `…/<rid>/migration-from-<old>.json` | `vn.migration` | nodeAliases, stateOperations (rename/default) |
+| `…/<rid>/delta-from-<old>.json` | `vn.delta` | what changed since the previous release (doc 27); not named by release.json, the index carries its descriptor |
 | `…/<rid>/<chapter>/bundle.json` | `vn.chapter.bundle` | descriptors of the five chapter documents |
 | `…/<chapter>/graph.json` | `vn.chapter` | entry, speakers (`nameKey`), nodes |
 | `…/<chapter>/presentation.json` | `vn.presentation` | complete scene states + cues |
@@ -95,10 +96,10 @@ Without `--yes` (or, in the app, without `confirm: true`): the plan only (HEAD/G
    byte-identical, otherwise the whole publish is refused before writing (published objects are never overwritten);
 4. upload blobs, then chapter documents, release locale and migration (`Cache-Control: immutable`, `x-amz-meta-sha256`);
 5. HEAD every object again (the release must be complete), then upload `release.json`;
-6. catalog last: keep the previous one at `catalog/history/<seq>.json`, write `history/<seq+1>.json`, then
-   `catalog/current.json` (`no-cache`). Receipts go to `releases/publish.json`; `index.json` marks the release published.
+6. index last: write `catalog/staging/history/<seq+1>.json` create-only (two writers cannot both take a sequence),
+   then `catalog/staging/current.json` (`no-cache`). Production is reached only by `backend promote` (doc 27). Receipts go to `releases/publish.json`; `index.json` marks the release published.
 
-Publishing an older release again is a rollback: nothing is uploaded and the catalog gets a new sequence pointing at it.
+Publishing the release already current changes nothing. Publishing an older release again is a rollback: nothing is uploaded and the catalog gets a new sequence pointing at it.
 Nothing expires. Nothing calls `publish` automatically (not write, export, assets, compile or the app's compile button).
 
 Catalog envelope: `{alg: "Ed25519", keyId (sha256 of the raw public key, 16 hex), payload: base64(exact JSON bytes),
@@ -108,17 +109,21 @@ signature: base64(sign("assetforge.vn.catalog.v2\n" + payload bytes))}`. Private
 
 ## R2 configuration
 
+(Every key sits under `ASSETFORGE_R2_PREFIX` when it is set; keys inside documents stay relative. See doc 27 for
+channels, the index fields, deltas and the `assetforge backend …` operations.)
+
 | Setting | Meaning |
 |---|---|
 | `ASSETFORGE_R2_BUCKET` | the bucket (required) |
 | `ASSETFORGE_R2_ENV_FILE` | path to another repo's `.env`; only `R2_ACCESS_KEY`, `R2_SECRET_KEY`, `R2_ACCOUNT_ID` are read, in place, never copied |
 | `ASSETFORGE_R2_ACCOUNT_ID`, `ASSETFORGE_R2_ACCESS_KEY`, `ASSETFORGE_R2_SECRET_KEY` | direct overrides (win over the file) |
-| `ASSETFORGE_R2_PUBLIC_BASE` | the public custom domain, for documentation only (descriptors carry keys, never URLs) |
+| `ASSETFORGE_R2_PREFIX` | key prefix inside the bucket (`vn` in development) |
+| `ASSETFORGE_R2_PUBLIC_BASE` | the public origin: the app's index URL and `backend verify --public` (descriptors carry keys, never URLs) |
 
 Endpoint `https://<account>.r2.cloudflarestorage.com`, region `auto`, boto3 from the optional extra
-(`uv sync --extra publish`). **Before the first publish:** the current token reaches only the `creative-library-v2-stage`
-bucket. Create a `creative-library-v2-stage-vn` bucket, scope the token to it (Object Read & Write), and set
-`ASSETFORGE_R2_BUCKET=creative-library-v2-stage-vn`; `story publish` without `--yes` then shows the plan against it.
+(`uv sync --extra publish`). **Buckets (owner, 2026-11-12):** development uses the shared
+`creative-library-v2-stage` bucket with `ASSETFORGE_R2_PREFIX=vn` (everything AssetForge reads, writes, lists or
+deletes stays under `vn/`); production gets a dedicated bucket and credentials later, a configuration change only.
 
 ## Pilot smoke test (2026-11-12)
 

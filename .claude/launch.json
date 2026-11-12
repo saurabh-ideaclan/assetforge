@@ -135,6 +135,15 @@
         ".dev/audio-intel-demo"
       ],
       "port": 8774
+    },
+    {
+      "name": "backend-ui",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": [
+        ".dev/backend-ui/serve.py"
+      ],
+      "port": 8790,
+      "url": "http://localhost:8790"
     }
   ]
 }

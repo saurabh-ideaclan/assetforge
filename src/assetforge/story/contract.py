@@ -1141,6 +1141,9 @@ def compile_release(lib: Library, project: StoryProject, out_dir: str | Path | N
         strings |= b.texts
     mig = migration(inputs.story_id, old, rid, graph_id, probe.graphs, strings, probe.state_schema) if old else None
     rendered = render(inputs, builders, rid, graph_id, mig, draft=draft)
+    if old is not None:  # what changed since the previous release, written next to it (docs/narrative/27)
+        dkey, ddoc = delta_for(root, inputs.story_id, old.release["releaseId"], rendered.docs, rid)
+        rendered.docs[dkey] = cm.canonical(ddoc)
     path = _write(root, inputs.story_id, rid, rendered)
     issues = validate_release(path)
     report.findings = inputs.findings + [i for i in issues if i not in inputs.findings]
@@ -1160,6 +1163,19 @@ def compile_release(lib: Library, project: StoryProject, out_dir: str | Path | N
         index["releases"].append(entry)
         report.message = f"{rid} created ({'new graph ' + graph_id if changed else 'same graph ' + graph_id})"
     return _finish(root, index, report)
+
+
+def delta_for(root: Path, story_id: str, old_rid: str, new_docs: dict[str, bytes], rid: str) -> tuple[str, dict[str, Any]]:
+    """The `vn.delta` from the local release `old_rid` to the documents of release `rid` (deterministic)."""
+    from assetforge.story import delta
+
+    old = delta.read_tree(lambda k: local_path(root, story_id, k).read_bytes(), story_id, old_rid)
+    new = delta.read_tree(lambda k: new_docs[k], story_id, rid)
+    return delta.delta_key(story_id, rid, old_rid), delta.delta(old, new)
+
+
+def delta_paths(directory: Path) -> list[Path]:
+    return sorted(directory.glob("delta-from-r*.json"))
 
 
 def _finish(root: Path, index: dict[str, Any], report: ReleaseReport) -> ReleaseReport:
@@ -1233,6 +1249,10 @@ def release_objects(directory: Path) -> tuple[dict[str, Any], list[Obj]]:
         documents[desc["key"]] = obj(desc, "document")
     if release.get("cover"):
         blobs[release["cover"]["file"]["key"]] = obj(release["cover"]["file"], "blob")
+    for path in delta_paths(directory):  # not named by release.json; the catalog carries its descriptor
+        key = f"stories/{sid}/releases/{release['releaseId']}/{path.name}"
+        raw = path.read_bytes()
+        documents[key] = Obj(key, path, "application/json", len(raw), cm.sha256(raw), "document")
     data = (directory / "release.json").read_bytes()
     top = Obj(f"stories/{sid}/releases/{release['releaseId']}/release.json", directory / "release.json", "application/json",
               len(data), cm.sha256(data), "release")  # fmt: skip
@@ -1315,6 +1335,34 @@ def validate_release(directory: str | Path) -> list[Issue]:
             issues += _check_migration(doc, directory, root, sid, variables)
     for ref in release["chapters"]:
         issues += _check_chapter(root, sid, ref, release, variables, chapter_ids, ending_ids)
+    issues += _check_deltas(directory, root, release)
+    return issues
+
+
+def _check_deltas(directory: Path, root: Path, release: dict[str, Any]) -> list[Issue]:
+    """Each delta matches the schema, names this release, and (when the older release is here) equals a recompute."""
+    issues: list[Issue] = []
+    sid, rid = release["storyId"], release["releaseId"]
+    for path in delta_paths(directory):
+        try:
+            doc = json.loads(path.read_bytes())
+        except (OSError, ValueError):
+            issues.append(finding("error", "bad_json", path.name, "the delta is not JSON"))
+            continue
+        if not _model(issues, cm.Delta, doc, path.name):
+            continue
+        if doc["toRelease"] != rid or doc["storyId"] != sid or path.name != f"delta-from-{doc['fromRelease']}.json":
+            issues.append(finding("error", "delta", path.name, "the delta does not describe this release"))
+            continue
+        if (root / doc["fromRelease"] / "release.json").is_file():
+            try:
+                docs = {o.key: o.path.read_bytes() for o in release_objects(directory)[1] if o.role != "blob"}
+                _, expected = delta_for(root, sid, doc["fromRelease"], docs, rid)
+            except (OSError, ValueError, KeyError) as exc:
+                issues.append(finding("error", "delta", path.name, f"cannot recompute the delta: {exc}"))
+                continue
+            if cm.canonical(expected) != cm.canonical(doc):
+                issues.append(finding("error", "delta_mismatch", path.name, "the delta differs from the two releases it compares"))
     return issues
 
 
