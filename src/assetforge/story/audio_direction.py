@@ -432,6 +432,7 @@ def apply(project: StoryProject, scene_id: str, *, approved_only: bool = False) 
         out += inserts.get(i, [])
         out.append(n)
     out += inserts.get(len(body), [])
+    out, adopted = _adopt_written_sounds(out)
     # an exit must stay last: move the exit node after any trailing cues
     exit_i = next((i for i, n in enumerate(out) if n.kind in ("jump", "ending", "branch") or (n.kind == "choice" and any(ch.goto for ch in n.choices))), None)
     if exit_i is not None and exit_i != len(out) - 1:
@@ -440,13 +441,30 @@ def apply(project: StoryProject, scene_id: str, *, approved_only: bool = False) 
     project.save_scene(scene.model_copy(update={"nodes": out}))
     plan_.applied_at = utcnow()
     save(project, plan_)
-    result = {"scene": scene_id, "applied": used}
+    result = {"scene": scene_id, "applied": used, "adopted": adopted}
     if project.has("outline"):
         try:
             result.update(assemble(project))
         except Exception as exc:  # noqa: BLE001 - a half-written story may not assemble; the scene is still saved
             result["assemble_error"] = str(exc)
     return result
+
+
+def _adopt_written_sounds(nodes: list[Node], reach: int = 2) -> tuple[list[Node], int]:
+    """A chapter's writer often writes a sound line ("Three whistle blasts…") and the plan then cues the same sound
+    beside it: both would play. Each planned one-shot sound adopts the nearest written sound line within `reach`
+    nodes (one each, nearest pairs first); the written line is dropped and the cue, which the audio panel manages,
+    plays in its place. Looping sounds and stops are never touched."""
+    cues = [i for i, n in enumerate(nodes) if n.kind == "sfx" and n.why and not n.loop and not n.stop]
+    written = [i for i, n in enumerate(nodes) if n.kind == "sfx" and not n.why and not n.loop and not n.stop]
+    pairs = sorted((abs(c - w), c, w) for c in cues for w in written if abs(c - w) <= reach)
+    used_c: set[int] = set()
+    drop: set[int] = set()
+    for _, c, w in pairs:
+        if c not in used_c and w not in drop:
+            used_c.add(c)
+            drop.add(w)
+    return [n for i, n in enumerate(nodes) if i not in drop], len(drop)
 
 
 def _node_for(config: StoryConfig, scene: Scene, c: Cue) -> Node | None:

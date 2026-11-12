@@ -183,9 +183,15 @@ def infer_recipe(description: str) -> Recipe:
 
 
 def infer_preset(description: str, recipe: Recipe) -> str | None:
+    """A preset named in the description: the recipe's own presets first (a steam whistle's "two" and "three" are
+    counts of blasts the story depends on), then the global ones (distant, muffled…)."""
     reserved = set(tokens(recipe.name))
-    for word in tokens(description):
-        if word in SOUND_PRESETS and word not in reserved:
+    words = [w for w in tokens(description) if w not in reserved]
+    for word in words:
+        if word in recipe.presets:
+            return word
+    for word in words:
+        if word in SOUND_PRESETS:
             return word
     return None
 
@@ -302,7 +308,19 @@ def _engine_audio(lib: Library, req: AssetRequest, planned: dict[str, Any], *, s
 
 
 def fingerprint(req: AssetRequest) -> str:
+    """Identity of a request for the "identical request" rung of the reuse ladder. A sound effect described in words
+    resolves to a recipe; that recipe, its version and the preset are part of the identity, so a new or better
+    recipe for the same words is rendered instead of handing back the old sound ("whistle blasts" was once inferred
+    as an explosion, and stayed one until this was added)."""
     data = req.model_dump(mode="json", exclude={"priority", "new_variant", "dry_run"})
+    if req.type in AUDIO_TYPES and req.method not in ("svg", "procedural", "file"):
+        try:
+            resolved = sound_plan(req)
+        except AssetForgeError:
+            resolved = None
+        if resolved and resolved.get("engine") == "recipe":
+            data["resolved"] = {"recipe": resolved["recipe"], "version": RECIPES[resolved["recipe"]].version,
+                                "preset": resolved.get("preset")}  # fmt: skip
     return jobs.fingerprint({"engine": "request", **data})
 
 

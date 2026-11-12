@@ -229,3 +229,50 @@ def armor(ctx: RenderContext, p: dict) -> np.ndarray:
         creak = dsp.filt(s.osc("saw", 220 * ctx.pitch * (1 + 0.3 * dsp.drift(n, sr, 2, ctx.rng)), n, sr), "bandpass", 700, sr, q=3)
         out += rms_norm(creak) * 0.3 * np.sin(np.pi * x) ** 1.5 + grains(ctx, n, 80, 600, 3000, 0.006) * 0.2
     return fade_tail(norm(out) * 0.8, sr)
+
+
+@recipe(
+    "steam_whistle",
+    "A steam train whistle: one to four blasts of a breathy three-note chime whistle, the signal heard along a train "
+    "(departure, warning, a count of blasts that means something)",
+    duration=2.4,
+    duration_range=(0.8, 8.0),
+    params=(
+        integer("blasts", 1, 1, 4, "How many blasts"),
+        num("breath", 0.5, 0, 1, "Steam hiss in the tone"),
+        num("distance", 0.4, 0, 1, "Farther away: duller, slower onset"),
+    ),
+    tags=("whistle", "steam", "train", "locomotive", "blast", "blasts", "signal", "departure", "railway", "engine", "halt"),
+    presets={"one": {"blasts": 1}, "single": {"blasts": 1}, "two": {"blasts": 2, "duration": 3.2},
+             "double": {"blasts": 2, "duration": 3.2}, "three": {"blasts": 3, "duration": 4.0},
+             "triple": {"blasts": 3, "duration": 4.0}},  # fmt: skip
+)
+def steam_whistle(ctx: RenderContext, p: dict) -> np.ndarray:
+    n, sr = ctx.n, ctx.sr
+    k = int(p["blasts"])
+    gap = 0.22
+    length = max(0.35, (n / sr - gap * (k - 1) - 0.12) / k)
+    base = 370.0 * ctx.pitch
+    out = np.zeros(n)
+    for i in range(k):
+        at = int(i * (length + gap) * sr)
+        m = int(min(n - at, length * sr))
+        if m <= 8:
+            break
+        t = np.arange(m) / sr
+        dur = m / sr
+        # the pitch scoops up as steam pressure builds and sags as the cord is let go; a slow waver keeps it alive
+        scoop = 1 - 0.07 * np.exp(-t / 0.08)
+        sag = 1 - 0.04 * np.clip((t - (dur - 0.25)) / 0.25, 0, 1)
+        waver = 1 + 0.004 * np.sin(2 * np.pi * (4.5 + ctx.rng.uniform(-0.5, 0.5)) * t + ctx.rng.uniform(0, 2 * np.pi))
+        seg = np.zeros(m)
+        for ratio in (1.0, 1.26, 1.5):  # a major-triad chime: three pipes on one valve
+            f = base * ratio * (1 + 0.003 * ctx.rng.standard_normal()) * scoop * sag * waver
+            seg += 0.5 * s.osc("triangle", f, m, sr) + 0.18 * s.osc("sine", 2 * f, m, sr) + 0.07 * s.osc("sine", 3 * f, m, sr)
+        hiss = dsp.filt(dsp.filt(s.noise(m, ctx.rng, "white"), "highpass", 1800, sr), "lowpass", 7000, sr)
+        air = dsp.filt(s.noise(m, ctx.rng, "pink"), "bandpass", base * 1.5, sr, q=1.2)
+        seg = seg / 3 + p["breath"] * (0.22 * rms_norm(hiss) * 0.2 + 0.35 * rms_norm(air) * 0.2)
+        attack = 0.05 + 0.12 * p["distance"]
+        env = np.clip(t / attack, 0, 1) * np.clip((dur - t) / 0.22, 0, 1)
+        out[at:at + m] += seg * env
+    return dsp.filt(out, "lowpass", 6500 - 4500 * p["distance"], sr) * 0.8
