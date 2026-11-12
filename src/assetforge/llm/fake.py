@@ -13,6 +13,7 @@ from assetforge.llm.base import TextCall, TextProvider, TextResponse
 class FakeTextProvider(TextProvider):
     name = "fake"
     billing = "offline"
+    supports_images = True  # it never looks at them: the caller's `offline` builder answers
 
     def available(self) -> tuple[bool, str]:
         return (True, "") if self.settings.fake_provider_enabled else (False, "set ASSETFORGE_ENABLE_FAKE_PROVIDER=1")

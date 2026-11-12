@@ -11,6 +11,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal
 
 from assetforge.config import Settings
@@ -31,6 +32,9 @@ class TextCall:
     task: str = "text"  # e.g. story.world; recorded on the job, used by the offline provider
     # Offline answer builder for the fake provider (keeps demos and tests coherent without a model).
     offline: Callable[[TextCall], Any] | None = None
+    # Images the model must look at (absolute paths). Empty = a text-only call, exactly as before. Only providers
+    # with `supports_images` take them; the CLIs get copies inside their temp working folder.
+    images: list[Path] = field(default_factory=list)
 
 
 @dataclass
@@ -48,6 +52,7 @@ class TextProvider(ABC):
     name: str = ""
     billing: Billing = "subscription"
     login_hint: str = ""
+    supports_images: bool = False  # can take `TextCall.images` (structured.generate skips it for image calls otherwise)
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings

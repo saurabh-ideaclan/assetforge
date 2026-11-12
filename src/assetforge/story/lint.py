@@ -156,11 +156,12 @@ def lint_story(script: Script, config: StoryConfig) -> dict[str, Any]:
     flags = {v.name for v in script.variables if v.kind == "flag"}
     chapters = [lint_scene(s, config, numbers[s.id], flags=flags) for s in sorted(script.scenes, key=lambda s: numbers[s.id])]
     body = [c for c in chapters if not c["ending"]] or chapters
-    from assetforge.story.stakes import choice_report
+    from assetforge.story.stakes import choice_report, continuity_report
 
     return {
         "chapters": chapters,
         "choices": choice_report(script),
+        "continuity": continuity_report(script),
         "summary": {
             "chapters": len(chapters), "passing": sum(c["ok"] for c in chapters),
             "avg_words": round(sum(c["words"] for c in body) / len(body)),

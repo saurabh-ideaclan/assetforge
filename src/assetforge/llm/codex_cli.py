@@ -5,6 +5,7 @@
 
 The prompt (with the system instructions in front, since `exec` has no system flag) goes on stdin.
 `--json` prints JSONL events (errors, token usage); the final answer is read from `answer.txt`.
+Image calls add `--image <abs path>` per image (copies inside the temp folder) right after `exec`.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ class CodexCLIProvider(TextProvider):
     billing = "subscription"
     binary = "codex"
     login_hint = "Run `codex login` and choose 'Sign in with ChatGPT' (uses your ChatGPT plan)."
+    supports_images = True
 
     def available(self) -> tuple[bool, str]:
         return (True, "") if runner.which(self.binary) else (False, "`codex` CLI not installed (npm i -g @openai/codex)")
@@ -83,9 +85,11 @@ class CodexCLIProvider(TextProvider):
         return (f"codex CLI {mine} is older than your account's model list ({listed}): newer models may be rejected. "
                 "Update: npm i -g @openai/codex@latest") if older else None  # fmt: skip
 
-    def argv(self, call: TextCall) -> list[str]:
+    def argv(self, call: TextCall, images: list[Path] | None = None) -> list[str]:
         exe = runner.which(self.binary) or self.binary
-        args = [exe, "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral", "--json",
+        # `--image` takes several values: each is followed by its own flag, and a flag follows the last one
+        attach = [x for p in images or [] for x in ("--image", str(p))]
+        args = [exe, "exec", *attach, "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral", "--json",
                 "-o", "answer.txt"]  # fmt: skip
         if call.schema:
             args += ["--output-schema", "schema.json"]
@@ -120,15 +124,20 @@ class CodexCLIProvider(TextProvider):
         raise last
 
     def _run(self, call: TextCall) -> TextResponse:
+        staged: list[Path] = []
+
         def prepare(workdir: Path) -> None:
             if call.schema:
                 (workdir / "schema.json").write_text(json.dumps(call.schema))
+            if call.images:
+                staged.extend(runner.stage_images(workdir, call.images))
 
         def collect(workdir: Path) -> str | None:
             path = workdir / "answer.txt"
             return path.read_text() if path.exists() else None
 
-        run, answer = runner.run_cli(self.name, self.argv(call), self.stdin(call), timeout=call.timeout,
+        argv = (lambda _: self.argv(call, staged)) if call.images else self.argv(call)
+        run, answer = runner.run_cli(self.name, argv, self.stdin(call), timeout=call.timeout,
                                      prepare=prepare, collect=collect)  # fmt: skip
         return self.parse(run.returncode, run.stdout, run.stderr, answer, call)
 

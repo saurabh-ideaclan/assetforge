@@ -532,14 +532,26 @@ def directions(project: StoryProject) -> dict[tuple[str, str], str]:
     perfs = load(project).performances
     for p in perfs:
         if p.status in ("approved", "generated") and p.need != "reuse" and p.name:
-            base = f" Same character as the reference image: identical face, hair, outfit and art style; keep the body of the '{p.reuse_sprite}' sprite and change only the face." if p.need == "face_only" and p.reuse_sprite else " Same character as the reference image: identical face, hair, outfit, scale and art style."
+            base = f" Same character as the reference image: identical face, hair, outfit and art style; keep the body of the '{p.reuse_sprite}' sprite and change only the face." if p.need == "face_only" and p.reuse_sprite else " Same character as the reference image: identical face, hair, outfit, scale and art style. The character alone: no furniture, no table, no scenery, nothing floating; only props the direction names."
             out[(p.character, p.name)] = f"{p.moment}: {p.emotional_context}. {p.direction.text()}{base}"
     # a reuse that points at a sprite not made yet still briefs it: the manifest only makes what is missing, so a
     # sprite that exists is never touched, and one that does not gets the performance's direction instead of a label
+    # A reused sprite is a GENERAL one: it plays in many scenes, so it takes the character's way of showing that state
+    # (the acting profile) and the face and bearing of the first performance that reuses it, never that moment's
+    # action, props or furniture. (Briefing it with one moment made 'stern' a lunge across a doorway and 'worried' a
+    # man kneeling over a crate, shown in every scene that used the word.)
+    profiles = load(project).profiles
     for p in perfs:
         if p.need == "reuse" and p.reuse_sprite and p.status != "dismissed" and (p.character, p.reuse_sprite) not in out:
-            out[(p.character, p.reuse_sprite)] = (f"{p.moment}: {p.emotional_context}. {p.direction.text()} Same character as the reference image: "
-                                                  "identical face, hair, outfit, scale and art style; change only what the direction says.")
+            d, prof = p.direction, profiles.get(p.character)
+            bearing = f"Face: {d.face.rstrip('.')}." if d.face else ""  # head and shoulders name the scene ("turned out the doorway")
+            manner = f" How this person shows feeling: {prof.expression_style.rstrip('.')}." if prof and prof.expression_style else ""
+            out[(p.character, p.reuse_sprite)] = (
+                f"A general-purpose '{p.reuse_sprite.replace('_', ' ')}' sprite that plays in many different scenes. {bearing}{manner} "
+                "Same character as the reference image: identical face, hair, outfit, scale, framing and art style, standing "
+                "upright in the same stance as the reference, feet in the same place. Change the face and the set of head, "
+                "shoulders and hands only; a small natural gesture is fine. No new props, no furniture, no scenery, nothing "
+                "held that the reference does not hold, no action pose, no kneeling, lunging, sitting or leaning.")
     return out
 
 

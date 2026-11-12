@@ -759,11 +759,12 @@ function releaseCard(sid) {
 function storyAssetsTab(root, data, sid, run) {
   const box = h("div", h("div.empty.small", h("span.spinner"), " Loading the story's assets…"));
   root.append(box);
-  api(`/api/stories/${sid}/assets`).then((a) => renderStoryAssets(box, a, data, sid, run))
+  Promise.all([api(`/api/stories/${sid}/assets`), api(`/api/stories/${sid}/visual-check`).catch(() => ({ verdicts: {} }))])
+    .then(([a, vc]) => renderStoryAssets(box, a, data, sid, run, vc))
     .catch((err) => box.replaceChildren(errorBox(err)));
 }
 
-function renderStoryAssets(box, a, data, sid, run) {
+function renderStoryAssets(box, a, data, sid, run, vc = { verdicts: {} }) {
   let show = "all";      // all | missing | made
   let chapter = null;    // chapter id lens
   const chapterTitles = Object.fromEntries((data.progress?.chapters || []).map((c) => [c.id, `${c.number}. ${c.title}`]));
@@ -776,12 +777,38 @@ function renderStoryAssets(box, a, data, sid, run) {
   const status = (e) => e.asset ? h("span.sa-status", { class: e.asset.status }, e.asset.status) : h("span.sa-status.missing", "not made");
   const open = (e) => e.asset && (location.hash = `#/assets/${e.asset.id}`);
 
+  // the visual logic verdict for the image the key holds now (a verdict on an older image is not shown)
+  const verdictOf = (e) => { const x = e.asset && vc.verdicts?.[e.key]; return x && x.asset_id === e.asset.id ? x : null; };
+  function logicMark(e) {
+    const x = verdictOf(e);
+    if (!x) return null;
+    if (x.ok) return h("span.sa-logic.ok", { title: `Art logic: matches the brief and the canon (${x.model || x.provider})` }, "✓ logic");
+    const fix = h("button.sa-logic-fix", { type: "button", title: "Remake it with these faults as feedback (paid image generation, up to 2 rounds)",
+      onclick: (ev) => { ev.stopPropagation(); if (confirm(`Remake ${e.key}?\nThis is a paid image generation (up to 2 rounds).`)) run({ action: "art_fix", key: e.key }).then(() => watchCheck()); } }, "Remake");
+    return h("div.sa-logic.bad", { title: [x.fault, ...(x.violations || []).slice(1).map((v) => `${v.rule}: ${v.what}`), ...(x.logic || [])].join("\n") },
+      h("b", "✕ "), h("span.clamp2", x.fault || "does not match the brief"), fix);
+  }
+
   function tile(e, label, { wide = false } = {}) {
     const v = e.asset?.primary_variant;
     const img = v && v.file?.kind === "image" ? h("img", { src: thumbUrl(v.id, wide ? 512 : 256), loading: "lazy", alt: label }) : null;
     return h("div.sa-tile", { class: `${wide ? "wide" : ""}${e.asset ? "" : " missing"}`, title: e.key, onclick: () => open(e) },
       h("div.sa-thumb", img || h("span.muted.small", e.asset ? "no preview" : "not made yet")),
-      h("div.sa-cap", h("b", label), e.asset ? h("span.sa-dot", { class: e.asset.status, title: e.asset.status }) : h("span.sa-dot.missing", { title: "not made yet" })), chips(e));
+      h("div.sa-cap", h("b", label), e.asset ? h("span.sa-dot", { class: e.asset.status, title: e.asset.status }) : h("span.sa-dot.missing", { title: "not made yet" })),
+      logicMark(e), chips(e));
+  }
+
+  // after a check or fix starts: poll until the story's task is done, then reload the assets and verdicts
+  function watchCheck() {
+    const timer = setInterval(async () => {
+      try {
+        const d = await api(`/api/stories/${sid}`);
+        if (d.task?.state === "running") return;
+        clearInterval(timer);
+        const [a2, vc2] = await Promise.all([api(`/api/stories/${sid}/assets`), api(`/api/stories/${sid}/visual-check`)]);
+        a = a2; vc = vc2; draw();
+      } catch { clearInterval(timer); }
+    }, 4000);
   }
 
   function soundRow(e, label, extra) {
@@ -801,6 +828,9 @@ function renderStoryAssets(box, a, data, sid, run) {
       h("div", h("div.sa-big", `${t.made} of ${t.total}`), h("div.help", `assets made · ${t.approved} approved · ${t.total - t.made} missing`)),
       segmented([["all", "All"], ["missing", "Missing"], ["made", "Made"]], show, (v) => { show = v; draw(); }),
       chapter ? h("button.btn.small", { type: "button", onclick: () => { chapter = null; draw(); } }, `Chapter: ${chapterTitles[chapter] || chapter}  ✕`) : null,
+      h("span.sa-logic-head", vc.total ? h("span.help", `art logic: ${vc.ok} of ${vc.total} pass`) : null,
+        h("button.btn.small", { type: "button", title: "A vision model (your codex or claude sign-in, no image cost) judges each made background, CG and title against its brief and the story's visual canon",
+          onclick: () => run({ action: "art_check" }).then(() => { toast("Checking art logic…"); watchCheck(); }) }, "Check art logic")),
       h("nav.sa-nav", ["characters", "places", "cgs", "ui", "sound"].map((id) => h("a", { href: `#sa-${id}`, onclick: (ev) => { ev.preventDefault(); box.querySelector(`#sa-${id}`)?.scrollIntoView({ behavior: "smooth" }); } },
         { characters: "Characters", places: "Places", cgs: "Event art", ui: "UI", sound: "Sound" }[id]))));
 

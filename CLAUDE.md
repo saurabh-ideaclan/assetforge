@@ -663,6 +663,21 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   different model from the writer (the Improve tab's card defaults to claude-cli opus). `summary()` counts and lists the
   changes; `as_feedback()` turns them into an `improve` note ("Apply its changes with Improve"). Routes: `GET
   /api/stories/{id}/evaluation`, run action `evaluate` (scenes, fresh, provider/model). Tests: `tests/test_story_evaluate.py`.
+- **Visual canon + visual logic check** (owner 2026-11-12: a "gap between two carriages" came back as two trains side by
+  side with a castle city on a dead dust continent; doc `docs/narrative/28-visual-logic.md`). `story/visual_canon.py`
+  (`visual_canon.json`: world, outside, always, never, per-location description/geometry/never, props) goes into every
+  bg/bg_time/cg/title prompt via `assets.manifest(canon=…)`. `story/visual_check.py` judges finished images with a
+  vision model on the subscription CLIs: `check` = a **blind survey** first (task `visual.survey.<key>`, image only: a
+  judge that has read the brief sees the brief; Opus did) then the judgement (task `visual.check.<key>`, kind `visual`:
+  brief + location canon + world canon + survey as evidence; `seen`/`counts` before `violations`/`logic`/
+  `text_in_image`/`matches_brief`; `ok` only when yes and nothing else). `review` stores verdicts by key in
+  `<story>/visual_check.json` (stale when the key's asset id changed); `fix` (the only paid step) archives, re-requests
+  through `request.handle` with every fault so far appended, re-checks, keeps the best of `max_rounds`, and remakes the
+  `bg_time`s of a remade `bg`. Image input: `TextCall.images` (sha256 in the fingerprint only when present),
+  `supports_images` on codex-cli (`--image`) and claude-cli (`--tools Read --allowedTools "Read(<staged file>)"`),
+  not gemini/APIs (skipped for image calls). CLI `story art-check [STORY] [--groups] [--fix] [--limit]`; app `GET
+  /api/stories/{id}/visual-check`, run actions `visual_canon`, `art_check`, `art_fix`, marks in the Assets tab.
+  Tests `tests/test_story_visual_check.py`.
 - Power Fantasy pilot *Everyone Owes Me* (earlier titles Null, The Weight He Carries; slug unchanged): concept `docs/narrative/22-power-fantasy-concept.md` (Opus review applied), research `20`,
   preset `story/direction_presets/weight-power-fantasy.yaml`, story `~/.assetforge/stories/the-weight-he-carries`
   (guided mode). Cast and outline approved 2026-11-11; chapters 1-6 written (ChatGPT) through the clarity gate; chapters 3 (shared route) and 5 were re-planned as three movements introducing one new thing each (doc 23 §5-6) and pass. Chapter 1's art is made; Eli's first performances exist (doc 24 addendum). Next: chapters 7+ only after the owner's read; the second awakening is chapter 7.

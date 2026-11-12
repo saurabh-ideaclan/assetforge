@@ -4,11 +4,16 @@
            --strict-mcp-config --system-prompt SYSTEM [--model M]      (prompt on stdin)
 
 Not `--bare`: bare mode skips keychain reads, which is where the subscription login lives.
+
+Image calls (`TextCall.images`): `-p` has no image flag, so the images are copied into the empty temp folder and the
+only tool switched on is Read, allowed on exactly those files (`--tools Read --allowedTools "Read(<abs path>)"…`).
+Anything else it tries to read is denied (headless runs cannot ask), and no other tool exists in the session.
 """
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from assetforge.errors import ProviderError
@@ -23,6 +28,7 @@ class ClaudeCLIProvider(TextProvider):
     billing = "subscription"
     binary = "claude"
     login_hint = "Run `claude` in a terminal and sign in with /login (uses your Claude plan)."
+    supports_images = True
 
     def available(self) -> tuple[bool, str]:
         return (True, "") if runner.which(self.binary) else (False, "`claude` CLI not installed (npm i -g @anthropic-ai/claude-code)")
@@ -54,9 +60,10 @@ class ClaudeCLIProvider(TextProvider):
             {"id": "haiku", "label": "Haiku", "description": "Fastest and lightest on your plan's limits"},
         ]
 
-    def argv(self, call: TextCall) -> list[str]:
+    def argv(self, call: TextCall, images: list[Path] | None = None) -> list[str]:
         exe = runner.which(self.binary) or self.binary
-        args = [exe, "-p", "--output-format", "json", "--tools", "", "--no-session-persistence", "--strict-mcp-config",
+        tools = ["--tools", "Read", "--allowedTools", *(f"Read({p})" for p in images)] if images else ["--tools", ""]
+        args = [exe, "-p", "--output-format", "json", *tools, "--no-session-persistence", "--strict-mcp-config",
                 "--system-prompt", call.system or DEFAULT_SYSTEM]  # fmt: skip
         if call.schema:
             args += ["--json-schema", json.dumps(call.loose_schema or call.schema, separators=(",", ":"))]
@@ -65,7 +72,16 @@ class ClaudeCLIProvider(TextProvider):
         return args
 
     def run(self, call: TextCall) -> TextResponse:
-        run, _ = runner.run_cli(self.name, self.argv(call), call.prompt, timeout=call.timeout)
+        if call.images:
+            staged: list[Path] = []
+
+            def prepare(workdir: Path) -> None:
+                staged.extend(runner.stage_images(workdir, call.images))
+
+            run, _ = runner.run_cli(self.name, lambda _: self.argv(call, staged), lambda _: image_prompt(call.prompt, staged),
+                                    timeout=call.timeout, prepare=prepare)  # fmt: skip
+        else:
+            run, _ = runner.run_cli(self.name, self.argv(call), call.prompt, timeout=call.timeout)
         return self.parse(run.returncode, run.stdout, run.stderr, call)
 
     def parse(self, returncode: int, stdout: str, stderr: str, call: TextCall) -> TextResponse:
@@ -93,3 +109,10 @@ class ClaudeCLIProvider(TextProvider):
                    "notional_cost_usd": doc.get("total_cost_usd"), "duration_ms": doc.get("duration_ms")},
             raw={k: doc.get(k) for k in ("session_id", "num_turns", "stop_reason", "terminal_reason")},
         )  # fmt: skip
+
+
+def image_prompt(prompt: str, images: list[Path]) -> str:
+    """The prompt with the image files named first: Claude opens each with Read before answering."""
+    names = "\n".join(f"- Image {i}: {p}" for i, p in enumerate(images, 1))
+    return (f"Before answering, open every image below with the Read tool and look at it carefully; the question is about "
+            f"what they show.\n{names}\n\n---\n\n{prompt}")

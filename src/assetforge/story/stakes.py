@@ -80,6 +80,7 @@ def choice_report(script: Script, *, unwritten_after: int = 0) -> dict[str, Any]
             reads_by_number.setdefault(ENDING, set()).add(c.var)
     last = max(numbers.values(), default=0)
     seen: set[tuple[str, str, str]] = set()
+    flags = {v.name for v in script.variables if v.kind == "flag" or (v.kind is None and (v.min, v.max) == (0, 1))}
 
     def finding(code: str, scene: str, var: str, message: str, **extra: Any) -> None:
         if (code, scene, var) in seen:
@@ -100,6 +101,10 @@ def choice_report(script: Script, *, unwritten_after: int = 0) -> dict[str, Any]
             klass = "C" if exit_choice else ("B" if writes else "A")
             row = {"scene": s.id, "chapter": n, "index": i, "class": klass, "options": [c.text for c in node.choices],
                    "writes": sorted(writes), "distinct_deltas": len(set(deltas))}
+            for c in node.choices:
+                for a in c.set:
+                    if a.op == "set" and a.var not in flags:
+                        finding("absolute_set", s.id, a.var, f"{a.var} is overwritten with {a.value} instead of adjusted: every earlier choice that moved it is erased; use add", index=i)
             if klass in ("B", "C") and writes and len(set(deltas)) == 1:
                 finding("same_delta", s.id, "", "every option writes the same state: the choice is expression only; declare it so or differentiate the effects", index=i)
             for var in sorted(writes):
@@ -118,11 +123,61 @@ def choice_report(script: Script, *, unwritten_after: int = 0) -> dict[str, Any]
             if klass != "A":
                 state_touching += 1
             choices.append(row)
-        if any(c["scene"] == s.id for c in choices) and state_touching == 0:
+        is_ending = any(node.kind == "ending" for node in s.nodes)  # reflective choices after the last gate are by design
+        if any(c["scene"] == s.id for c in choices) and state_touching == 0 and not is_ending:
             finding("all_expression", s.id, "", "every choice in this chapter is expression only; nothing the player decides changes state")
     counts = {k: sum(1 for c in choices if c["class"] == k) for k in ("A", "B", "C")}
     faults = [f for f in findings if f["code"] != "unverified"]
     return {"ok": not faults, "counts": counts, "choices": choices, "findings": findings}
+
+
+# ---------------------------------------------------------------------- 1b. continuity across chapters
+
+TITLES = {"Chief", "Conductor", "Keeper", "Walker", "Hook", "Records", "Director", "Captain", "Doctor", "Inspector", "Mother", "Father"}
+
+
+def player_texts(scene: Scene) -> list[str]:
+    out: list[str] = []
+    for n in scene.nodes:
+        if n.text and n.kind in ("say", "narrate", "place", "cg"):
+            out.append(n.text)
+        for c in n.choices:
+            out.append(c.text)
+            out += [ln.text for ln in c.reaction]
+    return out
+
+
+def continuity_report(script: Script) -> dict[str, Any]:
+    """Facts no single-chapter gate can see. Every chapter is written and cold-read alone, so a person who is not in
+    the cast (the protagonist's dead mother) can be given a different name in each chapter. Finds full names in
+    player text that share a cast family name but are not cast members; two different given names for one family
+    is `name_drift` (an error: pick one and put it in the canon). `mentioned` lists every off-cast full name."""
+    import re
+
+    cast = {c.name for c in script.characters}
+    families = {n.split()[-1] for n in cast if len(n.split()) > 1}
+    if not families:
+        return {"ok": True, "findings": [], "mentioned": {}}
+    texts = {s.id: player_texts(s) for s in script.scenes}
+    lower = set(re.findall(r"\b[a-z]+\b", " ".join(t for ts in texts.values() for t in ts)))
+    pattern = re.compile(r"\b([A-Z][a-z]+) (" + "|".join(sorted(map(re.escape, families))) + r")\b")
+    mentioned: dict[str, dict[str, list[str]]] = {}
+    for sid, ts in texts.items():
+        for t in ts:
+            for m in pattern.finditer(t):
+                given, family = m.group(1), m.group(2)
+                if f"{given} {family}" in cast or given in TITLES or given.lower() in lower:
+                    continue  # a cast member, a title, or an ordinary word starting a sentence ("Ask Sarun")
+                scenes = mentioned.setdefault(family, {}).setdefault(given, [])
+                if sid not in scenes:
+                    scenes.append(sid)
+    findings = []
+    for family, givens in mentioned.items():
+        if len(givens) > 1:
+            names = "; ".join(f"{g} {family} in {', '.join(v)}" for g, v in sorted(givens.items()))
+            findings.append({"code": "name_drift", "family": family, "names": sorted(givens),
+                             "message": f"One off-stage person seems to have several names: {names}. Pick one and record it in the canon."})
+    return {"ok": not findings, "findings": findings, "mentioned": {f: g for f, g in mentioned.items()}}
 
 
 # ---------------------------------------------------------------------- 2. payoffs

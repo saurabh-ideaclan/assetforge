@@ -30,7 +30,8 @@ from assetforge.story.project import StoryProject, register, registered
 
 ACTIONS = ("write", "improve", "check", "assets_plan", "assets", "export", "refine", "character", "alternatives", "concepts",
            "audio_plan", "audio_make", "dynamics_plan", "dynamics_estimate", "evaluate", "acting_profile", "acting_analyze",
-           "acting_generate", "payoffs_draft", "rules_draft", "contract", "publish")  # fmt: skip
+           "acting_generate", "payoffs_draft", "rules_draft", "contract", "publish", "visual_canon", "art_check",
+           "art_fix")  # fmt: skip
 _tasks: dict[str, dict[str, Any]] = {}
 _busy: dict[str, str] = {}  # story id → running task id
 _lock = threading.Lock()
@@ -351,6 +352,15 @@ def register_routes(router: Router) -> None:  # noqa: C901 - one place for all s
                     choices = stakes.choice_report(script, unwritten_after=len(data["scenes"]) - len(written))
         return {"choices": choices, "payoffs": stakes.ledger_view(project), "rules": stakes.load_rules(project).model_dump(mode="json"),
                 "knowledge": stakes.knowledge_state(project)}
+
+    @router.route("GET", r"/api/stories/(?P<sid>[a-z0-9-]+)/visual-check")
+    def story_visual_check(req: Request, lib: Library) -> dict[str, Any]:
+        """The visual logic verdicts by asset key (`current` = it judged the image the key holds now) and the canon."""
+        from assetforge.story import visual_canon, visual_check
+
+        _, project = _story(lib, req.match["sid"])
+        canon = visual_canon.load(project)
+        return {**visual_check.view(lib, project), "canon": canon.model_dump(mode="json") if canon else None}
 
     @router.route("GET", r"/api/stories/(?P<sid>[a-z0-9-]+)/acting")
     def story_acting(req: Request, lib: Library) -> dict[str, Any]:
@@ -692,6 +702,20 @@ def _run_action(lib: Library, project: StoryProject, ctx: steps.Ctx, body: dict[
             scenes = [str(x) for x in (body.get("scenes") or [])]
             data = acting.analyze(ctx, cid, scenes or None, fresh=bool(body.get("fresh")))
         return {"acting": acting.plan(lib, project, cid)}
+    if action in ("visual_canon", "art_check", "art_fix"):
+        from assetforge.story import visual_canon, visual_check
+
+        if action == "visual_canon":
+            return {"canon": visual_canon.draft(ctx, fresh=bool(body.get("fresh"))).model_dump(mode="json")}
+        if action == "art_check":
+            groups = tuple(str(g) for g in (body.get("groups") or visual_check.DEFAULT_GROUPS))
+            limit = int(body["limit"]) if body.get("limit") is not None else None
+            return visual_check.review(ctx, groups=groups, only_unchecked=not body.get("all"), limit=limit)
+        key = str(body.get("key", ""))
+        if not key:
+            raise InvalidInputError("Which image? Pass `key`")
+        return visual_check.fix(ctx, key, max_rounds=int(body.get("max_rounds") or 2),
+                                image_provider=str(body.get("image_provider") or "auto"), quality=str(body.get("quality") or "auto"))  # fmt: skip
     if action == "acting_generate":
         from assetforge.story import acting
 

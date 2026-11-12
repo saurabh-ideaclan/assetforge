@@ -724,3 +724,55 @@ def publish_(ctx: typer.Context, story: StoryRef = None, directory: Dir = None,
 
     with session(ctx, json_) as s:
         publish_command(s, story, directory, release, out, yes)
+
+
+@story_app.command("art-check")
+def art_check_(
+    ctx: typer.Context, story: StoryRef = None, directory: Dir = None,
+    groups: Annotated[list[str] | None, typer.Option("--groups", help="Image groups to judge: bg, bg_time, cg, ui "
+                                                                      "(default), char, expr (repeatable).")] = None,  # fmt: skip
+    fix: Annotated[bool, typer.Option("--fix", help="Remake every failed image with its faults as feedback (PAID: one "
+                                                    "image generation per round) and check again.")] = False,  # fmt: skip
+    limit: Annotated[int | None, typer.Option(help="Judge (or fix) at most N images this run.")] = None,
+    all_: Annotated[bool, typer.Option("--all", help="Judge again images that already have a verdict.")] = False,
+    max_rounds: Annotated[int, typer.Option(help="With --fix: remakes per image before keeping the best.")] = 2,
+    image_provider: Annotated[str, typer.Option(help="With --fix: auto, openai, gemini (or fake).")] = "auto",
+    provider: Provider = None, model: Model = None, json_: JsonOpt = False,
+) -> None:
+    """Visual logic check: a vision-capable signed-in CLI (codex or claude) looks at each made story image and judges
+    it against its brief and the visual canon (visual_canon.json). Verdicts go to <story>/visual_check.json."""
+    from assetforge.story import visual_check
+
+    with session(ctx, json_) as s:
+        proj = _story_ref(s, story, directory)
+        register(s.lib.paths.home, proj)
+        c = steps.Ctx(lib=s.lib, project=proj, provider=provider, model=model)
+        chosen = tuple(groups or visual_check.DEFAULT_GROUPS)
+        result = visual_check.review(c, groups=chosen, only_unchecked=not all_, limit=limit)
+        fixes: list[dict[str, Any]] = []
+        if fix:
+            in_scope = {r["key"] for r in result["items"]}
+            for key in [k for k in result["failed"] if k in in_scope][:limit]:
+                fixes.append(visual_check.fix(c, key, max_rounds=max_rounds, image_provider=image_provider))
+            result = {**result, **visual_check.summary(proj), "fixes": fixes}
+        verdicts = visual_check.load(proj)["verdicts"]
+
+        def human(con: Console) -> None:
+            _calls(con, c)
+            table = Table(header_style="bold")
+            for col in ("Key", "State", "Verdict", "First fault"):
+                table.add_column(col, overflow="fold")
+            for r in result["items"]:
+                v = verdicts.get(r["key"]) or {}
+                mark = "" if r["state"] == "not_made" else ("[green]ok[/green]" if v.get("ok") else f"[red]{v.get('matches_brief', '?')}[/red]" if v else "")
+                fault = r.get("fault") or (visual_check.Verdict.model_validate(v).first_fault() if v else (r.get("error") or {}).get("message", ""))
+                table.add_row(r["key"], r["state"], mark, escape(str(fault or "")))
+            con.print(table)
+            con.print(f"{result['ok']} of {result['total']} judged images pass; {len(result['failed'])} fail.")
+            for f in fixes:
+                con.print(f"fix {f['key']}: {f['state']} after {f['rounds']} round(s) → {f['asset_id']}")
+
+        failing = bool(result["failed"])
+        s.out.emit(result, human, status="partial" if failing else "ok")
+        if failing:
+            raise typer.Exit(int(ExitCode.PARTIAL))

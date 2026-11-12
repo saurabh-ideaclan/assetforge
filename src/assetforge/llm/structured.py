@@ -11,11 +11,13 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
@@ -24,7 +26,7 @@ from assetforge.config import Settings, load_settings
 from assetforge.core import jobs, limits
 from assetforge.core.models import JobStatus
 from assetforge.core.util import dumps, loads
-from assetforge.errors import AssetForgeError, ProviderError
+from assetforge.errors import AssetForgeError, InvalidInputError, ProviderError
 from assetforge.llm import provider_chain
 from assetforge.llm.base import TextCall, TextProvider, TextResponse
 
@@ -165,8 +167,12 @@ def generate(lib: Library, call: TextCall, model: type[M], *, provider: str | No
         steps = [(p, call.model) for p in provider_chain(provider, settings, fallback=fallback)]
         requested_provider = provider or settings.get("ASSETFORGE_TEXT_PROVIDER") or "auto"
         requested_model = call.model
-    fp = jobs.fingerprint({"task": call.task, "system": call.system, "prompt": call.prompt, "schema": call.schema,
-                           "provider": requested_provider, "model": requested_model})  # fmt: skip
+    basis = {"task": call.task, "system": call.system, "prompt": call.prompt, "schema": call.schema,
+             "provider": requested_provider, "model": requested_model}  # fmt: skip
+    image_shas = _image_shas(call)
+    if image_shas:  # only image calls carry the key, so every text-only fingerprint stays what it was
+        basis["images"] = image_shas
+    fp = jobs.fingerprint(basis)
     if not fresh and (row := _cached(lib, fp)) is not None:
         stored = loads(row["result"], {})
         try:
@@ -175,6 +181,15 @@ def generate(lib: Library, call: TextCall, model: type[M], *, provider: str | No
                               billing=stored.get("billing", ""), reused=True, usage=stored.get("usage", {}))  # fmt: skip
         except ValidationError:
             pass  # the model changed since: ask again
+    blind: list[str] = []
+    if call.images:  # a provider that cannot see images must not answer a question about them
+        blind = [p.name for p, _ in steps if not p.supports_images]
+        steps = [(p, m) for p, m in steps if p.supports_images]
+        if not steps:
+            raise ProviderError(
+                "No text provider that can look at images is available" + (f" (skipped: {', '.join(blind)})" if blind else ""),
+                provider="auto", kind="unsupported", skipped=blind,
+                hint="Image questions need the codex or claude CLI signed in (gemini-cli and the API fallbacks take text only).")  # fmt: skip
     if not steps:
         if resolved is not None and resolved.needs_confirmation is not None:
             from assetforge.llm.plans import confirmation_error
@@ -185,9 +200,13 @@ def generate(lib: Library, call: TextCall, model: type[M], *, provider: str | No
             hint="Install and sign in to a CLI (claude, codex or gemini); see `assetforge llm providers`.")  # fmt: skip
     choice = {"kind": getattr(resolved, "kind", None), "chosen_by": getattr(resolved, "chosen_by", "override" if provider else "auto"),
               "requested": {"provider": requested_provider, "model": requested_model}}  # fmt: skip
-    job_id = jobs.create_job(lib, "text", {"task": call.task, "provider": requested_provider, "model": requested_model,
-                                           "project": project, "prompt_chars": len(call.prompt), "choice": choice},
-                             fingerprint=fp)  # fmt: skip
+    job_request = {"task": call.task, "provider": requested_provider, "model": requested_model, "project": project,
+                   "prompt_chars": len(call.prompt), "choice": choice}  # fmt: skip
+    if image_shas:
+        job_request["images"] = [{"path": str(p), "sha256": h} for p, h in zip(call.images, image_shas)]
+        if blind:
+            choice["image_blind_skipped"] = blind
+    job_id = jobs.create_job(lib, "text", job_request, fingerprint=fp)
     _persist(lib, job_id, "prompt.md", f"# system\n\n{call.system}\n\n# prompt\n\n{call.prompt}\n")
     _persist(lib, job_id, "schema.json", json.dumps(call.schema, indent=2))
     attempts: list[dict[str, Any]] = []
@@ -230,7 +249,18 @@ def generate(lib: Library, call: TextCall, model: type[M], *, provider: str | No
 
 def _with_model(call: TextCall, model: str | None) -> TextCall:
     return TextCall(prompt=call.prompt, system=call.system, schema=call.schema, loose_schema=call.loose_schema, model=model,
-                    timeout=call.timeout, task=call.task, offline=call.offline)  # fmt: skip
+                    timeout=call.timeout, task=call.task, offline=call.offline, images=list(call.images))  # fmt: skip
+
+
+def _image_shas(call: TextCall) -> list[str]:
+    """SHA-256 of each image in the call (part of the fingerprint: another picture is another question)."""
+    out: list[str] = []
+    for path in call.images:
+        try:
+            out.append(hashlib.sha256(Path(path).read_bytes()).hexdigest())
+        except OSError as exc:
+            raise InvalidInputError(f"Image for {call.task} not readable: {path}", path=str(path)) from exc
+    return out
 
 
 def _most_useful(errors: list[ProviderError]) -> ProviderError:
@@ -255,7 +285,7 @@ def _ask(lib: Library, job_id: str, prov: TextProvider, call: TextCall, model: t
                 "Return the complete corrected JSON answer."),
         system=call.system, schema=call.schema, loose_schema=call.loose_schema, model=call.model, timeout=call.timeout,
         task=f"{call.task}.repair",
-        offline=call.offline)  # fmt: skip
+        offline=call.offline, images=list(call.images))  # fmt: skip
     response = _with_retries(lib, job_id, prov, repair, attempts)
     try:
         return response, _validate(model, response)

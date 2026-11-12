@@ -60,13 +60,30 @@ class Run:
     workdir: Path
 
 
-def run_cli(provider: str, argv: list[str], stdin: str, *, timeout: float,
-            prepare: Callable[[Path], None] | None = None, collect: Callable[[Path], Any] | None = None) -> tuple[Run, Any]:  # fmt: skip
-    """Run `argv` in a temp dir. `prepare(dir)` can write input files first, `collect(dir)` reads outputs."""
+def stage_images(workdir: Path, images: list[Path]) -> list[Path]:
+    """Copy the call's images into the temp working folder (`image_1.png`, …) and return their absolute paths: the
+    CLI only ever sees files inside its own empty folder."""
+    staged: list[Path] = []
+    for i, src in enumerate(images, 1):
+        dest = workdir / f"image_{i}{Path(src).suffix.lower() or '.png'}"
+        shutil.copyfile(src, dest)
+        staged.append(dest.resolve())
+    return staged
+
+
+def run_cli(provider: str, argv: list[str] | Callable[[Path], list[str]], stdin: str | Callable[[Path], str], *,
+            timeout: float, prepare: Callable[[Path], None] | None = None,
+            collect: Callable[[Path], Any] | None = None) -> tuple[Run, Any]:  # fmt: skip
+    """Run `argv` in a temp dir. `prepare(dir)` can write input files first, `collect(dir)` reads outputs. `argv` and
+    `stdin` may be functions of the temp dir (called after `prepare`), for arguments that name staged files."""
     with tempfile.TemporaryDirectory(prefix="assetforge-llm-") as tmp:
         workdir = Path(tmp)
         if prepare:
             prepare(workdir)
+        if callable(argv):
+            argv = argv(workdir)
+        if callable(stdin):
+            stdin = stdin(workdir)
         try:
             done = spawn(argv, input=stdin, capture_output=True, text=True, timeout=timeout, cwd=workdir, env=clean_env())
         except subprocess.TimeoutExpired as exc:

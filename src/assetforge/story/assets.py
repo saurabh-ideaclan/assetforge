@@ -54,9 +54,15 @@ def story_key(slug: str, *parts: str) -> str:
 
 def manifest(script: Script, config: StoryConfig, world: World | None, *, image_provider: str = "auto",
              quality: str = "auto", sound_plan: SoundPlan | None = None,
-             acting: dict[tuple[str, str], str] | None = None) -> list[Item]:  # fmt: skip
+             acting: dict[tuple[str, str], str] | None = None, canon: Any = None) -> list[Item]:  # fmt: skip
     """`acting` maps (character id, expression name) to a performance brief (`acting.directions`): those sprites are
-    requested with the acting direction instead of the generic "with a <name> expression" line."""
+    requested with the acting direction instead of the generic "with a <name> expression" line. `canon` is the story's
+    `VisualCanon`: every background, illustration and title prompt then uses the location as the chapters use it and
+    carries the world's visual rules (what lies outside, what must never be painted)."""
+    from assetforge.story.visual_canon import location_text, world_block
+
+    rules = world_block(canon)
+    rules = f" {rules}" if rules else ""
     slug, project, collection = config.slug, config.asset_project, f"vn-{config.slug}"
     tags = ["visual-novel", slug]
     items: list[Item] = []
@@ -102,13 +108,13 @@ def manifest(script: Script, config: StoryConfig, world: World | None, *, image_
             continue
         first = story_key(slug, "bg", loc.id, times[0])
         image(first, "bg", f"{loc.name} ({times[0]})", AssetType.BACKGROUND,
-              f"{loc.name}: {loc.description} Visual novel background, {LIGHT[times[0]]}, no people, no text, "
-              "eye-level wide view with room for characters in the foreground.",
+              f"{loc.name}: {location_text(canon, loc)} Visual novel background, {LIGHT[times[0]]}, no people, no text, "
+              f"eye-level wide view with room for characters in the foreground.{rules}",
               aspect="16:9", transparent=False, name=f"{slug}_{loc.id}_{times[0]}")  # fmt: skip
         for t in times[1:]:
             image(story_key(slug, "bg", loc.id, t), "bg_time", f"{loc.name} ({t})", AssetType.BACKGROUND,
                   f"The same place as the reference image ({loc.name}) at {t}: keep the exact composition, camera and "
-                  f"every object; change only the lighting and sky to {LIGHT[t]}. No people, no text.",
+                  f"every object; change only the lighting and sky to {LIGHT[t]}. No people, no text.{rules}",
                   aspect="16:9", transparent=False, refs=[first], name=f"{slug}_{loc.id}_{t}")  # fmt: skip
 
     locs = {loc.id: loc for loc in script.locations}
@@ -118,20 +124,28 @@ def manifest(script: Script, config: StoryConfig, world: World | None, *, image_
         for node, where, when, _ in walk(scene):
             if node.kind == "cg" and node.cg and not any(i.key == story_key(slug, "cg", node.cg) for i in items):
                 loc = locs.get(where)
-                refs = [story_key(slug, "char", cid, "neutral") for cid in on_stage if cid in chars][:3]
-                who = ", ".join(f"{chars[c].name} ({chars[c].look})" for c in on_stage if c in chars)
+                # only the people the illustration's own text names (a chapter's whole cast used to be listed, and the
+                # model drew all of them into a moment that belongs to one person); without a text, whoever is in the scene
+                cast_ids, you = _cg_cast(node.text or "", script.characters) if node.text else ([c for c in on_stage if c in chars], False)
+                refs = [story_key(slug, "char", cid, "neutral") for cid in cast_ids][:3]
+                who = ", ".join(f"{chars[c].name} ({chars[c].look})" for c in cast_ids)
                 image(story_key(slug, "cg", node.cg), "cg", f"CG {node.cg}", AssetType.IMAGE,
                       f"Visual novel event illustration (CG), cinematic full scene: {node.text or scene.title}. "
-                      f"Setting: {loc.description if loc else where}, {LIGHT.get(when, LIGHT['day'])}. "
-                      + (f"Characters, matching the reference images: {who}." if who else ""),
+                      + (f"'You' in that description is {chars[cast_ids[0]].name}. " if you and cast_ids else "")
+                      + f"Setting (its usual state; where the event described above differs, the event wins): "
+                        f"{location_text(canon, loc, illustration=True) if loc else where}. Time of day: {when} ({LIGHT.get(when, LIGHT['day'])}). "
+                      + (f"The only named people in the picture, matching the reference images: {who}. Nobody else from the "
+                         "story's cast appears; unnamed people only where the description asks for them." if who
+                         else "No named characters in the picture.") + rules,
                       aspect="16:9", transparent=False, refs=refs, name=f"{slug}_cg_{node.cg}")  # fmt: skip
 
     look = world.art_direction if world else ""
     leads = [story_key(slug, "char", c.id, "neutral") for c in script.characters[:2]]
     image(story_key(slug, "ui", "title"), "ui", "Title art", AssetType.IMAGE,
           f"Title screen key art for the visual novel '{script.title}': "
-          f"{world.logline if world else ''} The main characters (as in the reference images) in a striking composition, "
-          "leaving clear space at the top for a logo. No text.", aspect="16:9", transparent=False, refs=leads,
+          f"{world.logline if world else ''} The protagonist (first reference image) in the story's defining place and "
+          "action, large in the frame; a second lead (second reference image) only smaller and apart, never posed beside "
+          f"the protagonist as a pair. Clear space at the top for a logo. No text.{rules}", aspect="16:9", transparent=False, refs=leads,
           name=f"{slug}_title")  # fmt: skip
     image(story_key(slug, "ui", "textbox"), "ui", "Dialogue box", AssetType.UI,
           f"Empty visual novel dialogue box panel: a wide translucent dark panel with a thin ornamental border "
@@ -170,6 +184,37 @@ def manifest(script: Script, config: StoryConfig, world: World | None, *, image_
         sound(story_key(slug, "sfx", cue), "sfx", f"SFX: {cue}", AssetType.SFX, text, name=f"{slug}_sfx_{cue}",
               reuse=True)  # fmt: skip
     return items
+
+
+def _cg_cast(text: str, characters: list[Any]) -> tuple[list[str], bool]:
+    """Who an illustration's description puts in the picture: characters named by given name, or by family name when
+    it is not part of someone else's full name ("Evara Oduya" is not Rafe Oduya). A description in the second person
+    puts the protagonist first. Returns (character ids, whether "you" was used)."""
+    import re
+
+    found: list[tuple[int, str]] = []
+    for c in characters:
+        parts = c.name.split()
+        hit = re.search(rf"\b{re.escape(parts[0])}\b", text)
+        pos = hit.start() if hit else None
+        if pos is None and len(parts) > 1:
+            for m in re.finditer(rf"\b{re.escape(parts[-1])}\b", text):
+                before = text[:m.start()].split()
+                prev = before[-1] if before else ""
+                if not prev[:1].isupper() or prev.rstrip(".,;:'") in ("Chief", "Conductor", "Keeper", "Inspector", "Director") or prev.endswith((".", "!", "?", ":")):
+                    pos = m.start()
+                    break
+        if pos is not None:
+            found.append((pos, c.id))
+    ids = [cid for _, cid in sorted(found)]
+    you = bool(re.search(r"\b(you|your)\b", text, re.IGNORECASE))
+    lead = next((c.id for c in characters if "protagonist" in c.role.lower()), characters[0].id if characters else None)
+    if you and lead and lead not in ids:
+        ids.insert(0, lead)
+    elif you and lead:
+        ids.remove(lead)
+        ids.insert(0, lead)
+    return ids, you
 
 
 def _used_expressions(script: Script) -> dict[str, set[str]]:
@@ -253,10 +298,11 @@ def produce(lib: Library, project: StoryProject, *, only: list[str] | None = Non
             raise InvalidInputError(f"Unknown asset groups {sorted(unknown)}", known=sorted(ONLY))
     wants_sound = bool(groups & {"music", "ambience"})
     sound_plan, sound_note = load_sound_plan(lib, project, make=wants_sound and not dry_run, fresh=replan and wants_sound)
-    from assetforge.story import acting
+    from assetforge.story import acting, visual_canon
 
     items = [i for i in manifest(script, config, world, image_provider=image_provider, quality=quality,
-                                 sound_plan=sound_plan, acting=acting.directions(project)) if i.group in groups]  # fmt: skip
+                                 sound_plan=sound_plan, acting=acting.directions(project),
+                                 canon=visual_canon.load(project)) if i.group in groups]  # fmt: skip
     if redo and not dry_run:
         from assetforge.core import review
 

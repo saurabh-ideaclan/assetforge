@@ -454,6 +454,11 @@ a.tile.link:hover { border-color: var(--accent); }
 .sa-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); flex: none; }
 .sa-dot.approved { background: var(--good); } .sa-dot.candidate { background: var(--warn); } .sa-dot.rejected { background: var(--bad); }
 .sa-dot.missing { background: transparent; border: 1px dashed var(--text-muted); }
+.sa-logic { display: flex; align-items: center; gap: 6px; padding: 0 8px 2px; font-size: 11.5px; }
+.sa-logic.ok { color: var(--good); } .sa-logic.bad { color: var(--bad); }
+.sa-logic.bad .clamp2 { flex: 1; min-width: 0; color: var(--text-secondary); }
+.sa-logic-fix { flex: none; font: inherit; font-size: 11px; padding: 1px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); color: var(--text-primary); cursor: pointer; }
+.sa-logic-head { display: inline-flex; align-items: center; gap: 8px; }
 .sa-head { top: -22px; }
 .sa-head { position: static; backdrop-filter: none; }
 .sa-row-main { min-width: 0; }
