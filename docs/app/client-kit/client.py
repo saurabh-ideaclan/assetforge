@@ -47,12 +47,16 @@ class Rejected(Exception):
     """The index cannot be trusted; the last good one stays in use."""
 
 
-def https_fetcher(base_url: str, timeout: float = 20.0) -> Fetch:
-    """`fetch` over anonymous HTTPS: `base_url` is the public origin plus the prefix."""
+USER_AGENT = "AssetForgeClient/1.0"  # the CDN blocks urllib's default `Python-urllib/3.x` agent (HTTP 403)
+
+
+def https_fetcher(base_url: str, timeout: float = 20.0, user_agent: str = USER_AGENT) -> Fetch:
+    """`fetch` over anonymous HTTPS: `base_url` is the public origin plus the prefix. Always sends an explicit
+    User-Agent: the content CDN refuses urllib's default one."""
     base = base_url.rstrip("/")
 
     def fetch(key: str, etag: str | None = None) -> tuple[int, bytes, str | None]:
-        headers = {"If-None-Match": etag} if etag else {}
+        headers = {"User-Agent": user_agent, **({"If-None-Match": etag} if etag else {})}
         request = urllib.request.Request(f"{base}/{key}", headers=headers)
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - the content origin

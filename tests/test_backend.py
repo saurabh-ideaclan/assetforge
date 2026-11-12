@@ -465,3 +465,34 @@ def test_app_routes_plan_first_then_write(home: Path, kite: StoryProject, monkey
         srv.shutdown()
         srv.server_close()
         srv.close_pool()
+
+
+def test_https_fetcher_sends_an_explicit_user_agent(monkeypatch) -> None:  # noqa: ANN001
+    """The content CDN answers 403 to urllib's default `Python-urllib/3.x` agent."""
+    import urllib.request
+
+    from assetforge.publish import client
+
+    seen = {}
+
+    class Response:
+        status, headers = 200, {"ETag": '"e1"'}
+
+        def read(self) -> bytes:
+            return b"{}"
+
+        def __enter__(self):  # noqa: ANN204
+            return self
+
+        def __exit__(self, *exc) -> None:  # noqa: ANN002
+            return None
+
+    def urlopen(request, timeout):  # noqa: ANN001, ANN202
+        seen.update(request.header_items())
+        return Response()
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    status, body, etag = client.https_fetcher("https://cdn.example/prefix")("index.json", etag='"e0"')
+    assert status == 200 and etag == '"e1"'
+    assert seen["User-agent"] == client.USER_AGENT and not seen["User-agent"].startswith("Python-urllib")
+    assert seen["If-none-match"] == '"e0"'
