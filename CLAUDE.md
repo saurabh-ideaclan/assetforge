@@ -666,10 +666,12 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
 - Power Fantasy pilot *Everyone Owes Me* (earlier titles Null, The Weight He Carries; slug unchanged): concept `docs/narrative/22-power-fantasy-concept.md` (Opus review applied), research `20`,
   preset `story/direction_presets/weight-power-fantasy.yaml`, story `~/.assetforge/stories/the-weight-he-carries`
   (guided mode). Cast and outline approved 2026-11-11; chapters 1-6 written (ChatGPT) through the clarity gate; chapters 3 (shared route) and 5 were re-planned as three movements introducing one new thing each (doc 23 §5-6) and pass. Chapter 1's art is made; Eli's first performances exist (doc 24 addendum). Next: chapters 7+ only after the owner's read; the second awakening is chapter 7.
-- Second story *Nobody Checks the Porter* (2026-11-12; preset `story/direction_presets/porter-power-fantasy.yaml`, story
-  `~/.assetforge/stories/nobody-checks-the-porter`, ChatGPT): title, premise, world, naming guide and a seven-character cast exist and
-  wait for the owner's approval; no outline, chapters or assets yet. It is the first story meant for the v2 content contract; R2 publishing
-  happens only on the owner's word or when a story is complete, never per generation.
+- Second story *Nobody Rides the Tail* (2026-11-12; preset `story/direction_presets/line-power-fantasy.yaml`, story
+  `~/.assetforge/stories/nobody-rides-the-tail`, ChatGPT): a two-mile train that never stops, tail cars cut loose on the grades; coupler Rafe
+  Oduya, 23, keeps whatever he carries aboard before the whistle. The owner rejected the first idea (a tide city, 19-year-old porter) for weak
+  emotion and setting and asked to confirm the setting before generation: preset `custom.canon` carries the emotional spine and the
+  environment. Title, premise, world, naming guide and a six-character cast exist and wait for the owner's approval; no outline, chapters or
+  assets yet. First story meant for the v2 content contract; R2 publishing only on the owner's word or when a story is complete.
 
 ### Audio Analysis Engine, diagnosis, corrections, Workbench (Computational Audio Intelligence)
 
