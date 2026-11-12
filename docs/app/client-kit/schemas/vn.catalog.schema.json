@@ -1,0 +1,369 @@
+{
+  "$defs": {
+    "CatalogChange": {
+      "additionalProperties": false,
+      "properties": {
+        "sequence": {
+          "minimum": 1,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "at": {
+          "title": "At",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "story_added",
+            "release_published",
+            "rollback",
+            "story_unlisted",
+            "story_relisted",
+            "promoted"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "storyId": {
+          "title": "Storyid",
+          "type": "string"
+        },
+        "releaseId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Releaseid"
+        },
+        "fromReleaseId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fromreleaseid"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ChangeSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "sequence",
+        "at",
+        "type",
+        "storyId"
+      ],
+      "title": "CatalogChange",
+      "type": "object"
+    },
+    "CatalogRelease": {
+      "additionalProperties": false,
+      "properties": {
+        "releaseId": {
+          "title": "Releaseid",
+          "type": "string"
+        },
+        "graphId": {
+          "title": "Graphid",
+          "type": "string"
+        },
+        "minEngineVersion": {
+          "title": "Minengineversion",
+          "type": "string"
+        },
+        "publishedAt": {
+          "title": "Publishedat",
+          "type": "string"
+        },
+        "manifest": {
+          "$ref": "#/$defs/FileDescriptor"
+        },
+        "delta": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FileDescriptor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "releaseId",
+        "graphId",
+        "minEngineVersion",
+        "publishedAt",
+        "manifest"
+      ],
+      "title": "CatalogRelease",
+      "type": "object"
+    },
+    "CatalogStory": {
+      "additionalProperties": false,
+      "properties": {
+        "storyId": {
+          "title": "Storyid",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "live",
+            "unlisted"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "defaultLocale": {
+          "title": "Defaultlocale",
+          "type": "string"
+        },
+        "locales": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Locales",
+          "type": "array"
+        },
+        "thumbnail": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FileDescriptor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "current": {
+          "title": "Current",
+          "type": "string"
+        },
+        "addedSequence": {
+          "minimum": 1,
+          "title": "Addedsequence",
+          "type": "integer"
+        },
+        "updatedSequence": {
+          "minimum": 1,
+          "title": "Updatedsequence",
+          "type": "integer"
+        },
+        "updatedAt": {
+          "title": "Updatedat",
+          "type": "string"
+        },
+        "chapterCount": {
+          "minimum": 0,
+          "title": "Chaptercount",
+          "type": "integer"
+        },
+        "downloadBytes": {
+          "$ref": "#/$defs/DownloadBytes"
+        },
+        "releases": {
+          "items": {
+            "$ref": "#/$defs/CatalogRelease"
+          },
+          "minItems": 1,
+          "title": "Releases",
+          "type": "array"
+        }
+      },
+      "required": [
+        "storyId",
+        "status",
+        "title",
+        "summary",
+        "defaultLocale",
+        "locales",
+        "current",
+        "addedSequence",
+        "updatedSequence",
+        "updatedAt",
+        "chapterCount",
+        "downloadBytes",
+        "releases"
+      ],
+      "title": "CatalogStory",
+      "type": "object"
+    },
+    "ChangeSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "chaptersAdded": {
+          "minimum": 0,
+          "title": "Chaptersadded",
+          "type": "integer"
+        },
+        "chaptersChanged": {
+          "minimum": 0,
+          "title": "Chapterschanged",
+          "type": "integer"
+        },
+        "chaptersRemoved": {
+          "minimum": 0,
+          "title": "Chaptersremoved",
+          "type": "integer"
+        },
+        "textOnly": {
+          "title": "Textonly",
+          "type": "boolean"
+        },
+        "graphChanged": {
+          "title": "Graphchanged",
+          "type": "boolean"
+        },
+        "downloadBytes": {
+          "minimum": 0,
+          "title": "Downloadbytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "chaptersAdded",
+        "chaptersChanged",
+        "chaptersRemoved",
+        "textOnly",
+        "graphChanged",
+        "downloadBytes"
+      ],
+      "title": "ChangeSummary",
+      "type": "object"
+    },
+    "DownloadBytes": {
+      "additionalProperties": false,
+      "properties": {
+        "core": {
+          "minimum": 0,
+          "title": "Core",
+          "type": "integer"
+        },
+        "standard": {
+          "minimum": 0,
+          "title": "Standard",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "core",
+        "standard"
+      ],
+      "title": "DownloadBytes",
+      "type": "object"
+    },
+    "FileDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "mediaType": {
+          "title": "Mediatype",
+          "type": "string"
+        },
+        "bytes": {
+          "minimum": 0,
+          "title": "Bytes",
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "mediaType",
+        "bytes",
+        "sha256"
+      ],
+      "title": "FileDescriptor",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": "2.0",
+      "title": "Schemaversion",
+      "type": "string"
+    },
+    "kind": {
+      "const": "vn.catalog",
+      "title": "Kind",
+      "type": "string"
+    },
+    "channel": {
+      "enum": [
+        "staging",
+        "production"
+      ],
+      "title": "Channel",
+      "type": "string"
+    },
+    "catalogSequence": {
+      "minimum": 1,
+      "title": "Catalogsequence",
+      "type": "integer"
+    },
+    "generatedAt": {
+      "title": "Generatedat",
+      "type": "string"
+    },
+    "stories": {
+      "items": {
+        "$ref": "#/$defs/CatalogStory"
+      },
+      "title": "Stories",
+      "type": "array"
+    },
+    "changes": {
+      "items": {
+        "$ref": "#/$defs/CatalogChange"
+      },
+      "maxItems": 50,
+      "title": "Changes",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "kind",
+    "channel",
+    "catalogSequence",
+    "generatedAt",
+    "stories"
+  ],
+  "title": "Catalog",
+  "type": "object"
+}

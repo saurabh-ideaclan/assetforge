@@ -1,0 +1,84 @@
+{
+  "kind": "vn.catalog",
+  "schemaVersion": "2.0",
+  "channel": "staging",
+  "catalogSequence": 7,
+  "generatedAt": "2026-11-12T09:30:00Z",
+  "stories": [
+    {
+      "storyId": "sample-story",
+      "status": "live",
+      "title": "Sample Story",
+      "summary": "One line.",
+      "defaultLocale": "en",
+      "locales": [
+        "en"
+      ],
+      "thumbnail": {
+        "key": "blobs/sha256/0000000000000000000000000000000000000000000000000000000000000000.webp",
+        "mediaType": "image/webp",
+        "bytes": 48210,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "current": "r0002",
+      "addedSequence": 3,
+      "updatedSequence": 7,
+      "updatedAt": "2026-11-12T09:30:00Z",
+      "chapterCount": 13,
+      "downloadBytes": {
+        "core": 812004,
+        "standard": 5120330
+      },
+      "releases": [
+        {
+          "releaseId": "r0001",
+          "graphId": "sample-story.graph.1",
+          "minEngineVersion": "2.0.0",
+          "publishedAt": "2026-11-10T08:00:00Z",
+          "manifest": {
+            "key": "stories/sample-story/releases/r0001/release.json",
+            "mediaType": "application/json",
+            "bytes": 4410,
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        {
+          "releaseId": "r0002",
+          "graphId": "sample-story.graph.1",
+          "minEngineVersion": "2.0.0",
+          "publishedAt": "2026-11-12T09:30:00Z",
+          "manifest": {
+            "key": "stories/sample-story/releases/r0002/release.json",
+            "mediaType": "application/json",
+            "bytes": 4420,
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "delta": {
+            "key": "stories/sample-story/releases/r0002/delta-from-r0001.json",
+            "mediaType": "application/json",
+            "bytes": 910,
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        }
+      ]
+    }
+  ],
+  "changes": [
+    {
+      "sequence": 7,
+      "at": "2026-11-12T09:30:00Z",
+      "type": "release_published",
+      "storyId": "sample-story",
+      "releaseId": "r0002",
+      "fromReleaseId": "r0001",
+      "summary": {
+        "chaptersAdded": 0,
+        "chaptersChanged": 2,
+        "chaptersRemoved": 0,
+        "textOnly": true,
+        "graphChanged": false,
+        "downloadBytes": 18240
+      }
+    }
+  ]
+}

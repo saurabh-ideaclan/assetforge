@@ -1,0 +1,93 @@
+{
+  "$defs": {
+    "FileDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "mediaType": {
+          "title": "Mediatype",
+          "type": "string"
+        },
+        "bytes": {
+          "minimum": 0,
+          "title": "Bytes",
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "mediaType",
+        "bytes",
+        "sha256"
+      ],
+      "title": "FileDescriptor",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": "2.0",
+      "title": "Schemaversion",
+      "type": "string"
+    },
+    "kind": {
+      "const": "vn.chapter.bundle",
+      "title": "Kind",
+      "type": "string"
+    },
+    "storyId": {
+      "title": "Storyid",
+      "type": "string"
+    },
+    "releaseId": {
+      "title": "Releaseid",
+      "type": "string"
+    },
+    "chapterId": {
+      "title": "Chapterid",
+      "type": "string"
+    },
+    "graph": {
+      "$ref": "#/$defs/FileDescriptor"
+    },
+    "presentation": {
+      "$ref": "#/$defs/FileDescriptor"
+    },
+    "assets": {
+      "$ref": "#/$defs/FileDescriptor"
+    },
+    "locales": {
+      "additionalProperties": {
+        "$ref": "#/$defs/FileDescriptor"
+      },
+      "title": "Locales",
+      "type": "object"
+    },
+    "downloads": {
+      "$ref": "#/$defs/FileDescriptor"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "kind",
+    "storyId",
+    "releaseId",
+    "chapterId",
+    "graph",
+    "presentation",
+    "assets",
+    "locales",
+    "downloads"
+  ],
+  "title": "Bundle",
+  "type": "object"
+}

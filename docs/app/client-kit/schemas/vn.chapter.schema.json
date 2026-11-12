@@ -1,0 +1,666 @@
+{
+  "$defs": {
+    "Action": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 200,
+          "pattern": "^[a-z0-9_][a-z0-9_.]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "action",
+          "title": "Type",
+          "type": "string"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/$defs/Effect"
+          },
+          "title": "Effects",
+          "type": "array"
+        },
+        "next": {
+          "maxLength": 200,
+          "pattern": "^[a-z0-9_][a-z0-9_.]*$",
+          "title": "Next",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "effects",
+        "next"
+      ],
+      "title": "Action",
+      "type": "object"
+    },
+    "AllOf": {
+      "additionalProperties": false,
+      "properties": {
+        "all": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Compare"
+              },
+              {
+                "$ref": "#/$defs/AllOf"
+              },
+              {
+                "$ref": "#/$defs/AnyOf"
+              },
+              {
+                "$ref": "#/$defs/NotOf"
+              }
+            ]
+          },
+          "title": "All",
+          "type": "array"
+        }
+      },
+      "required": [
+        "all"
+      ],
+      "title": "AllOf",
+      "type": "object"
+    },
+    "AnyOf": {
+      "additionalProperties": false,
+      "properties": {
+        "any": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Compare"
+              },
+              {
+                "$ref": "#/$defs/AllOf"
+              },
+              {
+                "$ref": "#/$defs/AnyOf"
+              },
+              {
+                "$ref": "#/$defs/NotOf"
+              }
+            ]
+          },
+          "title": "Any",
+          "type": "array"
+        }
+      },
+      "required": [
+        "any"
+      ],
+      "title": "AnyOf",
+      "type": "object"
+    },
+    "Case": {
+      "additionalProperties": false,
+      "properties": {
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Compare"
+            },
+            {
+              "$ref": "#/$defs/AllOf"
+            },
+            {
+              "$ref": "#/$defs/AnyOf"
+            },
+            {
+              "$ref": "#/$defs/NotOf"
+            }
+          ],
+          "title": "When"
+        },
+        "target": {
+          "maxLength": 200,
+          "pattern": "^[a-z0-9_][a-z0-9_.]*$",
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "when",
+        "target"
+      ],
+      "title": "Case",
+      "type": "object"
+    },
+    "ChapterEnd": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 200,
+          "pattern": "^[a-z0-9_][a-z0-9_.]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "chapterEnd",
+          "title": "Type",
+          "type": "string"
+        },
+        "textKey": {
+          "anyOf": [
+            {
+              "maxLength": 240,
+              "pattern": "^[a-z0-9_][a-z0-9_.-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Textkey"
+        },
+        "presentationRef": {
+          "title": "Presentationref",
+          "type": "string"
+        },
+        "nextChapter": {
+          "title": "Nextchapter",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "presentationRef",
+        "nextChapter"
+      ],
+      "title": "ChapterEnd",
+      "type": "object"
+    },
+    "ChoiceNode": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 200,
+          "pattern": "^[a-z0-9_][a-z0-9_.]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "choice",
+          "title": "Type",
+          "type": "string"
+        },
+        "textKey": {
+          "anyOf": [
+            {
+              "maxLength": 240,
+              "pattern": "^[a-z0-9_][a-z0-9_.-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Textkey"
+        },
+        "presentationRef": {
+          "title": "Presentationref",
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/Option"
+          },
+          "minItems": 1,
+          "title": "Options",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "presentationRef",
+        "options"
+      ],
+      "title": "ChoiceNode",
+      "type": "object"
+    },
+    "Compare": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "maxLength": 120,
+          "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+          "title": "Path",
+          "type": "string"
+        },
+        "op": {
+          "enum": [
+            "eq",
+            "ne",
+            "gt",
+            "gte",
+            "lt",
+            "lte"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "path",
+        "op",
+        "value"
+      ],
+      "title": "Compare",
+      "type": "object"
+    },
+    "ConditionNode": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 200,
+          "pattern": "^[a-z0-9_][a-z0-9_.]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "condition",
+          "title": "Type",
+          "type": "string"
+        },
+        "cases": {
+          "items": {
+            "$ref": "#/$defs/Case"
+          },
+          "minItems": 1,
+          "title": "Cases",
+          "type": "array"
+        },
+        "fallback": {
+          "maxLength": 200,
+          "pattern": "^[a-z0-9_][a-z0-9_.]*$",
+          "title": "Fallback",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "cases",
+        "fallback"
+      ],
+      "title": "ConditionNode",
+      "type": "object"
+    },
+    "Dialogue": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 200,
+          "pattern": "^[a-z0-9_][a-z0-9_.]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "dialogue",
+          "title": "Type",
+          "type": "string"
+        },
+        "speakerId": {
+          "title": "Speakerid",
+          "type": "string"
+        },
+        "textKey": {
+          "maxLength": 240,
+          "pattern": "^[a-z0-9_][a-z0-9_.-]*$",
+          "title": "Textkey",
+          "type": "string"
+        },
+        "presentationRef": {
+          "title": "Presentationref",
+          "type": "string"
+        },
+        "next": {
+          "maxLength": 200,
+          "pattern": "^[a-z0-9_][a-z0-9_.]*$",
+          "title": "Next",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "speakerId",
+        "textKey",
+        "presentationRef",
+        "next"
+      ],
+      "title": "Dialogue",
+      "type": "object"
+    },
+    "Effect": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "enum": [
+            "set",
+            "add"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 120,
+          "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+          "title": "Path",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "op",
+        "path",
+        "value"
+      ],
+      "title": "Effect",
+      "type": "object"
+    },
+    "EndingNode": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 200,
+          "pattern": "^[a-z0-9_][a-z0-9_.]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "ending",
+          "title": "Type",
+          "type": "string"
+        },
+        "endingId": {
+          "title": "Endingid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "endingId"
+      ],
+      "title": "EndingNode",
+      "type": "object"
+    },
+    "Narration": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 200,
+          "pattern": "^[a-z0-9_][a-z0-9_.]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "narration",
+          "title": "Type",
+          "type": "string"
+        },
+        "textKey": {
+          "maxLength": 240,
+          "pattern": "^[a-z0-9_][a-z0-9_.-]*$",
+          "title": "Textkey",
+          "type": "string"
+        },
+        "presentationRef": {
+          "title": "Presentationref",
+          "type": "string"
+        },
+        "next": {
+          "maxLength": 200,
+          "pattern": "^[a-z0-9_][a-z0-9_.]*$",
+          "title": "Next",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "textKey",
+        "presentationRef",
+        "next"
+      ],
+      "title": "Narration",
+      "type": "object"
+    },
+    "NotOf": {
+      "additionalProperties": false,
+      "properties": {
+        "not": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Compare"
+            },
+            {
+              "$ref": "#/$defs/AllOf"
+            },
+            {
+              "$ref": "#/$defs/AnyOf"
+            },
+            {
+              "$ref": "#/$defs/NotOf"
+            }
+          ],
+          "title": "Not"
+        }
+      },
+      "required": [
+        "not"
+      ],
+      "title": "NotOf",
+      "type": "object"
+    },
+    "Option": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^o\\d+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "textKey": {
+          "maxLength": 240,
+          "pattern": "^[a-z0-9_][a-z0-9_.-]*$",
+          "title": "Textkey",
+          "type": "string"
+        },
+        "enabledIf": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Compare"
+            },
+            {
+              "$ref": "#/$defs/AllOf"
+            },
+            {
+              "$ref": "#/$defs/AnyOf"
+            },
+            {
+              "$ref": "#/$defs/NotOf"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enabledif"
+        },
+        "disabledReasonKey": {
+          "anyOf": [
+            {
+              "maxLength": 240,
+              "pattern": "^[a-z0-9_][a-z0-9_.-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Disabledreasonkey"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/$defs/Effect"
+          },
+          "title": "Effects",
+          "type": "array"
+        },
+        "target": {
+          "maxLength": 200,
+          "pattern": "^[a-z0-9_][a-z0-9_.]*$",
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "textKey",
+        "target"
+      ],
+      "title": "Option",
+      "type": "object"
+    },
+    "Speaker": {
+      "additionalProperties": false,
+      "properties": {
+        "nameKey": {
+          "maxLength": 240,
+          "pattern": "^[a-z0-9_][a-z0-9_.-]*$",
+          "title": "Namekey",
+          "type": "string"
+        }
+      },
+      "required": [
+        "nameKey"
+      ],
+      "title": "Speaker",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": "2.0",
+      "title": "Schemaversion",
+      "type": "string"
+    },
+    "kind": {
+      "const": "vn.chapter",
+      "title": "Kind",
+      "type": "string"
+    },
+    "storyId": {
+      "title": "Storyid",
+      "type": "string"
+    },
+    "graphId": {
+      "title": "Graphid",
+      "type": "string"
+    },
+    "chapterId": {
+      "title": "Chapterid",
+      "type": "string"
+    },
+    "entry": {
+      "maxLength": 200,
+      "pattern": "^[a-z0-9_][a-z0-9_.]*$",
+      "title": "Entry",
+      "type": "string"
+    },
+    "speakers": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Speaker"
+      },
+      "title": "Speakers",
+      "type": "object"
+    },
+    "nodes": {
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "action": "#/$defs/Action",
+            "chapterEnd": "#/$defs/ChapterEnd",
+            "choice": "#/$defs/ChoiceNode",
+            "condition": "#/$defs/ConditionNode",
+            "dialogue": "#/$defs/Dialogue",
+            "ending": "#/$defs/EndingNode",
+            "narration": "#/$defs/Narration"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/Narration"
+          },
+          {
+            "$ref": "#/$defs/Dialogue"
+          },
+          {
+            "$ref": "#/$defs/ChoiceNode"
+          },
+          {
+            "$ref": "#/$defs/ConditionNode"
+          },
+          {
+            "$ref": "#/$defs/Action"
+          },
+          {
+            "$ref": "#/$defs/ChapterEnd"
+          },
+          {
+            "$ref": "#/$defs/EndingNode"
+          }
+        ]
+      },
+      "maxItems": 6000,
+      "title": "Nodes",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "kind",
+    "storyId",
+    "graphId",
+    "chapterId",
+    "entry",
+    "nodes"
+  ],
+  "title": "Graph",
+  "type": "object"
+}

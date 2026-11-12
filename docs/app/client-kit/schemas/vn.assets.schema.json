@@ -1,0 +1,282 @@
+{
+  "$defs": {
+    "AudioAsset": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "audio",
+          "title": "Type",
+          "type": "string"
+        },
+        "loop": {
+          "default": false,
+          "title": "Loop",
+          "type": "boolean"
+        },
+        "variants": {
+          "items": {
+            "$ref": "#/$defs/AudioVariant"
+          },
+          "title": "Variants",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "variants"
+      ],
+      "title": "AudioAsset",
+      "type": "object"
+    },
+    "AudioVariant": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "codec": {
+          "enum": [
+            "vorbis",
+            "aac",
+            "opus"
+          ],
+          "title": "Codec",
+          "type": "string"
+        },
+        "container": {
+          "enum": [
+            "ogg",
+            "mp4"
+          ],
+          "title": "Container",
+          "type": "string"
+        },
+        "quality": {
+          "default": "standard",
+          "enum": [
+            "standard",
+            "high"
+          ],
+          "title": "Quality",
+          "type": "string"
+        },
+        "durationMs": {
+          "minimum": 0,
+          "title": "Durationms",
+          "type": "integer"
+        },
+        "file": {
+          "$ref": "#/$defs/FileDescriptor"
+        }
+      },
+      "required": [
+        "id",
+        "codec",
+        "container",
+        "durationMs",
+        "file"
+      ],
+      "title": "AudioVariant",
+      "type": "object"
+    },
+    "FileDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "mediaType": {
+          "title": "Mediatype",
+          "type": "string"
+        },
+        "bytes": {
+          "minimum": 0,
+          "title": "Bytes",
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "mediaType",
+        "bytes",
+        "sha256"
+      ],
+      "title": "FileDescriptor",
+      "type": "object"
+    },
+    "ImageAsset": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "image",
+          "title": "Type",
+          "type": "string"
+        },
+        "altKey": {
+          "maxLength": 240,
+          "pattern": "^[a-z0-9_][a-z0-9_.-]*$",
+          "title": "Altkey",
+          "type": "string"
+        },
+        "variants": {
+          "items": {
+            "$ref": "#/$defs/ImageVariant"
+          },
+          "title": "Variants",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "altKey",
+        "variants"
+      ],
+      "title": "ImageAsset",
+      "type": "object"
+    },
+    "ImageVariant": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "layout": {
+          "anyOf": [
+            {
+              "enum": [
+                "landscape",
+                "portrait",
+                "square"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Layout"
+        },
+        "quality": {
+          "enum": [
+            "standard",
+            "high"
+          ],
+          "title": "Quality",
+          "type": "string"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "title": "Width",
+          "type": "integer"
+        },
+        "height": {
+          "exclusiveMinimum": 0,
+          "title": "Height",
+          "type": "integer"
+        },
+        "focalPoint": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Focalpoint"
+        },
+        "subjectSafeRect": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subjectsaferect"
+        },
+        "file": {
+          "$ref": "#/$defs/FileDescriptor"
+        }
+      },
+      "required": [
+        "id",
+        "quality",
+        "width",
+        "height",
+        "file"
+      ],
+      "title": "ImageVariant",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": "2.0",
+      "title": "Schemaversion",
+      "type": "string"
+    },
+    "kind": {
+      "const": "vn.assets",
+      "title": "Kind",
+      "type": "string"
+    },
+    "storyId": {
+      "title": "Storyid",
+      "type": "string"
+    },
+    "chapterId": {
+      "title": "Chapterid",
+      "type": "string"
+    },
+    "assets": {
+      "additionalProperties": {
+        "discriminator": {
+          "mapping": {
+            "audio": "#/$defs/AudioAsset",
+            "image": "#/$defs/ImageAsset"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/ImageAsset"
+          },
+          {
+            "$ref": "#/$defs/AudioAsset"
+          }
+        ]
+      },
+      "title": "Assets",
+      "type": "object"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "kind",
+    "storyId",
+    "chapterId",
+    "assets"
+  ],
+  "title": "AssetRegistry",
+  "type": "object"
+}

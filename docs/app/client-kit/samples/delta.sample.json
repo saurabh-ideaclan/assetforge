@@ -1,0 +1,42 @@
+{
+  "kind": "vn.delta",
+  "schemaVersion": "2.0",
+  "storyId": "sample-story",
+  "fromRelease": "r0001",
+  "toRelease": "r0002",
+  "fromGraphId": "sample-story.graph.1",
+  "toGraphId": "sample-story.graph.1",
+  "graphChanged": false,
+  "migration": {
+    "key": "stories/sample-story/releases/r0002/migration-from-r0001.json",
+    "mediaType": "application/json",
+    "bytes": 120,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "chapters": {
+    "added": [],
+    "removed": [],
+    "unchanged": [
+      "ch03"
+    ],
+    "changed": [
+      {
+        "id": "ch01",
+        "documents": [
+          "locales/en"
+        ],
+        "textOnly": true,
+        "bytes": 9120
+      }
+    ]
+  },
+  "releaseDocuments": [],
+  "blobs": {
+    "added": [],
+    "dropped": []
+  },
+  "downloadBytes": {
+    "core": 18240,
+    "standard": 18240
+  }
+}

@@ -1,0 +1,255 @@
+{
+  "$defs": {
+    "DeltaBlob": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "bytes": {
+          "minimum": 0,
+          "title": "Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "key",
+        "bytes"
+      ],
+      "title": "DeltaBlob",
+      "type": "object"
+    },
+    "DeltaBlobs": {
+      "additionalProperties": false,
+      "properties": {
+        "added": {
+          "items": {
+            "$ref": "#/$defs/DeltaBlob"
+          },
+          "title": "Added",
+          "type": "array"
+        },
+        "dropped": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dropped",
+          "type": "array"
+        }
+      },
+      "required": [
+        "added",
+        "dropped"
+      ],
+      "title": "DeltaBlobs",
+      "type": "object"
+    },
+    "DeltaChapter": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "documents": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Documents",
+          "type": "array"
+        },
+        "textOnly": {
+          "title": "Textonly",
+          "type": "boolean"
+        },
+        "bytes": {
+          "minimum": 0,
+          "title": "Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "documents",
+        "textOnly",
+        "bytes"
+      ],
+      "title": "DeltaChapter",
+      "type": "object"
+    },
+    "DeltaChapters": {
+      "additionalProperties": false,
+      "properties": {
+        "added": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Added",
+          "type": "array"
+        },
+        "removed": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Removed",
+          "type": "array"
+        },
+        "unchanged": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unchanged",
+          "type": "array"
+        },
+        "changed": {
+          "items": {
+            "$ref": "#/$defs/DeltaChapter"
+          },
+          "title": "Changed",
+          "type": "array"
+        }
+      },
+      "required": [
+        "added",
+        "removed",
+        "unchanged",
+        "changed"
+      ],
+      "title": "DeltaChapters",
+      "type": "object"
+    },
+    "DownloadBytes": {
+      "additionalProperties": false,
+      "properties": {
+        "core": {
+          "minimum": 0,
+          "title": "Core",
+          "type": "integer"
+        },
+        "standard": {
+          "minimum": 0,
+          "title": "Standard",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "core",
+        "standard"
+      ],
+      "title": "DownloadBytes",
+      "type": "object"
+    },
+    "FileDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "mediaType": {
+          "title": "Mediatype",
+          "type": "string"
+        },
+        "bytes": {
+          "minimum": 0,
+          "title": "Bytes",
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "mediaType",
+        "bytes",
+        "sha256"
+      ],
+      "title": "FileDescriptor",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": "2.0",
+      "title": "Schemaversion",
+      "type": "string"
+    },
+    "kind": {
+      "const": "vn.delta",
+      "title": "Kind",
+      "type": "string"
+    },
+    "storyId": {
+      "title": "Storyid",
+      "type": "string"
+    },
+    "fromRelease": {
+      "title": "Fromrelease",
+      "type": "string"
+    },
+    "toRelease": {
+      "title": "Torelease",
+      "type": "string"
+    },
+    "fromGraphId": {
+      "title": "Fromgraphid",
+      "type": "string"
+    },
+    "toGraphId": {
+      "title": "Tographid",
+      "type": "string"
+    },
+    "graphChanged": {
+      "title": "Graphchanged",
+      "type": "boolean"
+    },
+    "migration": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FileDescriptor"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "chapters": {
+      "$ref": "#/$defs/DeltaChapters"
+    },
+    "releaseDocuments": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Releasedocuments",
+      "type": "array"
+    },
+    "blobs": {
+      "$ref": "#/$defs/DeltaBlobs"
+    },
+    "downloadBytes": {
+      "$ref": "#/$defs/DownloadBytes"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "kind",
+    "storyId",
+    "fromRelease",
+    "toRelease",
+    "fromGraphId",
+    "toGraphId",
+    "graphChanged",
+    "migration",
+    "chapters",
+    "releaseDocuments",
+    "blobs",
+    "downloadBytes"
+  ],
+  "title": "Delta",
+  "type": "object"
+}

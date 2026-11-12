@@ -1,0 +1,366 @@
+{
+  "$defs": {
+    "ChapterRef": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "titleKey": {
+          "maxLength": 240,
+          "pattern": "^[a-z0-9_][a-z0-9_.-]*$",
+          "title": "Titlekey",
+          "type": "string"
+        },
+        "accessPolicyId": {
+          "title": "Accesspolicyid",
+          "type": "string"
+        },
+        "manifest": {
+          "$ref": "#/$defs/FileDescriptor"
+        }
+      },
+      "required": [
+        "id",
+        "titleKey",
+        "accessPolicyId",
+        "manifest"
+      ],
+      "title": "ChapterRef",
+      "type": "object"
+    },
+    "Cover": {
+      "additionalProperties": false,
+      "properties": {
+        "asset": {
+          "title": "Asset",
+          "type": "string"
+        },
+        "altKey": {
+          "maxLength": 240,
+          "pattern": "^[a-z0-9_][a-z0-9_.-]*$",
+          "title": "Altkey",
+          "type": "string"
+        },
+        "width": {
+          "title": "Width",
+          "type": "integer"
+        },
+        "height": {
+          "title": "Height",
+          "type": "integer"
+        },
+        "file": {
+          "$ref": "#/$defs/FileDescriptor"
+        }
+      },
+      "required": [
+        "asset",
+        "altKey",
+        "width",
+        "height",
+        "file"
+      ],
+      "title": "Cover",
+      "type": "object"
+    },
+    "EndingRef": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "titleKey": {
+          "maxLength": 240,
+          "pattern": "^[a-z0-9_][a-z0-9_.-]*$",
+          "title": "Titlekey",
+          "type": "string"
+        },
+        "summaryKey": {
+          "maxLength": 240,
+          "pattern": "^[a-z0-9_][a-z0-9_.-]*$",
+          "title": "Summarykey",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "titleKey",
+        "summaryKey"
+      ],
+      "title": "EndingRef",
+      "type": "object"
+    },
+    "FileDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "mediaType": {
+          "title": "Mediatype",
+          "type": "string"
+        },
+        "bytes": {
+          "minimum": 0,
+          "title": "Bytes",
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "mediaType",
+        "bytes",
+        "sha256"
+      ],
+      "title": "FileDescriptor",
+      "type": "object"
+    },
+    "Requires": {
+      "additionalProperties": false,
+      "properties": {
+        "minEngineVersion": {
+          "title": "Minengineversion",
+          "type": "string"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Capabilities",
+          "type": "array"
+        }
+      },
+      "required": [
+        "minEngineVersion",
+        "capabilities"
+      ],
+      "title": "Requires",
+      "type": "object"
+    },
+    "StateSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "variables": {
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$": {
+              "$ref": "#/$defs/Variable"
+            }
+          },
+          "propertyNames": {
+            "maxLength": 120
+          },
+          "title": "Variables",
+          "type": "object"
+        }
+      },
+      "required": [
+        "version",
+        "variables"
+      ],
+      "title": "StateSchema",
+      "type": "object"
+    },
+    "Variable": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "bool",
+            "int"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "default": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Default"
+        },
+        "min": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min"
+        },
+        "max": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max"
+        },
+        "overflow": {
+          "enum": [
+            "clamp",
+            "reject"
+          ],
+          "title": "Overflow",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "default",
+        "overflow"
+      ],
+      "title": "Variable",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": "2.0",
+      "title": "Schemaversion",
+      "type": "string"
+    },
+    "kind": {
+      "const": "vn.release",
+      "title": "Kind",
+      "type": "string"
+    },
+    "storyId": {
+      "title": "Storyid",
+      "type": "string"
+    },
+    "releaseId": {
+      "title": "Releaseid",
+      "type": "string"
+    },
+    "draft": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Draft"
+    },
+    "graphId": {
+      "title": "Graphid",
+      "type": "string"
+    },
+    "requires": {
+      "$ref": "#/$defs/Requires"
+    },
+    "defaultLocale": {
+      "title": "Defaultlocale",
+      "type": "string"
+    },
+    "titleKey": {
+      "maxLength": 240,
+      "pattern": "^[a-z0-9_][a-z0-9_.-]*$",
+      "title": "Titlekey",
+      "type": "string"
+    },
+    "summaryKey": {
+      "maxLength": 240,
+      "pattern": "^[a-z0-9_][a-z0-9_.-]*$",
+      "title": "Summarykey",
+      "type": "string"
+    },
+    "entryChapter": {
+      "title": "Entrychapter",
+      "type": "string"
+    },
+    "stateSchema": {
+      "$ref": "#/$defs/StateSchema"
+    },
+    "chapters": {
+      "items": {
+        "$ref": "#/$defs/ChapterRef"
+      },
+      "minItems": 1,
+      "title": "Chapters",
+      "type": "array"
+    },
+    "endings": {
+      "items": {
+        "$ref": "#/$defs/EndingRef"
+      },
+      "title": "Endings",
+      "type": "array"
+    },
+    "locales": {
+      "additionalProperties": {
+        "$ref": "#/$defs/FileDescriptor"
+      },
+      "title": "Locales",
+      "type": "object"
+    },
+    "migrations": {
+      "items": {
+        "$ref": "#/$defs/FileDescriptor"
+      },
+      "title": "Migrations",
+      "type": "array"
+    },
+    "cover": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Cover"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "kind",
+    "storyId",
+    "releaseId",
+    "graphId",
+    "requires",
+    "defaultLocale",
+    "titleKey",
+    "summaryKey",
+    "entryChapter",
+    "stateSchema",
+    "chapters",
+    "locales"
+  ],
+  "title": "Release",
+  "type": "object"
+}

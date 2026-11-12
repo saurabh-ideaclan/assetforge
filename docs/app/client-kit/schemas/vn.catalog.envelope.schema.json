@@ -1,0 +1,30 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "alg": {
+      "const": "Ed25519",
+      "title": "Alg",
+      "type": "string"
+    },
+    "keyId": {
+      "title": "Keyid",
+      "type": "string"
+    },
+    "payload": {
+      "title": "Payload",
+      "type": "string"
+    },
+    "signature": {
+      "title": "Signature",
+      "type": "string"
+    }
+  },
+  "required": [
+    "alg",
+    "keyId",
+    "payload",
+    "signature"
+  ],
+  "title": "Envelope",
+  "type": "object"
+}

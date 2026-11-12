@@ -1,0 +1,139 @@
+{
+  "$defs": {
+    "StateOperation": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "enum": [
+            "rename",
+            "default"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "from": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "From"
+        },
+        "to": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "To"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "title": "StateOperation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": "2.0",
+      "title": "Schemaversion",
+      "type": "string"
+    },
+    "kind": {
+      "const": "vn.migration",
+      "title": "Kind",
+      "type": "string"
+    },
+    "storyId": {
+      "title": "Storyid",
+      "type": "string"
+    },
+    "fromRelease": {
+      "title": "Fromrelease",
+      "type": "string"
+    },
+    "toRelease": {
+      "title": "Torelease",
+      "type": "string"
+    },
+    "fromGraphId": {
+      "title": "Fromgraphid",
+      "type": "string"
+    },
+    "toGraphId": {
+      "title": "Tographid",
+      "type": "string"
+    },
+    "nodeAliases": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Nodealiases",
+      "type": "object"
+    },
+    "stateOperations": {
+      "items": {
+        "$ref": "#/$defs/StateOperation"
+      },
+      "title": "Stateoperations",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "kind",
+    "storyId",
+    "fromRelease",
+    "toRelease",
+    "fromGraphId",
+    "toGraphId",
+    "nodeAliases",
+    "stateOperations"
+  ],
+  "title": "Migration",
+  "type": "object"
+}

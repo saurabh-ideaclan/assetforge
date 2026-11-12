@@ -1,0 +1,284 @@
+{
+  "$defs": {
+    "Audio": {
+      "additionalProperties": false,
+      "properties": {
+        "music": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Loop"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ambience": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Loop"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "loops": {
+          "items": {
+            "$ref": "#/$defs/Loop"
+          },
+          "title": "Loops",
+          "type": "array"
+        }
+      },
+      "required": [
+        "music",
+        "ambience"
+      ],
+      "title": "Audio",
+      "type": "object"
+    },
+    "Character": {
+      "additionalProperties": false,
+      "properties": {
+        "characterId": {
+          "title": "Characterid",
+          "type": "string"
+        },
+        "asset": {
+          "title": "Asset",
+          "type": "string"
+        },
+        "slot": {
+          "enum": [
+            "left",
+            "center",
+            "right"
+          ],
+          "title": "Slot",
+          "type": "string"
+        }
+      },
+      "required": [
+        "characterId",
+        "asset",
+        "slot"
+      ],
+      "title": "Character",
+      "type": "object"
+    },
+    "Cue": {
+      "additionalProperties": false,
+      "properties": {
+        "scene": {
+          "title": "Scene",
+          "type": "string"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/CueEvent"
+          },
+          "title": "Events",
+          "type": "array"
+        }
+      },
+      "required": [
+        "scene"
+      ],
+      "title": "Cue",
+      "type": "object"
+    },
+    "CueEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "trigger": {
+          "enum": [
+            "onNodeEnter",
+            "onTextRevealed",
+            "onChoiceCommitted"
+          ],
+          "title": "Trigger",
+          "type": "string"
+        },
+        "type": {
+          "const": "sound",
+          "title": "Type",
+          "type": "string"
+        },
+        "asset": {
+          "title": "Asset",
+          "type": "string"
+        },
+        "gain": {
+          "default": 1.0,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Gain",
+          "type": "number"
+        },
+        "resumePolicy": {
+          "const": "suppress",
+          "default": "suppress",
+          "title": "Resumepolicy",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "trigger",
+        "type",
+        "asset"
+      ],
+      "title": "CueEvent",
+      "type": "object"
+    },
+    "Loop": {
+      "additionalProperties": false,
+      "properties": {
+        "asset": {
+          "title": "Asset",
+          "type": "string"
+        },
+        "gain": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Gain",
+          "type": "number"
+        },
+        "loop": {
+          "const": true,
+          "default": true,
+          "title": "Loop",
+          "type": "boolean"
+        },
+        "transitionMs": {
+          "minimum": 0,
+          "title": "Transitionms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "asset",
+        "gain",
+        "transitionMs"
+      ],
+      "title": "Loop",
+      "type": "object"
+    },
+    "Overlay": {
+      "additionalProperties": false,
+      "properties": {
+        "asset": {
+          "title": "Asset",
+          "type": "string"
+        },
+        "kind": {
+          "const": "cg",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "asset",
+        "kind"
+      ],
+      "title": "Overlay",
+      "type": "object"
+    },
+    "SceneState": {
+      "additionalProperties": false,
+      "properties": {
+        "background": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Background"
+        },
+        "characters": {
+          "items": {
+            "$ref": "#/$defs/Character"
+          },
+          "title": "Characters",
+          "type": "array"
+        },
+        "overlays": {
+          "items": {
+            "$ref": "#/$defs/Overlay"
+          },
+          "title": "Overlays",
+          "type": "array"
+        },
+        "layoutProfile": {
+          "title": "Layoutprofile",
+          "type": "string"
+        },
+        "audio": {
+          "$ref": "#/$defs/Audio"
+        }
+      },
+      "required": [
+        "background",
+        "characters",
+        "overlays",
+        "layoutProfile",
+        "audio"
+      ],
+      "title": "SceneState",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": "2.0",
+      "title": "Schemaversion",
+      "type": "string"
+    },
+    "kind": {
+      "const": "vn.presentation",
+      "title": "Kind",
+      "type": "string"
+    },
+    "storyId": {
+      "title": "Storyid",
+      "type": "string"
+    },
+    "chapterId": {
+      "title": "Chapterid",
+      "type": "string"
+    },
+    "scenes": {
+      "additionalProperties": {
+        "$ref": "#/$defs/SceneState"
+      },
+      "title": "Scenes",
+      "type": "object"
+    },
+    "cues": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Cue"
+      },
+      "title": "Cues",
+      "type": "object"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "kind",
+    "storyId",
+    "chapterId",
+    "scenes",
+    "cues"
+  ],
+  "title": "Presentation",
+  "type": "object"
+}

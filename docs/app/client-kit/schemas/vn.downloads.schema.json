@@ -1,0 +1,101 @@
+{
+  "$defs": {
+    "Profile": {
+      "additionalProperties": false,
+      "properties": {
+        "documents": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Documents",
+          "type": "array"
+        },
+        "assets": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Assets",
+          "type": "array"
+        },
+        "qualities": {
+          "items": {
+            "enum": [
+              "standard",
+              "high"
+            ],
+            "type": "string"
+          },
+          "title": "Qualities",
+          "type": "array"
+        },
+        "bytes": {
+          "minimum": 0,
+          "title": "Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "documents",
+        "assets",
+        "qualities",
+        "bytes"
+      ],
+      "title": "Profile",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": "2.0",
+      "title": "Schemaversion",
+      "type": "string"
+    },
+    "kind": {
+      "const": "vn.downloads",
+      "title": "Kind",
+      "type": "string"
+    },
+    "storyId": {
+      "title": "Storyid",
+      "type": "string"
+    },
+    "chapterId": {
+      "title": "Chapterid",
+      "type": "string"
+    },
+    "startupNodes": {
+      "items": {
+        "maxLength": 200,
+        "pattern": "^[a-z0-9_][a-z0-9_.]*$",
+        "type": "string"
+      },
+      "title": "Startupnodes",
+      "type": "array"
+    },
+    "profiles": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Profile"
+      },
+      "propertyNames": {
+        "enum": [
+          "core",
+          "standard",
+          "enhanced"
+        ]
+      },
+      "title": "Profiles",
+      "type": "object"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "kind",
+    "storyId",
+    "chapterId",
+    "startupNodes",
+    "profiles"
+  ],
+  "title": "Downloads",
+  "type": "object"
+}

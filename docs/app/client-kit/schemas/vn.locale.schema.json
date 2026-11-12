@@ -1,0 +1,45 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": "2.0",
+      "title": "Schemaversion",
+      "type": "string"
+    },
+    "kind": {
+      "const": "vn.locale",
+      "title": "Kind",
+      "type": "string"
+    },
+    "storyId": {
+      "title": "Storyid",
+      "type": "string"
+    },
+    "locale": {
+      "title": "Locale",
+      "type": "string"
+    },
+    "strings": {
+      "patternProperties": {
+        "^[a-z0-9_][a-z0-9_.-]*$": {
+          "maxLength": 8000,
+          "type": "string"
+        }
+      },
+      "propertyNames": {
+        "maxLength": 240
+      },
+      "title": "Strings",
+      "type": "object"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "kind",
+    "storyId",
+    "locale",
+    "strings"
+  ],
+  "title": "Locale",
+  "type": "object"
+}
