@@ -82,7 +82,12 @@ def sync_spend(ctx: typer.Context, json_: JsonOpt = False) -> None:
             if result["status"] != "ok":
                 c.print(f"skipped: {result.get('reason')}")
                 return
-            c.print(f"published {result['device']['name']} → {result['branch']} ({'pushed' if result['pushed'] else 'unchanged'})")
+            if result.get("mode") == "read-only":
+                c.print(f"read only: fetched {result['branch']}; another device relays {result['device']['name']}'s numbers")
+            else:
+                c.print(f"published {result['device']['name']} → {result['branch']} ({'pushed' if result['pushed'] else 'unchanged'})")
+            for host, err in result.get("relay_errors", {}).items():
+                c.print(f"  [yellow]couldn't relay {host}: {err}[/yellow]")
             for o in result["others"]:
                 c.print(f"  {o['name']}: ${o['daily_usd']:.3f} today, ${o['monthly_usd']:.3f} this month")
 
