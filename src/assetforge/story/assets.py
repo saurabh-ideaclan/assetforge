@@ -105,7 +105,9 @@ def manifest(script: Script, config: StoryConfig, world: World | None, *, image_
         base = story_key(slug, "char", c.id, "neutral")
         image(base, "char", f"{c.name} (neutral)", AssetType.CHARACTER,
               f"{c.name}, visual novel character sprite. {c.look} Full body, standing, facing the viewer, arms relaxed, "
-              "calm neutral expression, centred, nothing else in frame.",
+              "calm neutral expression, centred, nothing else in frame."
+              + (" Their body and face are their own: height, build, age and face shape exactly as described above, "
+                 "so they could never be mistaken for another character." if config.direction is not None else ""),
               aspect="2:3", transparent=True, name=f"{slug}_{c.id}_neutral")  # fmt: skip
         for expr in c.expressions[1:]:
             if expr not in used_expr.get(c.id, set()):
@@ -269,14 +271,59 @@ def ensure_art_profile(lib: Library, config: StoryConfig, world: World | None) -
     return True
 
 
+# A built-in art preset is shared by every story that picks its style. Its people- and world-shaping lines ("tall slender
+# proportions (8 heads), sharp jawlines", one fixed palette, "glowing runes", "wide painted vistas") made the second
+# story's cast the first story's cast again (owner, 2026-11-13: Noah came out as Rafe, Bram as Tovan, a stocky Ellis slim).
+# A story keeps the preset's rendering (line work, shading, finish) and overrides those lines with its own.
+OWN_BODIES = ("Every person's height, build, age, face shape and proportions follow their own description exactly (stocky, "
+              "broad, small, older, a child); no shared body type, no shared face, no default heroic proportions.")
+OWN_LIGHT = "Light comes from the sources in the place (lamps, windows, fire, daylight), with a clear soft rim on figures."
+OWN_TEXTURE = "Smooth digital paint; fabric, metal, stone and skin rendered as the materials they are."
+COLOUR_WORDS = {  # colour words a world's art direction uses → a hex for the palette line (prose, never swatches)
+    "coal": "#2B2F36", "charcoal": "#33363B", "slate": "#5A6672", "navy": "#1F2A44", "coal blue": "#2E3A4A",
+    "steel": "#7A8591", "brass": "#B08D57", "gold": "#C9A646", "amber": "#E0A040", "copper": "#B87333", "rust": "#9A4A2A",
+    "ochre": "#C28E3E", "crimson": "#8C1C2C", "red": "#A33A2E", "plum": "#5B2E4A", "violet": "#5E4A8A", "purple": "#5A3F7A",
+    "teal": "#2F7A7A", "sea": "#3C7F8C", "green": "#4F7A4A", "moss": "#5D6B3A", "olive": "#6B6B3A", "sky": "#8FB6D8",
+    "blue": "#3E6A9A", "cold blue": "#5C8FC7", "ice": "#C8DCEB", "pale stone": "#D9D2C5", "stone": "#B7AFA3", "sand": "#D8C49A",
+    "dust": "#B9A68A", "cream": "#EFE6D2", "ivory": "#F1EADB", "white": "#F2F2EE", "bone": "#E6DFCF", "black": "#151515",
+    "brown": "#6B4A32", "saffron": "#E3A21A", "coral": "#E07A5F", "pink": "#E3A3B5", "rose": "#C9707E", "silver": "#BFC5CC",
+}
+
+
+def world_palette(look: str) -> list[str]:
+    """The palette a world's art direction names in words, in the order it names them (at most six)."""
+    import re
+
+    text = look.lower()
+    found: list[tuple[int, str]] = []
+    taken: list[tuple[int, int]] = []
+    for word in sorted(COLOUR_WORDS, key=len, reverse=True):  # "coal blue" before "coal" and "blue"
+        for m in re.finditer(rf"\b{re.escape(word)}\b", text):
+            if any(a <= m.start() < b for a, b in taken):
+                continue
+            taken.append((m.start(), m.end()))
+            found.append((m.start(), COLOUR_WORDS[word]))
+    return list(dict.fromkeys(h for _, h in sorted(found)))[:6]
+
+
 def story_art_direction(config: StoryConfig, world: World | None) -> art.ArtDirection:
     """The one art direction every image of the story follows: the creative direction's visual preset and notes
-    (independent of the narrative influence), with the world's own look as the description."""
+    (independent of the narrative influence), with the world's own look as the description. Stories with a creative
+    direction also replace the preset's body, light, texture, composition and palette lines with their own (above)."""
     look = world.art_direction if world else ""
     if config.direction is not None:
         from assetforge.story import direction as creative
 
-        return creative.art_direction(config.direction, look)
+        base = creative.art_direction(config.direction, look)
+        tall = config.screen_shape == "portrait"
+        own = {"shapes": OWN_BODIES, "lighting": OWN_LIGHT, "texture": OWN_TEXTURE,
+               "composition": ("Upright full-body character sprites; backgrounds and illustrations composed for a tall 9:16 "
+                               "frame (a phone held upright)") if tall else
+                              "Upright full-body character sprites; painted backgrounds with depth"}  # fmt: skip
+        palette = world_palette(look)
+        if palette:
+            own["palette"] = palette
+        return base.model_copy(update=own)
     return art.ArtDirection(style=config.art_style, description=look or None, genre=config.genre,
                             notes="Visual novel: consistent character design and painting style across all images.")  # fmt: skip
 

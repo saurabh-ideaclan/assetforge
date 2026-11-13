@@ -135,3 +135,25 @@ def test_the_writer_is_told_the_frame(tmp_path: Path) -> None:
     assert "tall 9:16" in prompts.world_prompt(tall) and "painted 16:9 backgrounds" not in prompts.world_prompt(tall)
     assert "painted 16:9 backgrounds" in prompts.world_prompt(wide) and "9:16" not in prompts.world_prompt(wide)
     assert prompts.PORTRAIT_PLACES in prompts.cast_prompt(tall, None) and prompts.PORTRAIT_PLACES not in prompts.cast_prompt(wide, None)
+
+
+def test_a_story_does_not_inherit_the_presets_bodies_or_palette(lib: Library, tmp_path: Path, fake: None) -> None:
+    """Two stories on the same art preset came out with one body type and one palette (owner, 2026-11-13): the
+    preset's "tall slender proportions (8 heads), sharp jawlines" and fixed palette overrode each character's build."""
+    from assetforge import art
+    from assetforge.story import assets as story_assets
+    from assetforge.story import direction as creative
+
+    project = steps.init(tmp_path / "s", title="T", premise="A keeper finds a letter.",
+                         direction=creative.resolve({"art_style": "manhwa-fantasy"}))  # fmt: skip
+    world = project.config.model_copy()  # only art_direction is read
+    look = type("W", (), {"art_direction": "Coal blue, brass and warm amber below; pale stone above."})()
+    own = story_assets.story_art_direction(project.config, look)
+    preset = art.builtin_presets()["manhwa-fantasy"].direction()
+    assert own.shapes == story_assets.OWN_BODIES and "8 heads" in (preset.shapes or "")
+    assert own.palette == ["#2E3A4A", "#B08D57", "#E0A040", "#D9D2C5"] and own.palette != preset.palette
+    assert "9:16" in own.composition and "runes" not in own.texture and "magical" not in own.lighting
+    merged = art.merge(preset, own)  # how resolve() layers the profile over its style preset
+    rendered = art.render(merged)
+    assert "8 heads" not in rendered and "glowing runes" not in rendered and "wide painted vistas" not in rendered
+    del world

@@ -83,6 +83,10 @@ class Key:
     tonic: int  # pitch class 0..11
     scale: str
 
+    def __post_init__(self) -> None:
+        # a template may name a scale by an alias ("aeolian" in melancholy_piano crashed every render that picked it)
+        object.__setattr__(self, "scale", SCALE_ALIASES.get(self.scale, self.scale))
+
     @property
     def name(self) -> str:
         return f"{NOTE_NAMES[self.tonic]} {self.scale.replace('_', ' ')}"

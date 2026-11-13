@@ -224,3 +224,11 @@ def test_cli_soundfont(capsys, home, tmp_path):
     assert code == 0 and out["installed"]["name"] == "mine" and Path(out["installed"]["path"]).is_file()
     code, out, _ = run_cli(capsys, "audio", "soundfont", "use", "mine", "--json")
     assert code == 0
+
+
+def test_a_scale_alias_in_a_template_still_renders() -> None:
+    """melancholy_piano lists "aeolian" among its scales; a Key made with it used to raise KeyError on its first chord."""
+    from assetforge.audio.music.theory import Key, chord
+
+    key = Key(9, "aeolian")
+    assert key.scale == "minor" and chord("i", key).root == 9
