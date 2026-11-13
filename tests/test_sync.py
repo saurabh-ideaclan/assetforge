@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import uuid
 from pathlib import Path
@@ -238,3 +239,103 @@ def test_agent_plist_runs_tick(tmp_path: Path) -> None:
     plist = updater.agent_plist(tmp_path, tmp_path)
     assert plist["ProgramArguments"][-4:] == ["assetforge", "sync", "tick", "--json"]
     assert plist["EnvironmentVariables"]["ASSETFORGE_HOME"] == str(tmp_path)
+
+
+# ---------------------------------------------------------------- devices without GitHub write access
+
+
+def test_read_only_device_is_relayed_by_another(two, monkeypatch: pytest.MonkeyPatch) -> None:
+    a, b, remote = two
+    settings_store.set_value(b, "sync.push", False)
+    settings_store.set_value(a, "sync.relay", "legion")
+    add_job(a, 1.0)
+    add_job(b, 3.0)
+
+    rb = devices.sync(b)  # read only: writes own.json, pushes nothing
+    assert rb["mode"] == "read-only" and devices.own_path(b.paths.home).is_file()
+
+    def fake_ssh(spec: str) -> dict:
+        assert spec == "legion"
+        import json as _json
+
+        return _json.loads(devices.own_path(b.paths.home).read_text())
+
+    monkeypatch.setattr(devices, "fetch_relayed", fake_ssh)
+    ra = devices.sync(a)
+    assert ra["pushed"] and ra["relayed"] and [o["monthly_usd"] for o in ra["others"]] == [3.0]
+    assert [o["monthly_usd"] for o in devices.sync(b)["others"]] == [1.0]  # b reads a's file from the ledger
+    assert budget.summary(b)["daily"]["spent_usd"] == 4.0
+    assert not devices.sync(a)["pushed"]  # nothing new to carry
+
+
+def test_relay_failure_does_not_stop_own_push(two, monkeypatch: pytest.MonkeyPatch) -> None:
+    a, _, _ = two
+    settings_store.set_value(a, "sync.relay", "legion")
+
+    def down(spec: str) -> dict:
+        raise devices.StorageError("Couldn't read legion's spend over SSH")
+
+    monkeypatch.setattr(devices, "fetch_relayed", down)
+    add_job(a, 1.0)
+    result = devices.sync(a)
+    assert result["pushed"] and "legion" in result["relay_errors"]
+
+
+def test_relayed_file_must_look_like_a_snapshot() -> None:
+    assert not devices.valid_snapshot({"days": {}, "device": {"id": "../../x"}, "updated_at": "z"})
+    assert devices.valid_snapshot({"days": {}, "device": {"id": "abc123def0"}, "updated_at": "2026-11-13T00:00:00Z"})
+
+
+# ---------------------------------------------------------------- Linux
+
+
+def test_linux_idle_hint() -> None:
+    now = 1_800_000_000.0
+    assert updater.parse_idle_hint({"IdleHint": "no", "IdleSinceHint": "1"}, now) == 0.0
+    assert updater.parse_idle_hint({"IdleHint": "yes", "IdleSinceHint": str(int((now - 900) * 1e6))}, now) == 900.0
+
+
+def test_restart_keeps_the_session_token() -> None:
+    argv = ["/r/.venv/bin/python", "/r/.venv/bin/assetforge", "--home", "/h", "ui", "--port", "8772", "--json"]
+    line = '{"url": "http://127.0.0.1:8772/?token=abc", "port": 8772, "token": "abc", "home": "/h"}\n'
+    assert updater.relaunch_argv(argv, line) == [*argv[:5], "--token", "abc", *argv[5:]]
+    assert updater.relaunch_argv(argv, "") == argv
+
+
+def test_systemd_units(tmp_path: Path) -> None:
+    units = updater.systemd_units(tmp_path, tmp_path)
+    service = units["assetforge-sync.service"]
+    assert "sync tick --json" in service and "KillMode=process" in service and f"ASSETFORGE_HOME={tmp_path}" in service
+    assert "OnUnitInactiveSec=600s" in units["assetforge-sync.timer"]
+
+
+@pytest.mark.skipif(not Path("/proc/self/cmdline").exists(), reason="needs /proc (Linux)")
+def test_ui_server_restarts_with_same_command(tmp_path: Path) -> None:
+    import sys
+    import time
+
+    root = tmp_path / "checkout"
+    (root / ".venv" / "bin").mkdir(parents=True)
+    py = root / ".venv" / "bin" / "python"
+    py.symlink_to(sys.executable)
+    script = root / ".venv" / "bin" / "assetforge"
+    script.write_text("import json, os, sys, time\n"
+                      "tok = sys.argv[sys.argv.index('--token') + 1] if '--token' in sys.argv else 'first'\n"
+                      "print(json.dumps({'token': tok, 'pid': os.getpid()}), flush=True)\n"
+                      "time.sleep(60)\n")  # fmt: skip
+    out = tmp_path / "state.json"
+    proc = subprocess.Popen([str(py), str(script), "ui", "--json"], stdout=open(out, "w"), cwd=tmp_path)  # noqa: SIM115
+    for _ in range(40):
+        if out.stat().st_size:
+            break
+        time.sleep(0.1)
+    assert updater.ui_processes(root) == [proc.pid]
+    assert updater.restart_ui_servers(root)
+    proc.wait(5)
+    new = updater.ui_processes(root)
+    assert len(new) == 1 and new[0] != proc.pid
+    import json
+
+    assert json.loads(out.read_text())["token"] == "first"  # same token passed back in
+    for pid in new:
+        os.kill(pid, 9)

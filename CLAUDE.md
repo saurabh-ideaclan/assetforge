@@ -846,7 +846,13 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
 - CLI `sync status|spend|update [--now]|publish|tick|install|uninstall`. `sync install` writes the launch agent
   `~/Library/LaunchAgents/com.ideaclan.assetforge.sync.plist` (`sync tick` every 10 min: spend when
   `sync.interval_minutes` (60) passed, then the update; log `$ASSETFORGE_HOME/sync/agent.log`, state `sync/state.json`).
-  Git runs non-interactive (`BatchMode` SSH), so each device needs working git credentials. Tests `tests/test_sync.py`.
+  Git runs non-interactive (`BatchMode` SSH). A device without GitHub write access sets `sync.push false` (fetch
+  only; its numbers stay in `sync/own.json`) and a device that can push lists it in `sync.relay` (`host[:library]`)
+  and carries that file in over SSH. Here: the Mac pushes and relays `legion` (Ubuntu, read-only, HTTPS origin).
+- Linux: `sync install` writes systemd user units `assetforge-sync.{service,timer}` (`KillMode=process` so a restarted
+  UI outlives the run); idle = logind `IdleHint`; the "app" is any `assetforge … ui` server from this checkout's
+  venv (`/proc`), restarted with its own argv, cwd, environment, stdout/stderr files and `--token` from its first
+  stdout line, so the launcher's state file and open tabs stay valid. Tests `tests/test_sync.py`.
 
 ### Content contract v2 + R2 publishing
 

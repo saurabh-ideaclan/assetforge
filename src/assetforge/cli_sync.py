@@ -149,7 +149,7 @@ def sync_install(ctx: typer.Context, json_: JsonOpt = False) -> None:
     with session(ctx, json_) as s:
         result = updater.install_agent(s.lib.paths.home)
         s.out.emit({"agent": result}, lambda c: c.print(
-            f"installed {result['plist']} (every {result['every_seconds'] // 60} min); log: {result['log']}"))
+            f"installed {result['unit']} (every {result['every_seconds'] // 60} min); log: {result['log']}"))
 
 
 @sync_app.command("uninstall")

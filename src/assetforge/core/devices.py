@@ -11,12 +11,17 @@ the last ~2 months) to the `spend-ledger` branch of a git remote (by default thi
 
 The ledger branch holds no code (an orphan branch), so it never mixes with `main`. Budgets read the
 others' last synced numbers from the local clone, so a check never touches the network.
+
+A device without GitHub write access sets `sync.push false`: it only fetches the ledger and leaves its
+own numbers in `$ASSETFORGE_HOME/sync/own.json`. A device that can push lists it in `sync.relay`
+(`host` or `host:/path/to/library`, comma-separated) and carries that file in over SSH on each sync.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import subprocess
 import uuid
@@ -200,31 +205,92 @@ def _same_numbers(path: Path, snap: dict[str, Any]) -> bool:
     return old.get("days") == snap["days"] and old.get("device") == snap["device"] and age < timedelta(hours=HEARTBEAT_HOURS)
 
 
+def own_path(home: Path) -> Path:
+    return home / "sync" / "own.json"
+
+
+def _dump(data: dict[str, Any]) -> str:
+    return json.dumps(data, indent=1, sort_keys=True) + "\n"
+
+
+def valid_snapshot(data: Any) -> bool:
+    return (isinstance(data, dict) and isinstance(data.get("days"), dict) and isinstance(data.get("device"), dict)
+            and bool(re.fullmatch(r"[0-9a-f]{6,32}", str(data["device"].get("id", ""))))
+            and isinstance(data.get("updated_at"), str))  # fmt: skip
+
+
+def fetch_relayed(spec: str, *, timeout: float = 30) -> dict[str, Any]:
+    """Read another device's own.json over SSH (`host` or `host:/library/path`)."""
+    host, _, home = spec.strip().partition(":")
+    path = f"{home.rstrip('/')}/sync/own.json" if home else "~/.assetforge/sync/own.json"
+    proc = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, f"cat {path}"],
+                          capture_output=True, text=True, timeout=timeout)  # fmt: skip
+    if proc.returncode != 0:
+        raise StorageError(f"Couldn't read {host}'s spend over SSH", hint=proc.stderr.strip()[-300:])
+    data = json.loads(proc.stdout)
+    if not valid_snapshot(data):
+        raise StorageError(f"{host}'s spend file is not a spend snapshot")
+    return data
+
+
 def sync(lib: Library, *, remote: str | None = None, force: bool = False, attempts: int = 4) -> dict[str, Any]:
-    """Pull the other devices' spend and publish this device's. Only this device's file is ever written."""
+    """Pull the other devices' spend and publish this device's (plus any relayed device's) file."""
+    from assetforge.core import settings_store
+
+    home = lib.paths.home
+    me = device(home)
+    snap = snapshot(lib)
+    own = own_path(home)
+    own.parent.mkdir(parents=True, exist_ok=True)
+    tmp = own.with_suffix(".tmp")
+    tmp.write_text(_dump(snap))
+    os.replace(tmp, own)
     remote = remote or remote_url(lib)
     if not remote:
         return {"status": "skipped", "reason": "no git remote (set `assetforge config set sync.remote <url>`)"}
-    folder = ledger_dir(lib.paths.home)
+    folder = ledger_dir(home)
     _ensure_clone(folder, remote)
-    me = device(lib.paths.home)
+    if not settings_store.get(lib, "sync.push"):
+        _fetch(folder)
+        return {"status": "ok", "device": me, "pushed": False, "mode": "read-only", "remote": remote,
+                "branch": LEDGER_BRANCH, "others": others_summary(home)}  # fmt: skip
+    relayed, relay_errors = [], {}
+    for spec in filter(None, (x.strip() for x in str(settings_store.get(lib, "sync.relay") or "").split(","))):
+        try:
+            data = fetch_relayed(spec)
+        except (StorageError, OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
+            relay_errors[spec] = str(exc)
+            continue
+        if data["device"]["id"] != me["id"]:
+            relayed.append(data)
     pushed = False
     for attempt in range(attempts):
         _fetch(folder)
-        snap = snapshot(lib)
+        changed = []
         path = folder / "devices" / f"{me['id']}.json"
-        if not force and _same_numbers(path, snap):
+        if force or not _same_numbers(path, snap):
+            changed.append((path, snap))
+        for data in relayed:
+            rpath = folder / "devices" / f"{data['device']['id']}.json"
+            if not rpath.is_file() or rpath.read_text() != _dump(data):
+                changed.append((rpath, data))
+        if not changed:
             break
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(snap, indent=1, sort_keys=True) + "\n")
-        git(folder, "add", str(path.relative_to(folder)))
+        for p, data in changed:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(_dump(data))
+            git(folder, "add", str(p.relative_to(folder)))
+        names = ", ".join(d["device"].get("name", d["device"]["id"]) for _, d in changed)
         git(folder, "-c", f"user.name=AssetForge {me['name']}", "-c", "user.email=assetforge-ledger@localhost",
-            "commit", "-q", "-m", f"spend: {me['name']} ${snap['totals']['monthly_usd']:.2f} this month")  # fmt: skip
+            "commit", "-q", "-m", f"spend: {names}")  # fmt: skip
         proc = git(folder, "push", "-q", "origin", f"HEAD:refs/heads/{LEDGER_BRANCH}", check=False)
         if proc.returncode == 0:
             pushed = True
             break
-        if attempt == attempts - 1:  # someone else pushed in between: refetch and rewrite our file
+        if attempt == attempts - 1:  # someone else pushed in between: refetch and rewrite our files
             raise StorageError("Couldn't push this device's spend", hint=proc.stderr.strip()[-800:])
-    return {"status": "ok", "device": me, "pushed": pushed, "remote": remote, "branch": LEDGER_BRANCH,
-            "others": others_summary(lib.paths.home)}  # fmt: skip
+    out = {"status": "ok", "device": me, "pushed": pushed, "remote": remote, "branch": LEDGER_BRANCH,
+           "relayed": [d["device"].get("name") for d in relayed], "others": others_summary(home)}  # fmt: skip
+    if relay_errors:
+        out["relay_errors"] = relay_errors
+    return out

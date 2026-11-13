@@ -5,7 +5,9 @@ commits GitHub doesn't have is the one you develop on: it is never touched, and 
 New code is pulled only when the library is idle (no running paid jobs, request jobs or app tasks) and,
 if AssetForge.app is open, nobody has touched the keyboard or mouse for `update.idle_minutes`.
 Then dependencies are synced when the lock file changed, the app is rebuilt when its shell changed,
-and the app is relaunched in the background so the new server code is in use.
+and the app is relaunched in the background so the new server code is in use. On Linux the "app" is any
+`assetforge … ui` server run from this checkout: it is restarted with its own command line, environment,
+output files and session token, so an open browser tab keeps working; idle time comes from logind.
 """
 
 from __future__ import annotations
@@ -116,16 +118,70 @@ def busy(lib: Library) -> list[str]:
 
 
 def user_idle_seconds() -> float | None:
-    """Seconds since the last keyboard/mouse input on this Mac (None when unknown)."""
+    """Seconds since the last keyboard/mouse input (None when unknown)."""
+    if sys.platform == "darwin":
+        try:
+            out = subprocess.run(["ioreg", "-c", "IOHIDSystem", "-d", "4"], capture_output=True, text=True,
+                                 timeout=10).stdout  # fmt: skip
+        except (OSError, subprocess.SubprocessError):
+            return None
+        m = re.search(r'"HIDIdleTime"\s*=\s*(\d+)', out)
+        return int(m.group(1)) / 1e9 if m else None
+    return _linux_idle_seconds()
+
+
+def _linux_idle_seconds() -> float | None:
+    """From logind: the desktop session's IdleHint (set by GNOME/KDE after their idle delay)."""
     try:
-        out = subprocess.run(["ioreg", "-c", "IOHIDSystem", "-d", "4"], capture_output=True, text=True, timeout=10).stdout
-    except (OSError, subprocess.SubprocessError):
+        sessions = subprocess.run(["loginctl", "list-sessions", "--no-legend"], capture_output=True, text=True,
+                                  timeout=10).stdout.split("\n")  # fmt: skip
+        user = os.environ.get("USER") or ""
+        best: float | None = None
+        for line in sessions:
+            parts = line.split()
+            if len(parts) < 3 or parts[2] != user:
+                continue
+            props = dict(kv.split("=", 1) for kv in subprocess.run(
+                ["loginctl", "show-session", parts[0], "-p", "Type", "-p", "IdleHint", "-p", "IdleSinceHint"],
+                capture_output=True, text=True, timeout=10).stdout.split() if "=" in kv)  # fmt: skip
+            if props.get("Type") not in ("x11", "wayland", "mir"):
+                continue
+            idle = parse_idle_hint(props, time.time())
+            best = idle if best is None else min(best, idle)
+        return best
+    except (OSError, subprocess.SubprocessError, ValueError):
         return None
-    m = re.search(r'"HIDIdleTime"\s*=\s*(\d+)', out)
-    return int(m.group(1)) / 1e9 if m else None
+
+
+def parse_idle_hint(props: dict[str, str], now: float) -> float:
+    if props.get("IdleHint") != "yes":
+        return 0.0
+    since = int(props.get("IdleSinceHint") or 0) / 1e6
+    return max(0.0, now - since) if since else 0.0
+
+
+def ui_processes(root: Path | None = None) -> list[int]:
+    """Linux: pids of `assetforge … ui` servers running from this checkout's virtualenv."""
+    root = (root or repo_root()).resolve()
+    pids = []
+    for proc in Path("/proc").glob("[0-9]*"):
+        try:
+            argv = (proc / "cmdline").read_bytes().split(b"\0")
+            argv = [a.decode() for a in argv if a]
+        except OSError:
+            continue
+        if int(proc.name) == os.getpid() or len(argv) < 3 or "ui" not in argv:
+            continue
+        exe = argv[0]
+        if not exe.startswith(str(root)) or not any(a.endswith("assetforge") or a == "assetforge" for a in argv[1:]):
+            continue
+        pids.append(int(proc.name))
+    return pids
 
 
 def app_running() -> bool:
+    if sys.platform != "darwin":
+        return bool(ui_processes())
     try:
         proc = subprocess.run(["osascript", "-e", f'application id "{BUNDLE_ID}" is running'],
                               capture_output=True, text=True, timeout=15)  # fmt: skip
@@ -135,7 +191,9 @@ def app_running() -> bool:
 
 
 def restart_app() -> bool:
-    """Quit AssetForge.app gracefully and reopen it in the background (no focus steal)."""
+    """Mac: quit AssetForge.app and reopen it in the background. Linux: restart the UI servers in place."""
+    if sys.platform != "darwin":
+        return restart_ui_servers()
     subprocess.run(["osascript", "-e", f'tell application id "{BUNDLE_ID}" to quit'], capture_output=True, timeout=30)
     for _ in range(40):
         if not app_running():
@@ -144,6 +202,69 @@ def restart_app() -> bool:
     else:
         return False
     return subprocess.run(["open", "-g", "-b", BUNDLE_ID], capture_output=True, timeout=30).returncode == 0
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return Path(f"/proc/{pid}").exists()
+
+
+def relaunch_argv(argv: list[str], stdout_text: str) -> list[str]:
+    """Same command, same session token (read from the server's first stdout line), so open pages keep working."""
+    if "--token" in argv:
+        return argv
+    try:
+        token = json.loads(stdout_text.strip().splitlines()[0]).get("token")
+    except (IndexError, json.JSONDecodeError, AttributeError):
+        token = None
+    if not token:
+        return argv
+    i = argv.index("ui") + 1
+    return [*argv[:i], "--token", str(token), *argv[i:]]
+
+
+def restart_ui_servers(root: Path | None = None) -> bool:
+    """Stop each UI server and start it again with its own command line, folder, environment and output files."""
+    ok = True
+    for pid in ui_processes(root):
+        base = Path(f"/proc/{pid}")
+        try:
+            argv = [a.decode() for a in (base / "cmdline").read_bytes().split(b"\0") if a]
+            cwd = os.readlink(base / "cwd")
+            env = dict(kv.split("=", 1) for kv in (base / "environ").read_bytes().decode(errors="replace").split("\0")
+                       if "=" in kv)  # fmt: skip
+            out_path = Path(os.readlink(base / "fd" / "1"))
+            err_path = Path(os.readlink(base / "fd" / "2"))
+        except OSError:
+            ok = False
+            continue
+        out_text = out_path.read_text(errors="replace") if out_path.is_file() else ""
+        argv = relaunch_argv(argv, out_text)
+        os.kill(pid, 15)
+        for _ in range(40):
+            if not _alive(pid):
+                break
+            time.sleep(0.5)
+        else:
+            os.kill(pid, 9)
+            time.sleep(1)
+        stdout = open(out_path, "w") if out_path.is_file() else subprocess.DEVNULL  # noqa: SIM115
+        stderr = open(err_path, "a") if err_path.is_file() else subprocess.DEVNULL  # noqa: SIM115
+        subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr,
+                         start_new_session=True)  # fmt: skip
+        if out_path.is_file():
+            for _ in range(120):
+                if out_path.stat().st_size:
+                    break
+                time.sleep(0.25)
+            else:
+                ok = False
+    return ok
 
 
 # ---------------------------------------------------------------- update
@@ -172,7 +293,7 @@ def _after_pull(root: Path, changed: list[str]) -> list[str]:
             raise StorageError("`uv sync` failed after the update", hint=proc.stderr[-800:])
         steps.append("uv sync")
     shell_changed = any(f.startswith("macos/") or f == "src/assetforge/app/installer.py" for f in changed)
-    if shell_changed and Path("~/Applications/AssetForge.app").expanduser().exists():
+    if shell_changed and sys.platform == "darwin" and Path("~/Applications/AssetForge.app").expanduser().exists():
         proc = subprocess.run([_venv_python(root), "-m", "assetforge", "app", "install", "--json"], cwd=root,
                               capture_output=True, text=True, timeout=900)  # fmt: skip
         steps.append("app rebuilt" if proc.returncode == 0 else "app rebuild failed")
@@ -285,16 +406,66 @@ def agent_plist(home: Path, root: Path) -> dict[str, Any]:
             "ProcessType": "Background", "LowPriorityIO": True}  # fmt: skip
 
 
+SYSTEMD_UNIT = "assetforge-sync"
+
+
+def systemd_units(home: Path, root: Path) -> dict[str, str]:
+    """Linux: a user service (one tick) and a timer that runs it every 10 minutes and after boot."""
+    path = ":".join([str(Path("~/.local/bin").expanduser()), "/usr/local/bin", "/usr/bin", "/bin"])
+    log = home / "sync" / "agent.log"
+    service = f"""[Unit]
+Description=AssetForge: share device spend, update from GitHub main
+
+[Service]
+Type=oneshot
+WorkingDirectory={home}
+Environment=ASSETFORGE_HOME={home}
+Environment=PATH={path}
+ExecStart={_venv_python(root)} -m assetforge sync tick --json
+StandardOutput=append:{log}
+StandardError=append:{log}
+# the restarted UI server must outlive this run
+KillMode=process
+Nice=10
+"""
+    timer = f"""[Unit]
+Description=Run AssetForge sync every {AGENT_INTERVAL_SECONDS // 60} minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec={AGENT_INTERVAL_SECONDS}s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+"""
+    return {f"{SYSTEMD_UNIT}.service": service, f"{SYSTEMD_UNIT}.timer": timer}
+
+
 def agent_path() -> Path:
-    return Path("~/Library/LaunchAgents").expanduser() / f"{AGENT_LABEL}.plist"
+    if sys.platform == "darwin":
+        return Path("~/Library/LaunchAgents").expanduser() / f"{AGENT_LABEL}.plist"
+    return Path("~/.config/systemd/user").expanduser() / f"{SYSTEMD_UNIT}.timer"
 
 
 def install_agent(home: Path, *, load: bool = True) -> dict[str, Any]:
+    (home / "sync").mkdir(parents=True, exist_ok=True)
+    if sys.platform != "darwin":
+        folder = agent_path().parent
+        folder.mkdir(parents=True, exist_ok=True)
+        for name, text in systemd_units(home, repo_root()).items():
+            (folder / name).write_text(text)
+        if load:
+            for cmd in (["daemon-reload"], ["enable", "--now", f"{SYSTEMD_UNIT}.timer"], ["start", f"{SYSTEMD_UNIT}.service", "--no-block"]):
+                proc = subprocess.run(["systemctl", "--user", *cmd], capture_output=True, text=True)
+                if proc.returncode != 0:
+                    raise StorageError(f"systemctl --user {' '.join(cmd)} failed", hint=proc.stderr.strip())
+        return {"unit": str(agent_path()), "loaded": load, "every_seconds": AGENT_INTERVAL_SECONDS,
+                "log": str(home / "sync" / "agent.log"), "python": _venv_python(repo_root())}  # fmt: skip
     import plistlib
 
     path = agent_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    (home / "sync").mkdir(parents=True, exist_ok=True)
     plist = agent_plist(home, repo_root())
     path.write_bytes(plistlib.dumps(plist))
     loaded = False
@@ -305,16 +476,22 @@ def install_agent(home: Path, *, load: bool = True) -> dict[str, Any]:
         if proc.returncode != 0:
             raise StorageError("launchctl couldn't load the sync agent", hint=proc.stderr.strip())
         loaded = True
-    return {"plist": str(path), "loaded": loaded, "every_seconds": AGENT_INTERVAL_SECONDS,
+    return {"plist": str(path), "unit": str(path), "loaded": loaded, "every_seconds": AGENT_INTERVAL_SECONDS,
             "log": plist["StandardOutPath"], "python": plist["ProgramArguments"][0]}  # fmt: skip
 
 
 def uninstall_agent() -> dict[str, Any]:
     path = agent_path()
-    subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}", str(path)], capture_output=True)
     existed = path.exists()
+    if sys.platform != "darwin":
+        subprocess.run(["systemctl", "--user", "disable", "--now", f"{SYSTEMD_UNIT}.timer"], capture_output=True)
+        for name in (f"{SYSTEMD_UNIT}.service", f"{SYSTEMD_UNIT}.timer"):
+            (path.parent / name).unlink(missing_ok=True)
+        subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+        return {"unit": str(path), "removed": existed}
+    subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}", str(path)], capture_output=True)
     path.unlink(missing_ok=True)
-    return {"plist": str(path), "removed": existed}
+    return {"plist": str(path), "unit": str(path), "removed": existed}
 
 
 def trim_log(home: Path, max_bytes: int = 1_000_000) -> None:
