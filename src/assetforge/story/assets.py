@@ -73,8 +73,9 @@ def manifest(script: Script, config: StoryConfig, world: World | None, *, image_
     carries the world's visual rules (what lies outside, what must never be painted)."""
     from assetforge.story.visual_canon import location_text, world_block
 
-    rules = world_block(canon)
-    rules = f" {rules}" if rules else ""
+    def rules_for(text: str) -> str:  # the world rules, with only the props this picture's own text names
+        block = world_block(canon, mention=text)
+        return f" {block}" if block else ""
     # the screen the story is read on: portrait (a phone held upright) makes every full-screen picture a tall 9:16
     # frame composed for it; landscape keeps the earlier 16:9 wording byte for byte
     tall = config.screen_shape == "portrait"
@@ -125,6 +126,7 @@ def manifest(script: Script, config: StoryConfig, world: World | None, *, image_
         if not times:
             continue
         first = story_key(slug, "bg", loc.id, times[0])
+        rules = rules_for(location_text(canon, loc))
         image(first, "bg", f"{loc.name} ({times[0]})", AssetType.BACKGROUND,
               f"{loc.name}: {location_text(canon, loc)} Visual novel background, {LIGHT[times[0]]}, no people, no text, "
               + (PORTRAIT_BG if tall else "eye-level wide view with room for characters in the foreground.") + rules,
@@ -132,7 +134,8 @@ def manifest(script: Script, config: StoryConfig, world: World | None, *, image_
         for t in times[1:]:
             image(story_key(slug, "bg", loc.id, t), "bg_time", f"{loc.name} ({t})", AssetType.BACKGROUND,
                   f"The same place as the reference image ({loc.name}) at {t}: keep the exact composition, camera and "
-                  f"every object; change only the lighting and sky to {LIGHT[t]}. No people, no text.{rules}",
+                  f"every object; change only the lighting to {LIGHT[t]}, and the sky only where the reference already shows sky: "
+                  f"never add a window, opening or view that is not in the reference. No people, no text.{rules}",
                   aspect=full, transparent=False, refs=[first], name=f"{slug}_{loc.id}_{t}")  # fmt: skip
 
     locs = {loc.id: loc for loc in script.locations}
@@ -154,7 +157,8 @@ def manifest(script: Script, config: StoryConfig, world: World | None, *, image_
                         f"{location_text(canon, loc, illustration=True) if loc else where}. Time of day: {when} ({LIGHT.get(when, LIGHT['day'])}). "
                       + (f"The only named people in the picture, matching the reference images: {who}. Nobody else from the "
                          "story's cast appears; unnamed people only where the description asks for them." if who
-                         else "No named characters in the picture.") + rules,
+                         else "No named characters in the picture.")
+                      + rules_for(f"{node.text or scene.title} {location_text(canon, loc, illustration=True) if loc else where}"),
                       aspect=full, transparent=False, refs=refs, name=f"{slug}_cg_{node.cg}")  # fmt: skip
 
     look = world.art_direction if world else ""
@@ -163,7 +167,8 @@ def manifest(script: Script, config: StoryConfig, world: World | None, *, image_
           f"Title screen key art for the visual novel '{script.title}': "
           f"{world.logline if world else ''} The protagonist (first reference image) in the story's defining place and "
           "action, large in the frame; a second lead (second reference image) only smaller and apart, never posed beside "
-          f"the protagonist as a pair. Clear space at the top for a logo. No text.{PORTRAIT_TITLE if tall else ''}{rules}", aspect=full,
+          f"the protagonist as a pair. Clear space at the top for a logo. No text.{PORTRAIT_TITLE if tall else ''}"
+          f"{rules_for(world.logline if world else '')}", aspect=full,
           transparent=False, refs=leads,
           name=f"{slug}_title")  # fmt: skip
     image(story_key(slug, "ui", "textbox"), "ui", "Dialogue box", AssetType.UI,

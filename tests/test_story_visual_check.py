@@ -339,3 +339,18 @@ def test_app_routes(home: Path, fake: None, tmp_path: Path, monkeypatch: pytest.
         srv.shutdown()
         srv.server_close()
         srv.close_pool()
+
+
+def test_a_picture_lists_only_the_props_its_own_text_names() -> None:
+    """Listing every prop in every prompt ("ONLY if the description puts it in") still painted the Gauge into a
+    stairwell, a drill hall, the archive and a ward (Hold Still, 2026-11-13)."""
+    from assetforge.story.visual_canon import Prop, VisualCanon, world_block
+
+    canon = VisualCanon(world="A tower.", outside="", props=[Prop(name="gauge", look="A brass column."),
+                                                 Prop(name="school_bag", look="A worn bag with one loose strap.")])  # fmt: skip
+    stairs = world_block(canon, mention="A steep service stairwell with brass rails.")
+    assert "brass column" not in stairs and "loose strap" not in stairs
+    ward = world_block(canon, mention="Noah sets Mia's school bag beside the bed.")
+    assert "loose strap" in ward and "brass column" not in ward
+    assert "brass column" in world_block(canon, mention="He lays a hand on the Gauge.")
+    assert "brass column" in world_block(canon) and "loose strap" in world_block(canon)  # no text: every prop, as before

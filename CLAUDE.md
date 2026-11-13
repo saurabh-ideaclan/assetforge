@@ -719,6 +719,13 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   remaking them is `story assets --only bg --only cg --only ui --redo` (paid, so only on the owner's word). The player
   gets `STORY.screen` and has a `body.portrait` layout (9:16 stage, sizes as shares of the narrow width). Release image
   variants already carry `layout` from the real pixels. Tests `tests/test_story_screen.py`.
+- **Each story its own people** (owner 2026-11-13: the second manhwa story's cast came out as the first's). A built-in art
+  preset's body/face/palette/glow lines ("8 heads, sharp jawlines", a fixed palette, "glowing runes", "wide vistas") are
+  replaced per story in `assets.story_art_direction` (`OWN_BODIES`, `OWN_LIGHT`, `OWN_TEXTURE`, portrait-aware composition,
+  `world_palette` from the world's colour words); sprite briefs say the body and face are the character's own. Profiles
+  are stored once per project, so older stories keep theirs. `visual_canon.world_block(canon, mention=text)` lists only the
+  props the picture's own text names (the Gauge had been painted into every room); `bg_time` may relight and change sky
+  already in the reference, never add a window. Music `Key` resolves scale aliases (`aeolian`).
 - **Story sound**: `audio_direction.apply` lets a planned one-shot cue adopt the writer's own sound line beside it (one
   each, within two nodes) so a sound never plays twice; recipe `steam_whistle` (presets one|two|three = blasts);
   `request.infer_preset` reads a recipe's own presets from the description first; `request.fingerprint` includes the

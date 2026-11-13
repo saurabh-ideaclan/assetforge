@@ -18,6 +18,8 @@ finished images against it. Stored in `visual_canon.json` (proposed until approv
 
 from __future__ import annotations
 
+import re
+
 import json
 import time
 from typing import Any, Literal
@@ -201,14 +203,24 @@ def location_text(canon: VisualCanon | None, loc: Any, *, illustration: bool = F
     return text
 
 
-def world_block(canon: VisualCanon | None) -> str:
-    """The world rules appended to every background, illustration and title prompt ('' without a canon)."""
+def mentioned(prop: Prop, text: str) -> bool:
+    """Whether a picture's own text names this prop (any word of its name, four letters or more)."""
+    words = [w for w in re.split(r"[\s_\-]+", prop.name.lower()) if len(w) >= 4]
+    low = text.lower()
+    return any(re.search(rf"\b{re.escape(w)}", low) for w in words)
+
+
+def world_block(canon: VisualCanon | None, mention: str | None = None) -> str:
+    """The world rules appended to every background, illustration and title prompt ('' without a canon). With
+    `mention` (the picture's own description), only the props that text names are listed: listing every prop
+    ("ONLY if the description puts it in") still made the model paint the Gauge into stairwells and wards."""
     if canon is None:
         return ""
+    props = canon.props if mention is None else [x for x in canon.props if mentioned(x, mention)]
     parts = [f"The world: {canon.world.rstrip('.')}." if canon.world else "",
              f"Beyond this place (windows, open doors, horizon): {canon.outside.rstrip('.')}." if canon.outside else "",
              ("Always: " + "; ".join(a.rstrip(".") for a in canon.always) + ".") if canon.always else "",
              ("Never paint: " + "; ".join(n.rstrip(".") for n in canon.never) + ".") if canon.never else "",
-             ("Fixed looks, ONLY for things the description itself puts in the picture (do not add them): "
-              + "; ".join(f"{p.name}: {p.look.rstrip('.')}" for p in canon.props) + ".") if canon.props else ""]  # fmt: skip
+             (("Fixed looks, ONLY for things the description itself puts in the picture (do not add them): " if mention is None
+               else "How these look: ") + "; ".join(f"{x.name}: {x.look.rstrip('.')}" for x in props) + ".") if props else ""]  # fmt: skip
     return " ".join(p for p in parts if p)
