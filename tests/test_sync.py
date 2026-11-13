@@ -279,6 +279,17 @@ def test_linux_idle_hint() -> None:
     assert updater.parse_idle_hint({"IdleHint": "yes", "IdleSinceHint": str(int((now - 900) * 1e6))}, now) == 900.0
 
 
+def test_linux_idle_prefers_gnome_input_idle(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An idle inhibitor keeps IdleHint at "no"; mutter's input idle time still counts up."""
+    assert updater.parse_mutter_idle("(uint64 1449,)\n") == 1.449
+    assert updater.parse_mutter_idle("Error: no such name") is None
+    monkeypatch.setattr(updater, "_gnome_input_idle_seconds", lambda: 1200.0)
+    monkeypatch.setattr(updater, "_logind_idle_seconds", lambda: 0.0)
+    assert updater._linux_idle_seconds() == 1200.0
+    monkeypatch.setattr(updater, "_gnome_input_idle_seconds", lambda: None)  # not GNOME: logind decides
+    assert updater._linux_idle_seconds() == 0.0
+
+
 def test_restart_keeps_the_session_token() -> None:
     argv = ["/r/.venv/bin/python", "/r/.venv/bin/assetforge", "--home", "/h", "ui", "--port", "8772", "--json"]
     line = '{"url": "http://127.0.0.1:8772/?token=abc", "port": 8772, "token": "abc", "home": "/h"}\n'

@@ -139,6 +139,31 @@ def user_idle_seconds() -> float | None:
 
 
 def _linux_idle_seconds() -> float | None:
+    """GNOME: mutter's input idle time (like macOS HIDIdleTime). Else logind's IdleHint, which an idle inhibitor
+    (a playing video, a browser tab) keeps at "no" even with nobody at the keyboard."""
+    idle = _gnome_input_idle_seconds()
+    return idle if idle is not None else _logind_idle_seconds()
+
+
+def _gnome_input_idle_seconds() -> float | None:
+    if not shutil.which("gdbus") or not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
+        return None
+    try:
+        out = subprocess.run(["gdbus", "call", "--session", "--dest", "org.gnome.Mutter.IdleMonitor",
+                              "--object-path", "/org/gnome/Mutter/IdleMonitor/Core",
+                              "--method", "org.gnome.Mutter.IdleMonitor.GetIdletime"],
+                             capture_output=True, text=True, timeout=10)  # fmt: skip
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return parse_mutter_idle(out.stdout) if out.returncode == 0 else None
+
+
+def parse_mutter_idle(text: str) -> float | None:
+    m = re.fullmatch(r"\(uint64 (\d+),\)", text.strip())
+    return int(m.group(1)) / 1000 if m else None
+
+
+def _logind_idle_seconds() -> float | None:
     """From logind: the desktop session's IdleHint (set by GNOME/KDE after their idle delay)."""
     try:
         sessions = subprocess.run(["loginctl", "list-sessions", "--no-legend"], capture_output=True, text=True,

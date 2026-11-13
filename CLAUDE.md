@@ -852,7 +852,8 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   `sync.interval_minutes` (60) passed, then the update; log `$ASSETFORGE_HOME/sync/agent.log`, state `sync/state.json`).
   Git and SSH run non-interactive (`BatchMode`).
 - Linux: `sync install` writes systemd user units `assetforge-sync.{service,timer}` (`KillMode=process` so a restarted
-  UI outlives the run); idle = logind `IdleHint`; the "app" is any `assetforge … ui` server from this checkout's
+  UI outlives the run); idle = GNOME mutter's input idle time (`org.gnome.Mutter.IdleMonitor`), else logind `IdleHint` (an idle inhibitor
+  such as a playing tab keeps that at "no"); the "app" is any `assetforge … ui` server from this checkout's
   venv (`/proc`), restarted with its own argv, cwd, environment, stdout/stderr files and `--token` from its first
   stdout line, so the launcher's state file and open tabs stay valid. Tests `tests/test_sync.py`.
 
