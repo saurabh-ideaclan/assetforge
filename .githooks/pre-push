@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Every device updates only from GitHub `main` (`assetforge sync update`), so code pushed anywhere else
+# would be missed. Push main (`assetforge sync publish`), or set ASSETFORGE_ALLOW_BRANCH_PUSH=1 to override.
+[ "${ASSETFORGE_ALLOW_BRANCH_PUSH:-0}" = "1" ] && exit 0
+status=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -z "$remote_ref" ] && continue
+  case "$remote_ref" in
+    refs/heads/main) ;;
+    *)
+      echo "pre-push: refusing to push $local_ref -> $remote_ref: devices only follow main." >&2
+      echo "          Merge it into main and run \`assetforge sync publish\` (or ASSETFORGE_ALLOW_BRANCH_PUSH=1)." >&2
+      status=1 ;;
+  esac
+done
+unmerged=$(git for-each-ref --format='%(refname:short)' refs/heads | while read -r b; do
+  [ "$b" = main ] && continue
+  n=$(git rev-list --count "main..$b" 2>/dev/null || echo 0)
+  [ "$n" != 0 ] && echo "$b ($n)"
+done)
+[ -n "$unmerged" ] && echo "pre-push: note: these branches have commits that are not on main: $unmerged" >&2
+exit $status

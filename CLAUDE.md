@@ -829,6 +829,25 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
 - Secrets: `.env` is ignored; `scripts/check_secrets.sh` runs from `.githooks/pre-commit`
   (`git config core.hooksPath .githooks`) and `.github/workflows/secrets.yml`. Never commit `.env`.
 
+### Devices: shared spend and updates from main
+
+- Several Macs share one set of provider keys, each with its own library. `core/devices.py`: `device.json` (stable id +
+  hostname, `ASSETFORGE_DEVICE_NAME` overrides) and the spend ledger, an orphan branch `spend-ledger` of
+  `sync.remote` (empty = this checkout's origin) cloned at `$ASSETFORGE_HOME/sync/ledger`; each device writes only
+  `devices/<id>.json` (daily spend by provider, 62 days; running calls count their estimate), pushes when the numbers
+  change or every 24 h, and on a push race refetches and rewrites its own file. `budget.spent/summary/reserve` add the
+  others' last synced spend while `budget.include_other_devices` is on (default); reads never touch the network.
+- `updater.py`: devices follow `origin/main` only, fast-forward only. A checkout that is dirty or has commits GitHub
+  lacks is never touched (the one you develop on); a clean side branch is switched back to main. Pulls wait until no
+  generation job / app task is running and, when AssetForge.app is open, `update.idle_minutes` without input
+  (`HIDIdleTime`); then `uv sync` if the lock changed, `app install` if `macos/` changed, and the app is relaunched
+  with `open -g`. `publish` pushes main and refuses when another local branch has commits main lacks;
+  `.githooks/pre-push` refuses pushes to anything but main (`ASSETFORGE_ALLOW_BRANCH_PUSH=1` overrides).
+- CLI `sync status|spend|update [--now]|publish|tick|install|uninstall`. `sync install` writes the launch agent
+  `~/Library/LaunchAgents/com.ideaclan.assetforge.sync.plist` (`sync tick` every 10 min: spend when
+  `sync.interval_minutes` (60) passed, then the update; log `$ASSETFORGE_HOME/sync/agent.log`, state `sync/state.json`).
+  Git runs non-interactive (`BatchMode` SSH), so each device needs working git credentials. Tests `tests/test_sync.py`.
+
 ### Content contract v2 + R2 publishing
 
 - `story/contract.py` `compile_release(lib, project, out_dir=None, *, allow_missing, derive)`: script.json (else the

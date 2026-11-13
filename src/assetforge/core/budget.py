@@ -29,7 +29,20 @@ def _period_starts(now: datetime | None = None) -> dict[str, str]:
     return {"daily": fmt(day), "monthly": fmt(month)}
 
 
-def spent(lib: Library, since: str) -> float:
+def spent(lib: Library, since: str, *, all_devices: bool | None = None) -> float:
+    """Spend since `since`: this device's jobs, plus the other devices' last synced spend when
+    `budget.include_other_devices` is on (they share the provider keys; see core/devices.py)."""
+    own = spent_here(lib, since)
+    if all_devices is None:
+        all_devices = settings_store.get(lib, "budget.include_other_devices")
+    if not all_devices:
+        return own
+    from assetforge.core import devices
+
+    return round(own + devices.others_spent(lib.paths.home, since), 4)
+
+
+def spent_here(lib: Library, since: str) -> float:
     marks = ",".join("?" * len(PAID_KINDS))
     row = lib.conn.execute(
         f"SELECT ifnull(sum(ifnull(cost_usd, CASE WHEN status = 'running' THEN estimated_cost_usd END)), 0) "
@@ -40,13 +53,19 @@ def spent(lib: Library, since: str) -> float:
 
 
 def summary(lib: Library) -> dict[str, Any]:
+    from assetforge.core import devices
+
     starts = _period_starts()
-    out: dict[str, Any] = {}
+    combined = settings_store.get(lib, "budget.include_other_devices")
+    out: dict[str, Any] = {"combined": combined}
     for period, since in starts.items():
         limit = settings_store.get(lib, f"budget.{period}_usd")
-        used = spent(lib, since)
+        own = spent_here(lib, since)
+        others = devices.others_spent(lib.paths.home, since)
+        used = round(own + others, 4) if combined else own
         out[period] = {"since": since, "spent_usd": used, "limit_usd": limit,
-                       "remaining_usd": None if limit is None else round(max(0.0, limit - used), 4)}  # fmt: skip
+                       "remaining_usd": None if limit is None else round(max(0.0, limit - used), 4),
+                       "this_device_usd": own, "other_devices_usd": others}  # fmt: skip
     out["per_request_usd"] = settings_store.get(lib, "budget.per_request_usd")
     marks = ",".join("?" * len(PAID_KINDS))
     out["by_provider_monthly"] = {
@@ -57,6 +76,7 @@ def summary(lib: Library) -> dict[str, Any]:
             [*PAID_KINDS, starts["monthly"]],
         )
     }
+    out["devices"] = {"this": devices.device(lib.paths.home), "others": devices.others_summary(lib.paths.home)}
     return out
 
 

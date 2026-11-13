@@ -30,6 +30,12 @@ SETTINGS: dict[str, SettingSpec] = {
     "budget.daily_usd": SettingSpec(float, None, "Max provider spend per UTC day (unset = no limit)", 0),
     "budget.monthly_usd": SettingSpec(float, None, "Max provider spend per UTC month (unset = no limit)", 0),
     "budget.per_request_usd": SettingSpec(float, None, "Default max estimated cost of one generation call", 0),
+    "budget.include_other_devices": SettingSpec(bool, True, "Budgets count the other devices' synced spend too "
+                                                "(they share the provider keys; `assetforge sync`)"),
+    "sync.remote": SettingSpec(str, "", "Git remote for the spend ledger (empty = this checkout's origin)"),
+    "sync.interval_minutes": SettingSpec(int, 60, "How often `sync tick` publishes/pulls device spend", 5),
+    "update.auto": SettingSpec(bool, True, "`sync tick` pulls new code from origin/main and restarts the app"),
+    "update.idle_minutes": SettingSpec(int, 10, "Restart the open app only after this long without keyboard/mouse", 0),
     "limits.default.max_concurrent": SettingSpec(int, 2, "Concurrent calls per provider (all agents)", 1),
     "limits.default.rpm": SettingSpec(int, 30, "Requests per minute per provider (all agents)", 1),
     "queue.lease_seconds": SettingSpec(int, 300, "How long a job lease lasts without a heartbeat", 30),
