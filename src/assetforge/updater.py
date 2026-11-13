@@ -323,7 +323,7 @@ def apply(lib: Library, *, now: bool = False, root: Path | None = None, restart:
         idle = user_idle_seconds()
         need = settings_store.get(lib, "update.idle_minutes") * 60
         if was_running and idle is not None and idle < need:
-            reasons.append(f"the app is open and this Mac was used {int(idle // 60)} min ago")
+            reasons.append(f"the app is open and this computer was used {int(idle // 60)} min ago")
         if reasons:
             return {"status": "pending", "reasons": reasons, **st}
     old = git(root, "rev-parse", "HEAD").stdout.strip()
