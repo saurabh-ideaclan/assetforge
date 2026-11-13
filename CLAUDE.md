@@ -833,10 +833,11 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
 
 - Several devices share one set of provider keys, each with its own library. **Spend never goes to GitHub** (the repo
   is public); it moves directly over SSH. `core/devices.py`: `device.json` (stable id + hostname,
-  `ASSETFORGE_DEVICE_NAME` overrides); each sync writes this device's numbers to `sync/own.json` (daily spend by
-  provider, 62 days; running calls count their estimate). A device that can SSH to the others lists them in
+  `ASSETFORGE_DEVICE_NAME` overrides); each sync, and every `sync tick` in between, writes this device's numbers
+  to `sync/own.json` (daily spend by provider, 62 days; running calls count their estimate), so a peer pulling it
+  gets current numbers. A device that can SSH to the others lists them in
   `sync.peers` (`host[:library]`): it copies each peer's `own.json` into its `sync/peers/<id>.json` and writes its
-  own (and every other peer's) into the peer's `sync/peers/` (one `ssh … sh -s` per peer, atomic per file). A device
+  own (and every other peer's, never the peer's own) into the peer's `sync/peers/` (one `ssh … sh -s` per peer, atomic per file). A device
   nobody needs to reach has no setting. `budget.spent/summary/reserve` add `sync/peers/` while
   `budget.include_other_devices` is on (default); reads never touch the network. Here: the Mac has
   `sync.peers legion` (Ubuntu); legion has none. Code updates still come from GitHub `main` (below).

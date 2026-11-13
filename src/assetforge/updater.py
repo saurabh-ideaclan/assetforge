@@ -372,7 +372,7 @@ def publish(root: Path | None = None, *, allow_unmerged: bool = False) -> dict[s
 
 
 def tick(lib: Library, *, force_spend: bool = False) -> dict[str, Any]:
-    """What the launch agent runs every few minutes: hourly spend sync, then the update check."""
+    """What the launch agent runs every few minutes: own numbers refreshed, hourly spend swap, then the update check."""
     home = lib.paths.home
     state = load_state(home)
     out: dict[str, Any] = {"at": utcnow(), "device": devices.device(home)}
@@ -388,6 +388,10 @@ def tick(lib: Library, *, force_spend: bool = False) -> dict[str, Any]:
             save_state(home, spend_error=str(exc), spend_error_at=utcnow())
     else:
         out["spend"] = {"status": "not_due", "next_in_minutes": round((every - (time.time() - last)) / 60, 1)}
+        try:  # still refresh own.json (local, no network): peers pull it on their own schedule
+            devices.write_own(lib)
+        except Exception as exc:  # noqa: BLE001
+            out["spend"]["own_error"] = str(exc)
     if settings_store.get(lib, "update.auto"):
         try:
             out["update"] = apply(lib)

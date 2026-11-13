@@ -214,23 +214,32 @@ def push_peer(spec: str, files: list[dict[str, Any]]) -> None:
     ssh(host, "sh -s", stdin="set -e\n" + "\n".join(lines) + "\n")
 
 
+def write_own(lib: Library) -> dict[str, Any]:
+    """Refresh `sync/own.json` (local only, cheap), so a peer that pulls it gets current numbers."""
+    snap = snapshot(lib)
+    _write_atomic(own_path(lib.paths.home), _dump(snap))
+    return snap
+
+
 def sync(lib: Library) -> dict[str, Any]:
     """Write this device's numbers; with `sync.peers`, swap numbers with each peer over SSH."""
     from assetforge.core import settings_store
 
     home = lib.paths.home
     me = device(home)
-    snap = snapshot(lib)
-    _write_atomic(own_path(home), _dump(snap))
+    snap = write_own(lib)
     specs = [x.strip() for x in str(settings_store.get(lib, "sync.peers") or "").split(",") if x.strip()]
     errors: dict[str, str] = {}
     received = []
+    peer_ids: dict[str, str] = {}
     for spec in specs:  # first collect every peer's numbers, so each peer then gets everyone's
         try:
             data = pull_peer(spec)
         except (StorageError, OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
             errors[spec] = f"{exc}: {getattr(exc, 'hint', '') or ''}".strip(": ")
             continue
+        if data:
+            peer_ids[spec] = data["device"]["id"]
         if data and data["device"]["id"] != me["id"]:
             _write_atomic(peers_dir(home) / f"{data['device']['id']}.json", _dump(data))
             received.append(data["device"].get("name", data["device"]["id"]))
@@ -239,7 +248,7 @@ def sync(lib: Library) -> dict[str, Any]:
         if spec in errors:
             continue
         try:
-            push_peer(spec, [snap, *others(home)])
+            push_peer(spec, [snap, *(o for o in others(home) if o["device"]["id"] != peer_ids.get(spec))])
             sent.append(spec)
         except (StorageError, OSError, subprocess.SubprocessError) as exc:
             errors[spec] = f"{exc}: {getattr(exc, 'hint', '') or ''}".strip(": ")

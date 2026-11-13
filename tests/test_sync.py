@@ -147,6 +147,26 @@ def test_tick_syncs_spend_hourly(two) -> None:
     assert updater.tick(a, force_spend=True)["spend"]["status"] == "ok"
 
 
+def test_tick_refreshes_own_numbers_between_swaps(two) -> None:
+    """A device with no peers is pulled on the other's schedule, so its own.json must be current every tick."""
+    a, b, _ = two
+    settings_store.set_value(b, "update.auto", False)
+    assert updater.tick(b)["spend"]["status"] == "ok"
+    add_job(b, 3.0)  # spent after b's hourly sync
+    assert updater.tick(b)["spend"]["status"] == "not_due"
+    devices.sync(a)
+    assert [o["daily_usd"] for o in devices.others_summary(a.paths.home)] == [3.0]
+
+
+def test_peer_is_not_sent_its_own_numbers(two) -> None:
+    a, b, _ = two
+    devices.sync(b)
+    devices.sync(a)
+    devices.sync(a)
+    ids = sorted(p.stem for p in devices.peers_dir(b.paths.home).glob("*.json"))
+    assert ids == [devices.device(a.paths.home)["id"]]
+
+
 def test_old_settings_do_not_break_config_list(lib: Library) -> None:
     lib.conn.execute("INSERT INTO settings (key, value, updated_at) VALUES ('sync.relay', 'legion', 'x')")
     lib.conn.commit()
