@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from assetforge.core import devices, settings_store
-from assetforge.core.devices import git
 from assetforge.core.util import utcnow
 from assetforge.errors import ConflictError, StorageError
 
@@ -36,6 +35,15 @@ AGENT_LABEL = "com.ideaclan.assetforge.sync"
 AGENT_INTERVAL_SECONDS = 600
 STALE_JOB_MINUTES = 30
 TASK_HEARTBEAT_SECONDS = 60
+
+
+def git(cwd: Path, *args: str, check: bool = True, timeout: float = 120) -> subprocess.CompletedProcess[str]:
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "", "SSH_ASKPASS": ""}
+    env["GIT_SSH_COMMAND"] = env.get("GIT_SSH_COMMAND") or "ssh -o BatchMode=yes -o ConnectTimeout=20"
+    proc = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, env=env, timeout=timeout)
+    if check and proc.returncode != 0:
+        raise StorageError(f"git {args[0]} failed", hint=(proc.stderr or proc.stdout).strip()[-800:])
+    return proc
 
 
 def repo_root() -> Path:
@@ -373,8 +381,9 @@ def tick(lib: Library, *, force_spend: bool = False) -> dict[str, Any]:
     if force_spend or time.time() - last >= every:
         try:
             out["spend"] = devices.sync(lib)
-            state = save_state(home, spend_synced_epoch=time.time(), spend_synced_at=utcnow(), spend_error=None)
-        except Exception as exc:  # noqa: BLE001  (keep going: the update must not depend on the ledger)
+            save_state(home, spend_synced_epoch=time.time(), spend_synced_at=utcnow(),
+                       spend_error="; ".join(out["spend"].get("errors", {}).values()) or None)  # fmt: skip
+        except Exception as exc:  # noqa: BLE001  (keep going: the update must not depend on the peers)
             out["spend"] = {"status": "error", "error": str(exc), "hint": getattr(exc, "hint", None)}
             save_state(home, spend_error=str(exc), spend_error_at=utcnow())
     else:

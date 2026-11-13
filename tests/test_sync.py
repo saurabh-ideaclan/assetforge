@@ -1,4 +1,4 @@
-"""Device spend sharing (spend-ledger branch) and code updates from origin/main."""
+"""Device spend shared over SSH, and code updates from origin/main."""
 
 from __future__ import annotations
 
@@ -47,12 +47,21 @@ def add_job(lib: Library, cost: float | None, *, status: str = "succeeded", esti
 
 
 @pytest.fixture
-def two(tmp_path: Path):
-    remote = bare(tmp_path)
+def two(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Device a (can SSH to b, lists it in sync.peers) and device b (no settings). SSH runs the shell locally."""
+    calls: list[str] = []
+
+    def local_ssh(host: str, command: str, *, stdin: str | None = None) -> str:
+        calls.append(host)
+        if host == "down":
+            raise devices.StorageError("SSH to down failed", hint="Connection timed out")
+        proc = subprocess.run(["sh", "-c", command], input=stdin, capture_output=True, text=True, check=True)
+        return proc.stdout
+
+    monkeypatch.setattr(devices, "ssh", local_ssh)
     with Library(tmp_path / "a") as a, Library(tmp_path / "b") as b:
-        for lib in (a, b):
-            settings_store.set_value(lib, "sync.remote", str(remote))
-        yield a, b, remote
+        settings_store.set_value(a, "sync.peers", f"legion:{b.paths.home}")
+        yield a, b, calls
 
 
 # ---------------------------------------------------------------- spend
@@ -64,28 +73,36 @@ def test_device_identity_is_stable(tmp_path: Path) -> None:
     assert devices.device(tmp_path / "y")["id"] != first["id"]
 
 
-def test_each_device_sees_the_others_spend(two) -> None:
-    a, b, remote = two
+def test_devices_swap_spend_over_ssh(two) -> None:
+    a, b, calls = two
     add_job(a, 1.25)
     add_job(b, 0.5, provider="gemini")
     add_job(b, None, status="running", estimate=0.25)  # in-flight calls count their estimate
 
-    ra = devices.sync(a)
-    assert ra["pushed"] and ra["others"] == []
-    rb = devices.sync(b)
-    assert [o["monthly_usd"] for o in rb["others"]] == [1.25]
-    devices.sync(a)  # pulls b's file
+    rb = devices.sync(b)  # b has no peers: it only writes its own numbers, no network
+    assert rb["peers"] == [] and devices.own_path(b.paths.home).is_file() and calls == []
+
+    ra = devices.sync(a)  # a pulls b's numbers and pushes its own into b
+    assert ra["status"] == "ok" and ra["received"] and calls == ["legion", "legion"]
     others = devices.others_summary(a.paths.home)
     assert others[0]["daily_usd"] == 0.75 and others[0]["by_provider_monthly"] == {"gemini": 0.5, "openai": 0.25}
+    assert [o["monthly_usd"] for o in devices.others_summary(b.paths.home)] == [1.25]
 
     s = budget.summary(a)
     assert s["daily"]["this_device_usd"] == 1.25 and s["daily"]["other_devices_usd"] == 0.75
     assert s["daily"]["spent_usd"] == 2.0 and s["combined"] is True
+    assert budget.summary(b)["daily"]["spent_usd"] == 2.0
 
-    # the ledger is its own orphan branch with one file per device
-    files = run(remote, "ls-tree", "--name-only", "-r", devices.LEDGER_BRANCH).split()
-    assert sorted(files) == sorted(f"devices/{devices.device(lib.paths.home)['id']}.json" for lib in (a, b))
-    assert run(remote, "branch", "--list", "main") == ""
+
+def test_hub_forwards_third_device(two, tmp_path: Path) -> None:
+    a, b, _ = two
+    with Library(tmp_path / "c") as c:
+        settings_store.set_value(a, "sync.peers", f"legion:{b.paths.home}, other:{c.paths.home}")
+        add_job(c, 2.0)
+        devices.sync(c)
+        devices.sync(b)
+        devices.sync(a)
+        assert sorted(o["monthly_usd"] for o in devices.others_summary(b.paths.home)) == [0.0, 2.0]
 
 
 def test_budget_limits_count_other_devices(two) -> None:
@@ -103,45 +120,37 @@ def test_budget_limits_count_other_devices(two) -> None:
     assert budget.summary(a)["daily"]["spent_usd"] == 1.5
 
 
-def test_unchanged_numbers_are_not_pushed_again(two) -> None:
-    a, _, remote = two
-    add_job(a, 1.0)
-    assert devices.sync(a)["pushed"]
-    before = run(remote, "rev-parse", devices.LEDGER_BRANCH)
-    assert not devices.sync(a)["pushed"]
-    assert run(remote, "rev-parse", devices.LEDGER_BRANCH) == before
-    add_job(a, 1.0)
-    assert devices.sync(a)["pushed"]
-
-
-def test_push_race_retries_without_losing_the_other_device(two, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_unreachable_peer_is_reported_not_fatal(two) -> None:
     a, b, _ = two
-    add_job(a, 1.0)
-    add_job(b, 2.0)
-    real_fetch = devices._fetch
-    calls = {"n": 0}
-
-    def racing_fetch(folder: Path) -> bool:
-        ok = real_fetch(folder)
-        calls["n"] += 1
-        if calls["n"] == 1:  # b pushes right after a fetched, so a's first push is rejected
-            monkeypatch.setattr(devices, "_fetch", real_fetch)
-            devices.sync(b)
-            monkeypatch.setattr(devices, "_fetch", racing_fetch)
-        return ok
-
-    monkeypatch.setattr(devices, "_fetch", racing_fetch)
+    settings_store.set_value(a, "sync.peers", f"down, legion:{b.paths.home}")
+    add_job(b, 1.0)
+    devices.sync(b)
     result = devices.sync(a)
-    assert result["pushed"] and [o["monthly_usd"] for o in result["others"]] == [2.0]
-    assert [o["monthly_usd"] for o in devices.sync(b)["others"]] == [1.0]
+    assert result["status"] == "partial" and "down" in result["errors"] and result["sent"] == [f"legion:{b.paths.home}"]
+    assert [o["monthly_usd"] for o in result["others"]] == [1.0]
 
 
-def test_tick_syncs_spend_hourly(two, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_peer_files_are_validated_and_paths_quoted(two) -> None:
+    assert not devices.valid_snapshot({"days": {}, "device": {"id": "../../x"}, "updated_at": "z"})
+    assert devices.valid_snapshot({"days": {}, "device": {"id": "abc123def0"}, "updated_at": "2026-11-13T00:00:00Z"})
+    assert devices.parse_peer("legion") == ("legion", '"$HOME/.assetforge"')
+    assert devices.parse_peer("legion:/a b/lib;rm") == ("legion", "'/a b/lib;rm'")
+    with pytest.raises(devices.StorageError):
+        devices.parse_peer("-oProxyCommand=x")
+
+
+def test_tick_syncs_spend_hourly(two) -> None:
     a, _, _ = two
     settings_store.set_value(a, "update.auto", False)
     assert updater.tick(a)["spend"]["status"] == "ok"
     assert updater.tick(a)["spend"]["status"] == "not_due"
     assert updater.tick(a, force_spend=True)["spend"]["status"] == "ok"
+
+
+def test_old_settings_do_not_break_config_list(lib: Library) -> None:
+    lib.conn.execute("INSERT INTO settings (key, value, updated_at) VALUES ('sync.relay', 'legion', 'x')")
+    lib.conn.commit()
+    assert "sync.relay" not in settings_store.all_settings(lib)
 
 
 # ---------------------------------------------------------------- code updates
@@ -239,51 +248,6 @@ def test_agent_plist_runs_tick(tmp_path: Path) -> None:
     plist = updater.agent_plist(tmp_path, tmp_path)
     assert plist["ProgramArguments"][-4:] == ["assetforge", "sync", "tick", "--json"]
     assert plist["EnvironmentVariables"]["ASSETFORGE_HOME"] == str(tmp_path)
-
-
-# ---------------------------------------------------------------- devices without GitHub write access
-
-
-def test_read_only_device_is_relayed_by_another(two, monkeypatch: pytest.MonkeyPatch) -> None:
-    a, b, remote = two
-    settings_store.set_value(b, "sync.push", False)
-    settings_store.set_value(a, "sync.relay", "legion")
-    add_job(a, 1.0)
-    add_job(b, 3.0)
-
-    rb = devices.sync(b)  # read only: writes own.json, pushes nothing
-    assert rb["mode"] == "read-only" and devices.own_path(b.paths.home).is_file()
-
-    def fake_ssh(spec: str) -> dict:
-        assert spec == "legion"
-        import json as _json
-
-        return _json.loads(devices.own_path(b.paths.home).read_text())
-
-    monkeypatch.setattr(devices, "fetch_relayed", fake_ssh)
-    ra = devices.sync(a)
-    assert ra["pushed"] and ra["relayed"] and [o["monthly_usd"] for o in ra["others"]] == [3.0]
-    assert [o["monthly_usd"] for o in devices.sync(b)["others"]] == [1.0]  # b reads a's file from the ledger
-    assert budget.summary(b)["daily"]["spent_usd"] == 4.0
-    assert not devices.sync(a)["pushed"]  # nothing new to carry
-
-
-def test_relay_failure_does_not_stop_own_push(two, monkeypatch: pytest.MonkeyPatch) -> None:
-    a, _, _ = two
-    settings_store.set_value(a, "sync.relay", "legion")
-
-    def down(spec: str) -> dict:
-        raise devices.StorageError("Couldn't read legion's spend over SSH")
-
-    monkeypatch.setattr(devices, "fetch_relayed", down)
-    add_job(a, 1.0)
-    result = devices.sync(a)
-    assert result["pushed"] and "legion" in result["relay_errors"]
-
-
-def test_relayed_file_must_look_like_a_snapshot() -> None:
-    assert not devices.valid_snapshot({"days": {}, "device": {"id": "../../x"}, "updated_at": "z"})
-    assert devices.valid_snapshot({"days": {}, "device": {"id": "abc123def0"}, "updated_at": "2026-11-13T00:00:00Z"})
 
 
 # ---------------------------------------------------------------- Linux

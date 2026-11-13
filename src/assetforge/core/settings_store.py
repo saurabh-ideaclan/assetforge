@@ -32,10 +32,7 @@ SETTINGS: dict[str, SettingSpec] = {
     "budget.per_request_usd": SettingSpec(float, None, "Default max estimated cost of one generation call", 0),
     "budget.include_other_devices": SettingSpec(bool, True, "Budgets count the other devices' synced spend too "
                                                 "(they share the provider keys; `assetforge sync`)"),
-    "sync.remote": SettingSpec(str, "", "Git remote for the spend ledger (empty = this checkout's origin)"),
-    "sync.push": SettingSpec(bool, True, "Push this device's spend to the ledger (false = read only; another device "
-                             "relays it)"),
-    "sync.relay": SettingSpec(str, "", "SSH hosts whose spend this device carries to the ledger (host[:library], ...)"),
+    "sync.peers": SettingSpec(str, "", "SSH hosts to swap device spend with directly (host[:library], comma-separated)"),
     "sync.interval_minutes": SettingSpec(int, 60, "How often `sync tick` publishes/pulls device spend", 5),
     "update.auto": SettingSpec(bool, True, "`sync tick` pulls new code from origin/main and restarts the app"),
     "update.idle_minutes": SettingSpec(int, 10, "Restart the open app only after this long without keyboard/mouse", 0),
@@ -120,5 +117,9 @@ def all_settings(lib: Library) -> dict[str, dict[str, Any]]:
         out[key] = {"value": get(lib, key), "default": spec.default, "set": key in stored, "description": spec.description}
     for key in stored:
         if key not in out:
+            try:
+                spec_for(key)
+            except InvalidInputError:  # a setting from an older version, no longer used
+                continue
             out[key] = {"value": get(lib, key), "default": None, "set": True, "description": spec_for(key).description}
     return out

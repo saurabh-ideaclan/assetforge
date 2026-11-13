@@ -13,7 +13,7 @@ from assetforge.cli_common import JsonOpt, session
 from assetforge.core import budget, devices
 from assetforge.core.util import utcnow
 
-sync_app = typer.Typer(help="Share spend between devices (one API key, many Macs) and keep every device on GitHub main.",
+sync_app = typer.Typer(help="Share spend between devices over SSH (one API key) and keep every device on GitHub main.",
                        no_args_is_help=True)  # fmt: skip
 
 
@@ -72,24 +72,23 @@ def sync_status(
 
 @sync_app.command("spend")
 def sync_spend(ctx: typer.Context, json_: JsonOpt = False) -> None:
-    """Publish this device's spend and pull the other devices' now (normally hourly via the agent)."""
+    """Swap spend with the `sync.peers` devices over SSH now (normally hourly via the agent)."""
     with session(ctx, json_) as s:
-        result = devices.sync(s.lib, force=True)
-        if result["status"] == "ok":
-            updater.save_state(s.lib.paths.home, spend_synced_epoch=time.time(), spend_synced_at=utcnow(), spend_error=None)
+        result = devices.sync(s.lib)
+        updater.save_state(s.lib.paths.home, spend_synced_epoch=time.time(), spend_synced_at=utcnow(),
+                           spend_error="; ".join(result.get("errors", {}).values()) or None)  # fmt: skip
 
         def human(c: Console) -> None:
-            if result["status"] != "ok":
-                c.print(f"skipped: {result.get('reason')}")
-                return
-            if result.get("mode") == "read-only":
-                c.print(f"read only: fetched {result['branch']}; another device relays {result['device']['name']}'s numbers")
+            if result["peers"]:
+                c.print(f"{result['device']['name']}: swapped spend over SSH with {', '.join(result['sent']) or 'nobody'}")
             else:
-                c.print(f"published {result['device']['name']} → {result['branch']} ({'pushed' if result['pushed'] else 'unchanged'})")
-            for host, err in result.get("relay_errors", {}).items():
-                c.print(f"  [yellow]couldn't relay {host}: {err}[/yellow]")
+                c.print(f"{result['device']['name']}: numbers written; no sync.peers here (a peer that can reach this "
+                        "device brings the files over SSH)")  # fmt: skip
+            for host, err in result.get("errors", {}).items():
+                c.print(f"  [yellow]{host}: {err}[/yellow]")
             for o in result["others"]:
-                c.print(f"  {o['name']}: ${o['daily_usd']:.3f} today, ${o['monthly_usd']:.3f} this month")
+                c.print(f"  {o['name']}: ${o['daily_usd']:.3f} today, ${o['monthly_usd']:.3f} this month "
+                        f"(numbers from {o['age_hours']} h ago)")  # fmt: skip
 
         s.out.emit({"spend_sync": result}, human)
 

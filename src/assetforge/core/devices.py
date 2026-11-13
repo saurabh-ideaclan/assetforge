@@ -1,20 +1,17 @@
-"""Per-device spend, shared between devices that use the same provider keys.
+"""Per-device spend, shared directly between devices over SSH (never through GitHub).
 
-Each device keeps its own catalog, so its local `generation_jobs` are exactly its own spend. To see
-what the other devices spent, every device publishes a small JSON file (daily spend by provider for
-the last ~2 months) to the `spend-ledger` branch of a git remote (by default this checkout's
-`origin`) and reads the others' files from its local clone of that branch:
+Each device keeps its own catalog, so its local `generation_jobs` are exactly its own spend. Every sync
+writes this device's numbers (daily spend by provider for the last ~2 months) to `sync/own.json`. A
+device that can reach the others over SSH lists them in `sync.peers` (`host` or `host:/library/path`,
+comma-separated) and, on each sync, copies each peer's `own.json` into its `sync/peers/` and copies its
+own numbers (and every other peer's) into each peer's `sync/peers/`. A device that nobody can reach
+needs no setting: its peer brings the files both ways.
 
-    $ASSETFORGE_HOME/device.json                  this device's stable id and name
-    $ASSETFORGE_HOME/sync/ledger/                 clone of the ledger branch
-    $ASSETFORGE_HOME/sync/ledger/devices/<id>.json one file per device; each device only writes its own
+    $ASSETFORGE_HOME/device.json             this device's stable id and name
+    $ASSETFORGE_HOME/sync/own.json           this device's numbers
+    $ASSETFORGE_HOME/sync/peers/<id>.json    the other devices' numbers, as last received
 
-The ledger branch holds no code (an orphan branch), so it never mixes with `main`. Budgets read the
-others' last synced numbers from the local clone, so a check never touches the network.
-
-A device without GitHub write access sets `sync.push false`: it only fetches the ledger and leaves its
-own numbers in `$ASSETFORGE_HOME/sync/own.json`. A device that can push lists it in `sync.relay`
-(`host` or `host:/path/to/library`, comma-separated) and carries that file in over SSH on each sync.
+Budgets read `sync/peers/` locally, so a budget check never touches the network.
 """
 
 from __future__ import annotations
@@ -22,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import socket
 import subprocess
 import uuid
@@ -35,10 +33,9 @@ from assetforge.errors import StorageError
 if TYPE_CHECKING:
     from assetforge.core.catalog import Library
 
-LEDGER_BRANCH = "spend-ledger"
 HISTORY_DAYS = 62
-HEARTBEAT_HOURS = 24  # republish unchanged numbers this often so others can see the device is alive
 SCHEMA = 1
+SSH_TIMEOUT = 30
 
 
 # ---------------------------------------------------------------- identity
@@ -99,14 +96,18 @@ def snapshot(lib: Library) -> dict[str, Any]:
                        "monthly_usd": _sum_since(days, starts["monthly"])}}  # fmt: skip
 
 
-def ledger_dir(home: Path) -> Path:
-    return home / "sync" / "ledger"
+def peers_dir(home: Path) -> Path:
+    return home / "sync" / "peers"
+
+
+def own_path(home: Path) -> Path:
+    return home / "sync" / "own.json"
 
 
 def others(home: Path) -> list[dict[str, Any]]:
-    """The other devices' last synced files (from the local ledger clone; no network)."""
+    """The other devices' last received numbers (local files; no network)."""
     own = device(home)["id"]
-    folder = ledger_dir(home) / "devices"
+    folder = peers_dir(home)
     out = []
     for path in sorted(folder.glob("*.json")) if folder.is_dir() else []:
         try:
@@ -148,65 +149,7 @@ def others_summary(home: Path) -> list[dict[str, Any]]:
     return rows
 
 
-# ---------------------------------------------------------------- git transport
-
-
-def git(cwd: Path, *args: str, check: bool = True, timeout: float = 120) -> subprocess.CompletedProcess[str]:
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "", "SSH_ASKPASS": ""}
-    env["GIT_SSH_COMMAND"] = env.get("GIT_SSH_COMMAND") or "ssh -o BatchMode=yes -o ConnectTimeout=20"
-    proc = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, env=env, timeout=timeout)
-    if check and proc.returncode != 0:
-        raise StorageError(f"git {args[0]} failed", hint=(proc.stderr or proc.stdout).strip()[-800:])
-    return proc
-
-
-def default_remote() -> str | None:
-    """The `origin` URL of the AssetForge checkout this code runs from."""
-    for parent in Path(__file__).resolve().parents:
-        if (parent / ".git").exists() and (parent / "pyproject.toml").is_file():
-            proc = git(parent, "remote", "get-url", "origin", check=False)
-            return proc.stdout.strip() or None
-    return None
-
-
-def remote_url(lib: Library) -> str | None:
-    from assetforge.core import settings_store
-
-    return settings_store.get(lib, "sync.remote") or default_remote()
-
-
-def _ensure_clone(folder: Path, remote: str) -> None:
-    if not (folder / ".git").is_dir():
-        folder.mkdir(parents=True, exist_ok=True)
-        git(folder, "init", "-q", "-b", LEDGER_BRANCH)
-        git(folder, "remote", "add", "origin", remote)
-    elif git(folder, "remote", "get-url", "origin", check=False).stdout.strip() != remote:
-        git(folder, "remote", "set-url", "origin", remote)
-
-
-def _fetch(folder: Path) -> bool:
-    """Fetch the ledger branch and move the local copy onto it. False when the branch doesn't exist yet."""
-    proc = git(folder, "fetch", "-q", "origin", f"+refs/heads/{LEDGER_BRANCH}:refs/remotes/origin/{LEDGER_BRANCH}",
-               check=False)  # fmt: skip
-    if proc.returncode != 0:
-        if "couldn't find remote ref" in proc.stderr.lower():
-            return False
-        raise StorageError("Couldn't fetch the spend ledger", hint=proc.stderr.strip()[-800:])
-    git(folder, "reset", "-q", "--hard", f"origin/{LEDGER_BRANCH}")
-    return True
-
-
-def _same_numbers(path: Path, snap: dict[str, Any]) -> bool:
-    try:
-        old = json.loads(path.read_text())
-        age = datetime.now(UTC) - datetime.fromisoformat(old["updated_at"].replace("Z", "+00:00"))
-    except (OSError, json.JSONDecodeError, KeyError, ValueError):
-        return False
-    return old.get("days") == snap["days"] and old.get("device") == snap["device"] and age < timedelta(hours=HEARTBEAT_HOURS)
-
-
-def own_path(home: Path) -> Path:
-    return home / "sync" / "own.json"
+# ---------------------------------------------------------------- SSH transport
 
 
 def _dump(data: dict[str, Any]) -> str:
@@ -219,78 +162,89 @@ def valid_snapshot(data: Any) -> bool:
             and isinstance(data.get("updated_at"), str))  # fmt: skip
 
 
-def fetch_relayed(spec: str, *, timeout: float = 30) -> dict[str, Any]:
-    """Read another device's own.json over SSH (`host` or `host:/library/path`)."""
-    host, _, home = spec.strip().partition(":")
-    path = f"{home.rstrip('/')}/sync/own.json" if home else "~/.assetforge/sync/own.json"
-    proc = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, f"cat {path}"],
-                          capture_output=True, text=True, timeout=timeout)  # fmt: skip
+def _write_atomic(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)
+
+
+def parse_peer(spec: str) -> tuple[str, str]:
+    """`host` or `host:/library` → (host, shell expression of the remote library folder)."""
+    host, _, lib = spec.strip().partition(":")
+    if not host or host.startswith("-"):
+        raise StorageError(f"Bad peer {spec!r}", hint="Use host or host:/path/to/library")
+    if not lib or lib in ("~", "~/.assetforge"):
+        return host, '"$HOME/.assetforge"'
+    if lib.startswith("~/"):
+        return host, '"$HOME"/' + shlex.quote(lib[2:])
+    return host, shlex.quote(lib)
+
+
+def ssh(host: str, command: str, *, stdin: str | None = None) -> str:
+    proc = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, command], input=stdin,
+                          capture_output=True, text=True, timeout=SSH_TIMEOUT)  # fmt: skip
     if proc.returncode != 0:
-        raise StorageError(f"Couldn't read {host}'s spend over SSH", hint=proc.stderr.strip()[-300:])
-    data = json.loads(proc.stdout)
+        raise StorageError(f"SSH to {host} failed", hint=proc.stderr.strip()[-300:])
+    return proc.stdout
+
+
+def pull_peer(spec: str) -> dict[str, Any] | None:
+    """The peer's own numbers (None when it has never synced)."""
+    host, lib = parse_peer(spec)
+    out = ssh(host, f"cat {lib}/sync/own.json 2>/dev/null || true")
+    if not out.strip():
+        return None
+    data = json.loads(out)
     if not valid_snapshot(data):
         raise StorageError(f"{host}'s spend file is not a spend snapshot")
     return data
 
 
-def sync(lib: Library, *, remote: str | None = None, force: bool = False, attempts: int = 4) -> dict[str, Any]:
-    """Pull the other devices' spend and publish this device's (plus any relayed device's) file."""
+def push_peer(spec: str, files: list[dict[str, Any]]) -> None:
+    """Put these devices' numbers into the peer's `sync/peers/` (one SSH call, atomic per file)."""
+    host, lib = parse_peer(spec)
+    lines = [f"mkdir -p {lib}/sync/peers"]
+    for data in files:
+        dev = data["device"]["id"]  # validated hex, safe in a path
+        body = _dump(data)
+        marker = f"AF_{uuid.uuid4().hex}"
+        lines.append(f"cat > {lib}/sync/peers/{dev}.json.tmp <<'{marker}'\n{body}{marker}")
+        lines.append(f"mv -f {lib}/sync/peers/{dev}.json.tmp {lib}/sync/peers/{dev}.json")
+    ssh(host, "sh -s", stdin="set -e\n" + "\n".join(lines) + "\n")
+
+
+def sync(lib: Library) -> dict[str, Any]:
+    """Write this device's numbers; with `sync.peers`, swap numbers with each peer over SSH."""
     from assetforge.core import settings_store
 
     home = lib.paths.home
     me = device(home)
     snap = snapshot(lib)
-    own = own_path(home)
-    own.parent.mkdir(parents=True, exist_ok=True)
-    tmp = own.with_suffix(".tmp")
-    tmp.write_text(_dump(snap))
-    os.replace(tmp, own)
-    remote = remote or remote_url(lib)
-    if not remote:
-        return {"status": "skipped", "reason": "no git remote (set `assetforge config set sync.remote <url>`)"}
-    folder = ledger_dir(home)
-    _ensure_clone(folder, remote)
-    if not settings_store.get(lib, "sync.push"):
-        _fetch(folder)
-        return {"status": "ok", "device": me, "pushed": False, "mode": "read-only", "remote": remote,
-                "branch": LEDGER_BRANCH, "others": others_summary(home)}  # fmt: skip
-    relayed, relay_errors = [], {}
-    for spec in filter(None, (x.strip() for x in str(settings_store.get(lib, "sync.relay") or "").split(","))):
+    _write_atomic(own_path(home), _dump(snap))
+    specs = [x.strip() for x in str(settings_store.get(lib, "sync.peers") or "").split(",") if x.strip()]
+    errors: dict[str, str] = {}
+    received = []
+    for spec in specs:  # first collect every peer's numbers, so each peer then gets everyone's
         try:
-            data = fetch_relayed(spec)
+            data = pull_peer(spec)
         except (StorageError, OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
-            relay_errors[spec] = str(exc)
+            errors[spec] = f"{exc}: {getattr(exc, 'hint', '') or ''}".strip(": ")
             continue
-        if data["device"]["id"] != me["id"]:
-            relayed.append(data)
-    pushed = False
-    for attempt in range(attempts):
-        _fetch(folder)
-        changed = []
-        path = folder / "devices" / f"{me['id']}.json"
-        if force or not _same_numbers(path, snap):
-            changed.append((path, snap))
-        for data in relayed:
-            rpath = folder / "devices" / f"{data['device']['id']}.json"
-            if not rpath.is_file() or rpath.read_text() != _dump(data):
-                changed.append((rpath, data))
-        if not changed:
-            break
-        for p, data in changed:
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(_dump(data))
-            git(folder, "add", str(p.relative_to(folder)))
-        names = ", ".join(d["device"].get("name", d["device"]["id"]) for _, d in changed)
-        git(folder, "-c", f"user.name=AssetForge {me['name']}", "-c", "user.email=assetforge-ledger@localhost",
-            "commit", "-q", "-m", f"spend: {names}")  # fmt: skip
-        proc = git(folder, "push", "-q", "origin", f"HEAD:refs/heads/{LEDGER_BRANCH}", check=False)
-        if proc.returncode == 0:
-            pushed = True
-            break
-        if attempt == attempts - 1:  # someone else pushed in between: refetch and rewrite our files
-            raise StorageError("Couldn't push this device's spend", hint=proc.stderr.strip()[-800:])
-    out = {"status": "ok", "device": me, "pushed": pushed, "remote": remote, "branch": LEDGER_BRANCH,
-           "relayed": [d["device"].get("name") for d in relayed], "others": others_summary(home)}  # fmt: skip
-    if relay_errors:
-        out["relay_errors"] = relay_errors
+        if data and data["device"]["id"] != me["id"]:
+            _write_atomic(peers_dir(home) / f"{data['device']['id']}.json", _dump(data))
+            received.append(data["device"].get("name", data["device"]["id"]))
+    sent = []
+    for spec in specs:
+        if spec in errors:
+            continue
+        try:
+            push_peer(spec, [snap, *others(home)])
+            sent.append(spec)
+        except (StorageError, OSError, subprocess.SubprocessError) as exc:
+            errors[spec] = f"{exc}: {getattr(exc, 'hint', '') or ''}".strip(": ")
+    out: dict[str, Any] = {"status": "ok" if not errors else "partial", "device": me, "peers": specs,
+                           "received": received, "sent": sent, "others": others_summary(home)}  # fmt: skip
+    if errors:
+        out["errors"] = errors
     return out
