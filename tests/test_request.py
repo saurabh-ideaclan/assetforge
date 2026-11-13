@@ -204,3 +204,19 @@ def test_story_ambience_with_nobody_in_it_is_rerendered_without_the_talkers(lib:
     only = handle(lib, AssetRequest(type="ambience", description="an empty courtyard, nobody about", name="talkers",
                                     sound={"beds": [{"bed": "crowd_murmur", "level_db": -6}], "length": 30}))
     assert (only.generated or {}).get("voice_check", {}).get("muted") is None and lib.get_asset(only.asset_id).status != Status.REJECTED
+
+
+def test_an_identical_request_binds_its_key_again(lib: Library) -> None:
+    """A finished identical request is handed back by fingerprint; it must also (re)bind the request's key in the
+    project, or a key lost earlier stays lost on every re-run (Hold Still's `sfx/revelation`, 2026-11-13)."""
+    from assetforge.request import AssetRequest, by_key, handle
+
+    req = AssetRequest(type="sfx", description="soft coin pickup chime", project="game-a", key="sfx/coin", seed=3)
+    first = handle(lib, req)
+    # as for a sound reused from another story: the asset's own key is not this one, only the usage binds it
+    lib.conn.execute("UPDATE assets SET key = NULL WHERE id = ?", (first.asset_id,))
+    lib.conn.execute("DELETE FROM project_usage WHERE project = 'game-a'")
+    lib.conn.commit()
+    assert by_key(lib, req) is None
+    again = handle(lib, req)
+    assert again.asset_id == first.asset_id and by_key(lib, req) == first.asset_id

@@ -155,3 +155,20 @@ def test_verify_detects_missing_and_corrupt_files(lib, tmp_path):
     report = lib.verify(rehash=True)
     assert not report["ok"]
     assert {i["problem"] for i in report["issues"]} == {"missing", "hash_mismatch"}
+
+
+def test_one_asset_can_serve_two_keys_in_a_project(lib: Library, tmp_path: Path) -> None:
+    """A story reused one library sound for two cues; with one usage key per (project, asset) the second overwrote the
+    first, so every release found one of them missing (Hold Still, 2026-11-13)."""
+    from assetforge.request import AssetRequest, by_key
+
+    item = lib.register_file(make_png(tmp_path / "gasp.png", (8, 8)), NewAsset(name="gasp", type="sfx"))
+    lib.record_usage(item.asset_id, "vn-story", usage_key="vn/story/sfx/stop_accent")
+    lib.record_usage(item.asset_id, "vn-story", usage_key="vn/story/sfx/revelation")
+    lib.record_usage(item.asset_id, "vn-story", usage_key="vn/story/sfx/revelation")  # idempotent
+    lib.record_usage(item.asset_id, "vn-story")  # no key
+    keys = sorted(u.usage_key or "" for u, _ in lib.project_usage("vn-story"))
+    assert keys == ["", "vn/story/sfx/revelation", "vn/story/sfx/stop_accent"]
+    for key in ("vn/story/sfx/stop_accent", "vn/story/sfx/revelation"):
+        assert by_key(lib, AssetRequest(type="sfx", description="gasp", project="vn-story", key=key)) == item.asset_id
+    assert lib.get_asset(item.asset_id).usage[0].usage_key is None or len(lib.get_asset(item.asset_id).usage) == 3

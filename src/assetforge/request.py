@@ -703,6 +703,8 @@ def handle(lib: Library, req: AssetRequest, *, settings: Settings | None = None,
             return _reuse(lib, asset_id, req, "key")
         if not req.new_variant and (done := jobs.find_completed(lib, "request", fp)):
             result = result_from_job(lib, done)
+            if result.asset_id:  # the earlier run's key binding may have been lost (pre-v8 usage overwrite): bind again
+                _record_use(lib, result.asset_id, req)
             return result.model_copy(update={"reused": True, "reuse_reason": "request", "job_id": done.id})
         if found := by_search(lib, req):
             asset_id, match, others = found

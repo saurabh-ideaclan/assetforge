@@ -745,14 +745,14 @@ class Library:
                 """
                 INSERT INTO project_usage (project, asset_id, variant_id, usage_key, created_at)
                 VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT (project, asset_id, variant_id) DO UPDATE SET usage_key = excluded.usage_key
+                ON CONFLICT (project, asset_id, variant_id, usage_key) DO NOTHING
                 """,
-                (project, asset_id, variant_id, usage_key, now),
+                (project, asset_id, variant_id, usage_key or "", now),
             )
             self._event(asset_id, "used", {"project": project, "variant_id": variant_id, "usage_key": usage_key})
         row = self.conn.execute(
-            "SELECT * FROM project_usage WHERE project = ? AND asset_id = ? AND variant_id = ?",
-            (project, asset_id, variant_id),
+            "SELECT * FROM project_usage WHERE project = ? AND asset_id = ? AND variant_id = ? AND usage_key = ?",
+            (project, asset_id, variant_id, usage_key or ""),
         ).fetchone()
         return Usage(**dict(row))
 

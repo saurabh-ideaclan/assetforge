@@ -352,9 +352,29 @@ SCHEMA_V7 = [
     "CREATE INDEX idx_tasks_story ON tasks (story, state)",
 ]
 
+# One asset may serve several keys in one project (a story reused one library sound for two cues): the usage key joins
+# the primary key, so recording the second no longer overwrites the first. '' = no key (read back as None).
+SCHEMA_V8 = [
+    """
+    CREATE TABLE project_usage_v8 (
+        project    TEXT NOT NULL,
+        asset_id   TEXT NOT NULL REFERENCES assets (id) ON DELETE CASCADE,
+        variant_id TEXT NOT NULL REFERENCES asset_variants (id) ON DELETE CASCADE,
+        usage_key  TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (project, asset_id, variant_id, usage_key)
+    )
+    """,
+    "INSERT INTO project_usage_v8 SELECT project, asset_id, variant_id, ifnull(usage_key, ''), created_at FROM project_usage",
+    "DROP TABLE project_usage",
+    "ALTER TABLE project_usage_v8 RENAME TO project_usage",
+    "CREATE INDEX idx_usage_asset ON project_usage (asset_id)",
+    "CREATE INDEX idx_usage_key ON project_usage (project, usage_key)",
+]
+
 # Append (version, statements) pairs; never edit a migration that has shipped.
 MIGRATIONS: list[tuple[int, list[str]]] = [(1, SCHEMA_V1), (2, SCHEMA_V2), (3, SCHEMA_V3), (4, SCHEMA_V4),
-                                           (5, SCHEMA_V5), (6, SCHEMA_V6), (7, SCHEMA_V7)]  # fmt: skip
+                                           (5, SCHEMA_V5), (6, SCHEMA_V6), (7, SCHEMA_V7), (8, SCHEMA_V8)]  # fmt: skip
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 
 

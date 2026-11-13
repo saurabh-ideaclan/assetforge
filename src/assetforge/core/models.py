@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class AssetType(StrEnum):
@@ -136,6 +136,11 @@ class Usage(BaseModel):
     variant_id: str
     usage_key: str | None = None
     created_at: str
+
+    @field_validator("usage_key", mode="before")
+    @classmethod
+    def _no_key(cls, value: Any) -> Any:
+        return value or None  # stored as '' (part of the primary key since schema v8)
 
 
 class Event(BaseModel):

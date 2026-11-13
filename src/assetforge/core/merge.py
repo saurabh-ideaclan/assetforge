@@ -251,7 +251,7 @@ class _Merge:
     def _usage(self) -> None:
         for row in self.src.execute("SELECT * FROM project_usage").fetchall():
             self.conn.execute(
-                "INSERT OR IGNORE INTO project_usage (project, asset_id, variant_id, usage_key, created_at) VALUES (?, ?, ?, ?, ?)",
+                "INSERT OR IGNORE INTO project_usage (project, asset_id, variant_id, usage_key, created_at) VALUES (?, ?, ?, ifnull(?, ''), ?)",
                 (row["project"], self.ids[row["asset_id"]], self.ids[row["variant_id"]], row["usage_key"], row["created_at"]),
             )
 

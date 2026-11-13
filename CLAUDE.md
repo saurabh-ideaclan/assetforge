@@ -891,6 +891,11 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
   unlist|relist|verify|repair` (`app/api_backend.py`; writes only with `confirm: true`), `views/backend.js` at
   `#/backend` (sidebar "Publishing"). Tests `tests/test_backend.py` with the shared fake `tests/s3fake.py`.
 
+Schema v8 (2026-11-13): `project_usage` has `usage_key` in its primary key (`''` = no key, read back as None), so one
+asset can serve several keys in one project (a story reused one sound for two cues and lost one); the identical-request
+rung of `request.handle` binds the request's key again. Publishing ends with the quick `backend verify`; `--deep` only
+when the bucket, CDN, origin or credentials change, a client reports a bad file, or the owner asks.
+
 Data model: **Asset** (logical item) → **Variant** (labelled rendering) → **File** (content by SHA-256).
 Identical bytes are stored once and resolve to the asset that first registered them. Generation jobs, lineage,
 project usage, style profiles and an asset event history all have tables already (schema v1).
