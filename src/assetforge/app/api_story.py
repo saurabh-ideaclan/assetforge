@@ -160,6 +160,7 @@ def register_routes(router: Router) -> None:  # noqa: C901 - one place for all s
     @router.route("POST", r"/api/llm/login/(?P<lid>[0-9a-f]+)/open")
     def login_open(req: Request, lib: Library) -> dict[str, Any]:
         """Open this sign-in's own link in the default browser (the app window can't open new windows)."""
+        import shutil
         import subprocess
         import sys
 
@@ -170,6 +171,9 @@ def register_routes(router: Router) -> None:  # noqa: C901 - one place for all s
             raise InvalidInputError("The sign-in link isn't ready yet")
         if sys.platform == "darwin":
             subprocess.run(["open", session.url], check=False, timeout=10)
+        elif shutil.which("xdg-open"):  # Linux; xdg-open may not return until the browser closes, so don't wait on it
+            subprocess.Popen(["xdg-open", session.url], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, start_new_session=True)
         return {"opened": True}
 
     @router.route("POST", r"/api/llm/login/(?P<lid>[0-9a-f]+)/cancel")

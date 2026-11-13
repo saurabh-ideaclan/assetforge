@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 import threading
@@ -422,6 +423,9 @@ def reveal(req: Request, lib: Library) -> dict[str, Any]:
         raise NotFoundError("The file is missing from the library")
     if sys.platform == "darwin":
         subprocess.run(["open", "-R", str(path)], check=False, timeout=10)
+    elif shutil.which("xdg-open"):  # Linux: no "select file", so open its folder; xdg-open may not return until the window closes
+        subprocess.Popen(["xdg-open", str(path.parent)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
     return {"revealed": str(path)}
 
 
