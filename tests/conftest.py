@@ -49,6 +49,10 @@ def no_real_providers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     for key in SETTING_KEYS:
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("ASSETFORGE_PRICING_OFFLINE", "1")  # never fetch prices from the internet in tests
+    import assetforge.config as af_config
+
+    # never pick up the machine's real library pointer (~/.config/assetforge/home)
+    monkeypatch.setattr(af_config, "HOME_POINTER", str(tmp_path / "no-home-pointer"))
 
     def forbidden(*args: Any, **kwargs: Any) -> None:
         raise AssertionError("a test tried to create a real provider client")

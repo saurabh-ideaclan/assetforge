@@ -24,7 +24,8 @@ from typing import TYPE_CHECKING, Any
 
 from assetforge.core import devices, settings_store
 from assetforge.core.util import utcnow
-from assetforge.errors import ConflictError, StorageError
+from assetforge.config import DEFAULT_HOME
+from assetforge.errors import ConflictError, InvalidInputError, StorageError
 
 if TYPE_CHECKING:
     from assetforge.core.catalog import Library
@@ -447,9 +448,23 @@ def agent_plist(home: Path, root: Path) -> dict[str, Any]:
 SYSTEMD_UNIT = "assetforge-sync"
 
 
+def _unit_home(home: Path) -> Path:
+    """systemd paths can't hold spaces; reach a library such as `Game Dev Asset` through its ~/.assetforge link."""
+    if not any(ch.isspace() for ch in str(home)):
+        return home
+    link = Path(DEFAULT_HOME).expanduser()
+    if link.is_symlink() and link.resolve() == home.resolve():
+        return link
+    raise InvalidInputError(
+        f"The library path {home} has spaces, which a systemd unit can't hold.",
+        hint=f"ln -s '{home}' {link}  (then run sync install again)",
+    )
+
+
 def systemd_units(home: Path, root: Path) -> dict[str, str]:
     """Linux: a user service (one tick) and a timer that runs it every 10 minutes and after boot."""
     path = ":".join([str(Path("~/.local/bin").expanduser()), "/usr/local/bin", "/usr/bin", "/bin"])
+    home = _unit_home(home)
     log = home / "sync" / "agent.log"
     service = f"""[Unit]
 Description=AssetForge: share device spend, update from GitHub main

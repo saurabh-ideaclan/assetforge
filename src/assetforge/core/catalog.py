@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from assetforge.config import LibraryPaths, resolve_home
+from assetforge.config import LibraryPaths, default_home_missing, resolve_home
 from assetforge.core import collections as collections_mod
 from assetforge.core import db, visual
 from assetforge.core.classify import infer_type, path_tags
@@ -88,6 +88,12 @@ class Library:
     """Opens (and if needed creates) the library at `home`, or $ASSETFORGE_HOME, or ~/.assetforge."""
 
     def __init__(self, home: str | os.PathLike[str] | None = None, *, pooled: bool = False) -> None:
+        missing = default_home_missing(home)
+        if missing is not None:
+            raise StorageError(
+                f"The AssetForge library at {missing} is not available. Is its drive mounted?",
+                home=str(missing),
+            )
         self.paths = LibraryPaths(resolve_home(home))
         try:
             self.paths.ensure()

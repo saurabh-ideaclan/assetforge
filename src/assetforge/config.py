@@ -8,12 +8,38 @@ from pathlib import Path
 
 HOME_ENV = "ASSETFORGE_HOME"
 DEFAULT_HOME = "~/.assetforge"
+# One line: the machine's shared library (e.g. the Game Dev Asset drive). Used when no --home / $ASSETFORGE_HOME.
+HOME_POINTER = "~/.config/assetforge/home"
+
+
+def configured_home() -> str | None:
+    """The library path written in ~/.config/assetforge/home, if any."""
+    try:
+        text = Path(HOME_POINTER).expanduser().read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return text or None
 
 
 def resolve_home(home: str | os.PathLike[str] | None = None) -> Path:
-    """Explicit argument wins, then $ASSETFORGE_HOME, then ~/.assetforge."""
-    raw = home or os.environ.get(HOME_ENV) or DEFAULT_HOME
+    """Explicit argument wins, then $ASSETFORGE_HOME, then ~/.config/assetforge/home, then ~/.assetforge."""
+    raw = home or os.environ.get(HOME_ENV) or configured_home() or DEFAULT_HOME
     return Path(raw).expanduser().resolve()
+
+
+def default_home_missing(home: str | os.PathLike[str] | None = None) -> Path | None:
+    """The machine's shared library path when it is the one in use but absent (its drive is not mounted).
+
+    Never create a fresh empty library in its place: on Linux /run/media/<user> is writable tmpfs, so a plain
+    mkdir would silently start a new library in RAM.
+    """
+    explicit = home or os.environ.get(HOME_ENV)
+    raw = Path(explicit or configured_home() or DEFAULT_HOME).expanduser()
+    # a fresh path you named is fine (it becomes a new library); a link or the pointer's target must already exist
+    if not raw.is_symlink() and (explicit or not configured_home()):
+        return None
+    path = raw.resolve()
+    return None if path.is_dir() else path
 
 
 @dataclass(frozen=True)

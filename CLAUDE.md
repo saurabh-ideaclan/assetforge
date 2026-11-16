@@ -36,7 +36,11 @@ uv run assetforge --help      # CLI entry point (also: uv run python -m assetfor
 - `src/assetforge/output.py`: JSON vs Rich rendering. Only JSON goes to stdout in `--json` mode.
 - `src/assetforge/errors.py`: error classes with stable `code` strings, and `ExitCode`
   (0 ok, 1 error, 2 usage, 3 not found, 4 invalid input, 5 conflict, 6 storage, 7 policy, 8 partial).
-- `src/assetforge/config.py`: `ASSETFORGE_HOME` (default `~/.assetforge`) and the on-disk layout.
+- `src/assetforge/config.py`: library location (`--home` > `ASSETFORGE_HOME` > `~/.config/assetforge/home` pointer >
+  `~/.assetforge`) and the on-disk layout. Here the pointer names the Game Dev Asset drive (moved 2026-11-16;
+  `~/.assetforge` links there). `default_home_missing` makes `Library()` refuse a missing pointer target or a dangling
+  link (unmounted drive) rather than mkdir an empty library on tmpfs; `updater._unit_home` writes systemd units via
+  the space-free link. Tests isolate the pointer in `conftest.py`.
 - `src/assetforge/core/db.py`: SQLite (WAL, FTS5), explicit migrations list (`MIGRATIONS`; append, never edit
   shipped ones), `transaction()` = short `BEGIN IMMEDIATE`, `next_id()` → `ast_00001`, `var_00001`, `col_00001`.
 - `core/storage.py`: content-addressed store `objects/sha256/<ab>/<sha256><ext>`, atomic temp-file + `os.replace`.

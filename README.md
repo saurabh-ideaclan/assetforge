@@ -91,7 +91,10 @@ uv sync
 uv run assetforge --help
 ```
 
-The library lives in `~/.assetforge` by default. Override it with `--home DIR` or `ASSETFORGE_HOME`.
+The library location is, in order: `--home DIR`, then `ASSETFORGE_HOME`, then the path written in
+`~/.config/assetforge/home` (one line), then `~/.assetforge`. On the studio's Linux machine the pointer names the
+Game Dev Asset drive (`/run/media/sam/ETC/Game Dev Asset`) and `~/.assetforge` links to it. When that drive is not
+mounted, commands fail with a storage error instead of starting an empty library in its place.
 
 ```
 ~/.assetforge/
